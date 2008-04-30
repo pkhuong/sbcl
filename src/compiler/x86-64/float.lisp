@@ -85,6 +85,11 @@
   ((double-reg) (double-stack))
   (inst movsd  (ea-for-df-stack y) x))
 
+(define-simple-move-fun (move-fp-reg-reg 0) (vop x y)
+  ((single-reg)
+   (double-reg))
+  (move y x))
+
 (eval-when (:compile-toplevel :execute)
   (setf *read-default-float-format* 'single-float))
 
@@ -132,6 +137,16 @@
         (imag-tn (complex-double-reg-imag-tn x)))
     (inst movsd (ea-for-cdf-real-stack y) real-tn)
     (inst movsd (ea-for-cdf-imag-stack y) imag-tn)))
+
+(define-simple-move-fun (move-complex-single-reg-reg 0) (vop x y)
+  ((complex-single-reg))
+  (move (complex-single-reg-real-tn y) (complex-single-reg-real-tn x))
+  (move (complex-single-reg-imag-tn y) (complex-single-reg-imag-tn x)))
+
+(define-simple-move-fun (move-complex-double-reg-reg 0) (vop x y)
+    ((complex-double-reg))
+  (move (complex-double-reg-real-tn y) (complex-double-reg-real-tn x))
+  (move (complex-double-reg-imag-tn y) (complex-double-reg-imag-tn x)))
 
 
 ;;;; move VOPs

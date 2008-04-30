@@ -84,6 +84,12 @@
    (signed-reg) (signed-stack)
    (unsigned-reg) (unsigned-stack))
   (inst mov y x))
+
+(define-simple-move-fun (move-reg-reg 0) (vop x y)
+    ((any-reg descriptor-reg character-reg
+      sap-reg signed-reg unsigned-reg
+      word-reg dword-reg byte-reg))
+  (move y x))
 
 ;;;; the MOVE VOP
 (define-vop (move)

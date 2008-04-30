@@ -227,6 +227,25 @@
        (sb!assem:assemble (*code-segment* ,(first lambda-list))
          ,@body))))
 
+(defmacro define-simple-move-fun ((name cost &optional eq-only) lambda-list scs &body body)
+  (declare (type index cost))
+  (let ((scs (mapcan (lambda (x)
+                       (list x x))
+                     scs)))
+    (when (or (oddp (length scs)) (null scs))
+      (error "malformed SCs spec: ~S" scs))
+    `(progn
+       (eval-when (:compile-toplevel :load-toplevel :execute)
+         (do-sc-pairs (from-sc to-sc ',scs)
+           (when ,(if eq-only `(eq from-sc to-sc) t)
+             (let ((num (sc-number from-sc)))
+               (setf (svref (sc-move-funs to-sc) num) ',name)
+               (setf (svref (sc-load-costs to-sc) num) ',cost)))))
+
+       (defun ,name ,lambda-list
+         (sb!assem:assemble (*code-segment* ,(first lambda-list))
+           ,@body)))))
+
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defparameter *sc-vop-slots*
     '((:move . sc-move-vops)
