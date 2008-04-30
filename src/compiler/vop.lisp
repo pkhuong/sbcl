@@ -164,6 +164,8 @@
   ;; a thread running through the global-conflicts structures for this
   ;; block, sorted by TN number
   (global-tns nil :type (or global-conflicts null))
+  ;; This sset is used to find whether a TN is accessed in this block.
+  (accessed-tns (make-sset) :type sset)
   ;; the assembler label that points to the beginning of the code for
   ;; this block, or NIL when we haven't assigned a label yet
   (%label nil)
@@ -917,10 +919,14 @@
   ;;    as :NORMAL, but then at the end merges the conflict info into
   ;;    the original TN and replaces all uses of the alias with the
   ;;    original TN. SAVE-TN holds the aliased TN.
+  ;;
+  ;;   :SPILL
+  ;;    A TN used to save a :NORMAL TN in basic blocks in which it is
+  ;;    live, but not actually accessed. SAVE-TN holds the spilled TN.
   (kind (missing-arg)
         :type (member :normal :environment :debug-environment
                       :save :save-once :specified-save :load :constant
-                      :component :alias))
+                      :component :alias :spill))
   ;; the primitive-type for this TN's value. Null in restricted or
   ;; wired TNs.
   (primitive-type nil :type (or primitive-type null))
@@ -961,6 +967,13 @@
   ;; TN, this is the associated save TN. In TNs with no save TN, this
   ;; is null.
   (save-tn nil :type (or tn null))
+  ;; In a :SPILL TN, this is the TN spilled. In a :NORMAL TN, this is
+  ;; the list of associated spill TN, if any. In a TN with no spill TN,
+  ;; this is obviously null. A single TN may have multiple spill TNs:
+  ;; each spill TN should have as large a contiguous extent as possible,
+  ;; however it may make sense to split spillage between different
+  ;; locations.
+  (spill-tn nil :type (or tn list null))
   ;; After pack, the SC we packed into. Beforehand, the SC we want to
   ;; pack into, or null if we don't know.
   (sc nil :type (or sc null))
