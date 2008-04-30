@@ -278,7 +278,8 @@
 ;;; in the functional position, including macros and lambdas.
 (defmacro collect (collections &body body)
   (let ((macros ())
-        (binds ()))
+        (binds ())
+        (variables ()))
     (dolist (spec collections)
       (unless (proper-list-of-length-p spec 1 3)
         (error "malformed collection specifier: ~S" spec))
@@ -289,20 +290,26 @@
                                            (symbol-name name)
                                            "-N-VALUE-"))))
         (push `(,n-value ,default) binds)
+        (push n-value variables)
         (if (eq kind 'collect)
           (let ((n-tail (gensym (concatenate 'string
                                              (symbol-name name)
                                              "-N-TAIL-"))))
+            (push n-tail variables)
             (if default
               (push `(,n-tail (last ,n-value)) binds)
               (push n-tail binds))
             (push `(,name (&rest args)
                      (collect-list-expander ',n-value ',n-tail args))
                   macros))
+
           (push `(,name (&rest args)
                    (collect-normal-expander ',n-value ',kind args))
                 macros))))
-    `(macrolet ,macros (let* ,(nreverse binds) ,@body))))
+    `(macrolet ,macros
+       (let* ,(nreverse binds)
+         (declare (ignorable ,@(nreverse variables)))
+         ,@body))))
 
 ;;;; some old-fashioned functions. (They're not just for old-fashioned
 ;;;; code, they're also used as optimized forms of the corresponding
