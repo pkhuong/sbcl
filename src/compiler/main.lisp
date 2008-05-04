@@ -41,6 +41,8 @@
 ;;; Set to NIL to disable loop analysis for register allocation.
 (defvar *loop-analyze* t)
 
+(defvar *pack-realloc* nil)
+
 ;;; Bind this to a stream to capture various internal debugging output.
 (defvar *compiler-trace-output* nil)
 
@@ -485,6 +487,8 @@
 
           (when *compiler-trace-output*
             (describe-component component *compiler-trace-output*)
+            (force-output *compiler-trace-output*)
+            (break "component: ~A" component)
             (describe-ir2-component component *compiler-trace-output*))
 
           (maybe-mumble "code ")

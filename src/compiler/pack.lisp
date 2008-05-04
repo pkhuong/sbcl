@@ -878,6 +878,8 @@
              (sc (tn-sc tn))
              (sb (sc-sb sc)))
         (when (eq (sb-kind sb) :finite)
+          (when *pack-realloc*
+            (format t "ltn: ~S ~A ~A~%" tn (tn-offset tn) (tn-kind tn)))
           (let ((tns (finite-sb-live-tns sb)))
             (do ((offset (tn-offset tn) (1+ offset))
                  (end (+ (tn-offset tn) (sc-element-size sc))))
@@ -1485,6 +1487,125 @@
         (setf (finite-sb-live-tns sb)
               (make-array size :initial-element nil))))))
 
+(defun compute-ir2-block-tn-refs (block)
+  (declare (type ir2-block block))
+  (let ((sset (ir2-block-accessed-tns block)))
+    (do ((vop (ir2-block-start-vop block) (vop-next vop)))
+        ((null vop))
+      (do ((ref (vop-refs vop) (tn-ref-next-ref ref)))
+          ((null ref))
+        (sset-adjoin (tn-ref-tn ref) sset)))))
+
+;;; Highly inspired by add-location-conflicts
+;;; It is safe to completely clear the always-live bit (loc-live),
+;;; since otherwise a :LIVE TN would never have been allocated
+;;; at that offset. Similarly, it is safe to clear the local-conflict
+;;; bitvector (local-confs), because no TN can have been allocated
+;;; there.
+(defun remove-location-conflict (tn conflict)
+  (declare (type tn tn)
+           (type global-conflicts conflict))
+  (let* ((sc     (tn-sc tn))
+         (offset (tn-offset tn))
+         (sb     (sc-sb sc)))
+    (dotimes (i (sc-element-size sc))
+      (let* ((this-offset (+ offset i))
+             (loc-confs   (svref (finite-sb-conflicts sb)   this-offset))
+             (loc-live    (svref (finite-sb-always-live sb) this-offset))
+             (block       (global-conflicts-block conflict))
+             (num         (ir2-block-number block))
+             (local-confs (svref loc-confs num)))
+        (setf (sbit loc-live num) 0)
+        (clear-bit-vector local-confs)))))
+
+(defun replace-suspicious-blocks (tn component)
+  (declare (type tn tn)
+           (type ir2-component component))
+  (aver (eq :normal (tn-kind tn)))
+  (collect ((spill-tns))
+    (do ((conflict (tn-global-conflicts tn)
+                   (global-conflicts-next-tnwise conflict))
+         (prev nil conflict))
+        (nil)
+      CONTINUE
+      (when (null conflict)
+        (return (setf (tn-spill-tn tn) (spill-tns))))
+      (let* ((2block (global-conflicts-block conflict))
+             (1block (ir2-block-block 2block)))
+        (format t "~&TN: ~A ~A (~A): " tn (ir2-block-number 2block) (block-number 1block))
+        (when (and (or (eq (global-conflicts-kind conflict) :live) ; If suspicious
+                       (format t " not live "))
+                   (or (not (sset-member tn (ir2-block-accessed-tns 2block)))
+                       (format t " accessed "))
+                   (ir2-block-start-vop 2block) ; not empty
+                   (or (or (eq (ir2-block-block (ir2-block-next 2block))
+                               1block)
+                           (format t " not same 1block "))
+                       (or (and (typep (block-succ 1block) '(cons t null))
+                                (eq (ir2-block-next 2block)
+                                    (block-info (first (block-succ 1block)))))
+                           (format t " not fall-thru "))))
+          ; Skip this entry in tn's conflict list
+          (if prev
+              (setf (global-conflicts-next-tnwise prev)
+                    (global-conflicts-next-tnwise conflict))
+              (setf (tn-global-conflicts tn)
+                    (global-conflicts-next-tnwise conflict)))
+
+          (remove-location-conflict tn conflict)
+
+          (let ((new-tn (make-tn (incf (ir2-component-global-tn-counter
+                                        component))
+                                 :spill (tn-primitive-type tn) (tn-sc tn)))
+                (next-conflict (global-conflicts-next-tnwise conflict)))
+            (setf (global-conflicts-tn conflict)          new-tn
+                  (global-conflicts-next-tnwise conflict) nil
+                  (tn-global-conflicts new-tn)            conflict
+                  (tn-spill-tn new-tn)                    tn
+                  (tn-loop-depth new-tn)                  (loop-depth
+                                                           (block-loop
+                                                            (ir2-block-block
+                                                             2block)))
+                  (tn-next new-tn)                        (car (spill-tns)))
+            (spill-tns new-tn)
+            ; Move this entry to end of block-wise list
+            (do ((cur-conflict (ir2-block-global-tns 2block)
+                               (global-conflicts-next-blockwise cur-conflict))
+                 (prev nil cur-conflict))
+                ((null cur-conflict))
+              (when (eq cur-conflict conflict)
+                (if prev
+                    (setf (global-conflicts-next-blockwise prev)
+                          (global-conflicts-next-blockwise conflict))
+                    (setf (ir2-block-global-tns 2block)
+                          (global-conflicts-next-blockwise conflict))))
+              (when (null (global-conflicts-next-blockwise cur-conflict))
+                (setf (global-conflicts-next-blockwise cur-conflict) conflict
+                      (global-conflicts-next-blockwise conflict)     nil)
+                (return)))
+            (setf conflict next-conflict)
+            (go CONTINUE)))))))
+
+;;; Insert a spill/unspill sequence. It is enough to insert the sequence
+;;; (as VOPs). Caller-save registers are handled by tracing the VOP
+;;; sequence, not by looking at any TN list. However, GLOBAL-TN-COUNTER
+;;; must be updated: spill TNs might end up being allocated to registers
+;;; (even if the original TN couldn't, so this is a fundamental issue).
+;;; They must be treated correctly by all saving code, which use
+;;; G-TN-COUNTER-sized bitvectors internally.
+(defun insert-spill-unspill (spill-tn block)
+  (declare (type tn spill-tn)
+           (type ir2-block block))
+  (flet ((insert-move (from to node before)
+           (emit-operand-load node block from to before)
+           #+nil(aver (tn-offset (ir2-component-restricted-tns 2comp)))))
+    (let ((spilled (tn-spill-tn spill-tn))
+          (first   (ir2-block-start-vop block))
+          (last    (ir2-block-last-vop  block)))
+      (insert-move spilled spill-tn (vop-node first) first)
+      (insert-move spill-tn spilled (vop-node last)  nil)))
+  (values))
+
 (defun pack (component)
   (unwind-protect
        (let ((optimize nil)
@@ -1515,6 +1636,9 @@
              (let ((target-fun (vop-info-target-fun (vop-info vop))))
                (when target-fun
                  (funcall target-fun vop)))))
+
+         (do-ir2-blocks (block component)
+           (compute-ir2-block-tn-refs block))
 
          ;; Pack wired TNs first.
          (do ((tn (ir2-component-wired-tns 2comp) (tn-next tn)))
@@ -1557,26 +1681,49 @@
                      (unless *loop-analyze*
                        (pack-tn tn nil optimize))
                      (tns tn))))))
-           (dolist (tn (stable-sort (tns)
-                                    (lambda (a b)
-                                      (cond
-                                        ((> (tn-loop-depth a)
-                                            (tn-loop-depth b))
-                                         t)
-                                        ((= (tn-loop-depth a)
-                                            (tn-loop-depth b))
-                                         (> (tn-cost a) (tn-cost b)))
-                                        (t nil)))))
-             (unless (tn-offset tn)
-               (pack-tn tn nil optimize))))
+           (collect ((spill-tns-lists))
+             (dolist (tn (stable-sort (tns)
+                                      (lambda (a b)
+                                        (cond
+                                          ((> (tn-loop-depth a)
+                                              (tn-loop-depth b))
+                                           t)
+                                          ((= (tn-loop-depth a)
+                                              (tn-loop-depth b))
+                                           (> (tn-cost a) (tn-cost b)))
+                                          (t nil)))))
+               (unless (tn-offset tn)
+                 (pack-tn tn nil optimize)
+                 (when (and (eq (tn-kind tn) :normal)
+                            *pack-realloc*
+                            (eq (sb-kind (sc-sb (tn-sc tn))) :finite))
+                   (let ((spill-tns (replace-suspicious-blocks tn 2comp)))
+                     (when spill-tns
+                       (spill-tns-lists spill-tns))))))
 
-         ;; Pack any leftover normal TNs. This is to deal with :MORE TNs,
-         ;; which could possibly not appear in any local TN map.
-         (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
-             ((null tn))
-           (unless (tn-offset tn)
-             (pack-tn tn nil optimize)))
+             ;; Pack any leftover normal TNs. This is to deal with :MORE TNs,
+             ;; which could possibly not appear in any local TN map.
+             (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
+                 ((null tn))
+               (unless (tn-offset tn)
+                 (pack-tn tn nil optimize)))
 
+             ;; Pack spill TNs.
+             (dolist (spill-tns (spill-tns-lists))
+               (dolist (tn spill-tns)
+                 (aver (eq (tn-kind tn) :spill))
+                 ; If possible, pack in same location as spilled.
+                 (cond ((not (conflicts-in-sc tn (tn-sc tn)
+                                              (tn-offset (tn-spill-tn tn))))
+                        (setf (tn-offset tn)
+                              (tn-offset (tn-spill-tn tn)))
+                        (pack-wired-tn tn optimize))
+                       (t (pack-tn tn nil optimize)))
+                 (insert-spill-unspill tn (global-conflicts-block
+                                           (tn-global-conflicts tn)))))
+             (when (spill-tns-lists)
+               (break "~A~%" (spill-tns-lists)))))
+         
          ;; Do load TN packing and emit saves.
          (let ((*repack-blocks* nil))
            (cond ((and optimize *pack-optimize-saves*)
