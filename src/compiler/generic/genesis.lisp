@@ -1273,6 +1273,12 @@ core and return a descriptor to it."
 
   (cold-set '*!initial-layouts* (cold-list-all-layouts))
 
+  #!+(and sb-thread
+          (or x86 x86-64))
+  (progn
+    (cold-set 'sb!vm::*tls-index-free-list* *nil-descriptor*)
+    (cold-set 'sb!vm::*tls-index-symbol-table* (make-fixnum-descriptor 0)))
+
   (/show "dumping packages" (mapcar #'car *cold-package-symbols*))
   (let ((initial-symbols *nil-descriptor*))
     (dolist (cold-package-symbols-entry *cold-package-symbols*)

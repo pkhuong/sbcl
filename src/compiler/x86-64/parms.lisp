@@ -176,6 +176,8 @@
      #!+sb-thread *stop-for-gc-pending*
 
      #!+sb-thread *free-tls-index*
+     #!+sb-thread *tls-index-symbol-table*
+     #!+sb-thread *tls-index-free-list*
      #!+sb-thread *tls-index-lock*
 
      *allocation-pointer*

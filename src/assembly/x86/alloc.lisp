@@ -94,7 +94,9 @@
               ((:temp other descriptor-reg ,other-offset)
                (:temp target descriptor-reg ,target-offset))
             (let ((get-tls-index-lock (gen-label))
-                  (release-tls-index-lock (gen-label)))
+                  (release-tls-index-lock (gen-label))
+                  (alloc-new-tls-index (gen-label))
+                  (store-tls-index (gen-label)))
               (pseudo-atomic
                ;; Save OTHER & push the symbol. EAX is either one of the two.
                (inst push other)
@@ -106,21 +108,52 @@
                (inst cmpxchg (make-ea-for-symbol-value *tls-index-lock*) target)
                (inst jmp :ne get-tls-index-lock)
                ;; The symbol is now in OTHER.
-               (inst pop other)
+               (inst mov other (make-ea :dword :base esp-tn))
                ;; Now with the lock held, see if the symbol's tls index has been
                ;; set in the meantime.
                (loadw target other symbol-tls-index-slot other-pointer-lowtag)
                (inst or target target)
                (inst jmp :ne release-tls-index-lock)
+               ;; try and get a tls-index from the free list
+               (load-symbol-value target *tls-index-free-list*)
+               (inst cmp target nil-value)
+               (inst jmp :e alloc-new-tls-index)
+               ;; pop the index in TARGET
+               (loadw other target cons-cdr-slot list-pointer-lowtag)
+               (loadw target target cons-car-slot list-pointer-lowtag)
+               (store-symbol-value other *tls-index-free-list*)
+               ;; and restore OTHER to the symbol
+               (inst mov other (make-ea :dword :base esp-tn))
+               (inst jmp store-tls-index)
+
                ;; Allocate a new tls-index.
+               (emit-label alloc-new-tls-index)
                (load-symbol-value target *free-tls-index*)
                (let ((error (generate-error-code nil 'tls-exhausted-error)))
                  (inst cmp target (fixnumize tls-size))
                  (inst jmp :ge error))
                (inst add (make-ea-for-symbol-value *free-tls-index*)
                      (fixnumize 1))
+
+               ;; finally store the tls index in the symbol
+               ;; and in the table
+               (emit-label store-tls-index)
                (storew target other symbol-tls-index-slot other-pointer-lowtag)
+               (let ((table-allocated (gen-label)))
+                 (load-symbol-value other *tls-index-symbol-table*)
+                 (inst test other other)
+                 (inst jmp :nz table-allocated)
+                 (allocation other (* n-word-bytes (+ 2 tls-size)) nil nil other-pointer-lowtag)
+                 (storew simple-array-unsigned-byte-32-widetag other 0 other-pointer-lowtag)
+                 (storew (fixnumize tls-size) other vector-length-slot other-pointer-lowtag)
+                 (store-symbol-value other *tls-index-symbol-table*)
+                 (emit-label table-allocated))
+
                (emit-label release-tls-index-lock)
+               (load-symbol-value other *tls-index-symbol-table*)
+               (inst add other (- (* n-word-bytes vector-data-offset) other-pointer-lowtag))
+               (inst add other target)
+               (inst pop (make-ea :dword :base other))
                (store-symbol-value 0 *tls-index-lock*)
                ;; Restore OTHER.
                (inst pop other))

@@ -23,6 +23,7 @@
 #include "genesis/binding.h"
 #include "genesis/thread.h"
 #include "genesis/static-symbols.h"
+#include "genesis/vector.h"
 
 #if defined(BINDING_STACK_POINTER)
 #define GetBSP() ((struct binding *)SymbolValue(BINDING_STACK_POINTER,thread))
@@ -40,6 +41,8 @@ void bind_variable(lispobj symbol, lispobj value, void *th)
     SetBSP(binding+1);
 #ifdef LISP_FEATURE_SB_THREAD
     {
+        lispobj symbol_table;
+        struct vector * symbol_table_vector;
         struct symbol *sym=(struct symbol *)native_pointer(symbol);
         if(!sym->tls_index) {
             lispobj *tls_index_lock=
@@ -54,6 +57,17 @@ void bind_variable(lispobj symbol, lispobj value, void *th)
                 if(fixnum_value(sym->tls_index)>=TLS_SIZE) {
                     lose("Thread local storage exhausted.");
                 }
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+                symbol_table = SymbolValue(TLS_INDEX_SYMBOL_TABLE, 0);
+                if (is_lisp_pointer(symbol_table)) {
+                    symbol_table_vector
+                        = (struct vector*)native_pointer(symbol_table);
+                    symbol_table_vector->data[fixnum_value(sym->tls_index)]
+                        = symbol;
+                }
+#else
+#warning "tls-index recycling should be implemented in bind_variable too."
+#endif
             }
             release_spinlock(tls_index_lock);
             clear_pseudo_atomic_atomic(th);

@@ -290,6 +290,57 @@ page_index_t last_free_page;
 static pthread_mutex_t free_pages_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
+#ifdef LISP_FEATURE_SB_THREAD
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+inline static boolean
+forwarding_pointer_p(lispobj *pointer) {
+    lispobj first_word=*pointer;
+    return (first_word == 0x01);
+}
+
+static inline lispobj *
+forwarding_pointer_value(lispobj *pointer) {
+    return (lispobj *) ((pointer_sized_uint_t) pointer[1]);
+}
+
+void scan_tls_index_symbol_table()
+{
+        lispobj symbol_table, * symbol_table_data;
+        unsigned long i, nindices;
+        symbol_table = SymbolValue(TLS_INDEX_SYMBOL_TABLE, 0);
+        if (!is_lisp_pointer(symbol_table))
+                return;
+
+        symbol_table_data
+                = ((struct vector *)native_pointer(symbol_table))->data;
+        nindices = fixnum_value(SymbolValue(FREE_TLS_INDEX, 0));
+        /* see thread.c:create_thread_struct */
+        for (i = MAX_INTERRUPTS+sizeof(struct thread)/sizeof(lispobj);
+             i < nindices;
+             i++) {
+                lispobj value, *pointed_to;
+                value = symbol_table_data[i];
+                if (!(is_lisp_pointer(value) &&from_space_p(value)))
+                        continue;
+
+                pointed_to = (lispobj *)native_pointer(value);
+                if (forwarding_pointer_p(pointed_to)) {
+                        symbol_table_data[i] =
+                                (lispobj)LOW_WORD(forwarding_pointer_value(pointed_to));
+                } else {
+                        symbol_table_data[i] = 0;
+                        lispobj cons = alloc_cons(make_fixnum(i),
+                                                  SymbolValue(TLS_INDEX_FREE_LIST, 0));
+                        SetSymbolValue(TLS_INDEX_FREE_LIST, cons, 0);
+                }
+        }
+}
+#else
+void scan_tls_index_symbol_table() {}
+#warning "Should tls-index recycling be reimplemented here?"
+#endif
+#endif
+
 
 /*
  * miscellaneous heap functions
@@ -4100,6 +4151,9 @@ garbage_collect_generation(generation_index_t generation, int raise)
 
     scan_weak_hash_tables();
     scan_weak_pointers();
+#ifdef LISP_FEATURE_SB_THREAD
+    scan_tls_index_symbol_table();
+#endif
 
     /* Flush the current regions, updating the tables. */
     gc_alloc_update_all_page_tables();
