@@ -199,13 +199,13 @@ Lstack:
 	shl	$3,%rcx		# (fixnumize num-args)
 	cmp	$0,%rcx
 	je	Ldone
-	mov	0(%rbx),%rdx	# arg0
+	movq	0(%rbx),%rdx	# arg0
 	cmp	$8,%rcx
 	je	Ldone
-	mov	8(%rbx),%rdi	# arg1
+	movq	8(%rbx),%rdi	# arg1
 	cmp	$16,%rcx
 	je	Ldone
-	mov	16(%rbx),%rsi	# arg2
+	movq	16(%rbx),%rsi	# arg2
 Ldone:	
 	/* Registers rax, rcx, rdx, rdi, and rsi are now live. */
 	xor	%rbx,%rbx	# available
@@ -392,6 +392,7 @@ GNAME(post_signal_tramp):
 	/* this is notionally the second half of a function whose first half
  	 * doesn't exist.  This is where call_into_lisp returns when called 
 	 * using return_to_lisp_function */
+        popq %rsp
 	popq %r15
 	popq %r14
 	popq %r13

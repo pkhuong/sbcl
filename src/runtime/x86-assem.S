@@ -685,21 +685,36 @@ GNAME(call_into_lisp_tramp):
         pushl   0(%ecx)          /* return address */
 
         pushl   %ebp
-        movl    %esp, %ebp
-
-        pushl   32(%ecx)         /* eflags */
-        pushl   28(%ecx)         /* EAX */
-        pushl   20(%ecx)         /* ECX */
-        pushl   16(%ecx)         /* EDX */
-        pushl   24(%ecx)         /* EBX */
+        movl    %esp, %ebp        
+        
+        pushl   36(%ecx)         /* eflags */
+        pushl   32(%ecx)         /* EAX */
+        pushl   24(%ecx)         /* ECX */
+        pushl   20(%ecx)         /* EDX */
+        pushl   28(%ecx)         /* EBX */
         pushl   $0                /* popal is going to ignore esp */
         pushl   %ebp              /* is this right?? */
-        pushl   12(%ecx)         /* ESI */
-        pushl   8(%ecx)          /* EDI */
-        pushl   $0                /* args for call_into_lisp */
-        pushl   $0
-        pushl   4(%ecx)          /* function to call */
+        pushl   16(%ecx)         /* ESI */
+        pushl   12(%ecx)          /* EDI */
 
+        /* blit arg vector */
+        movl    8(%ecx), %eax    /* nargs */
+        jmp     Lcheck
+Lloop:
+        decl    %eax
+        pushl   40(%ecx, %eax, 4)
+Lcheck:
+        or      %eax, %eax
+        jnz     Lloop
+
+        movl    %esp, %eax       /* head of arg vector */
+        
+        pushl   8(%ecx)          /* nargs for call_into_lisp */
+        pushl   %eax
+        pushl   4(%ecx)           /* function to call */
+
+        movl    %esp, %ebx        /* ebx is callee save */
+        
         /* free our save block */
         pushl   %ecx              /* reserve sufficient space on stack for args */
         pushl   %ecx
@@ -709,7 +724,7 @@ GNAME(call_into_lisp_tramp):
         call    GNAME(os_invalidate)
 
         /* call call_into_lisp */
-        leal    -48(%ebp), %esp
+        movl    %ebx, %esp
         call    GNAME(call_into_lisp)
 
         /* Clean up our mess */
@@ -721,7 +736,7 @@ GNAME(call_into_lisp_tramp):
         
         SIZE(call_into_lisp_tramp)
 #endif
-        
+
 	.align	align_4byte,0x90
 	.globl	GNAME(post_signal_tramp)
 	TYPE(GNAME(post_signal_tramp))
@@ -730,6 +745,7 @@ GNAME(post_signal_tramp):
  	 * doesn't exist.  This is where call_into_lisp returns when called 
 	 * using return_to_lisp_function */
 	addl $12,%esp  	/* clear call_into_lisp args from stack */
+        popl %esp
 	popal           /* restore registers */
         popfl
 #ifdef LISP_FEATURE_DARWIN

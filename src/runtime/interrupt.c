@@ -819,12 +819,16 @@ extern int *context_eflags_addr(os_context_t *context);
 extern lispobj call_into_lisp(lispobj fun, lispobj *args, int nargs);
 extern void post_signal_tramp(void);
 extern void call_into_lisp_tramp(void);
+extern unsigned long exception_number;
 void
-arrange_return_to_lisp_function(os_context_t *context, lispobj function)
+arrange_return_to_lisp_function(os_context_t *context, lispobj function,
+                                lispobj *args, unsigned int nargs)
 {
 #if !(defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64))
     void * fun=native_pointer(function);
     void *code = &(((struct simple_fun *) fun)->code);
+    if (nargs)
+        lose("artlf with nargs > 0 on !x86oid!?\n");
 #endif
 
     /* Build a stack frame showing `interrupted' so that the
@@ -837,15 +841,19 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function)
      * registers, called call_into_lisp, then restored GP registers and
      * returned.  It would look something like this:
 
-     push   ebp
-     mov    ebp esp
+     pushl  %ebp
+     movl   %esp, %ebp
      pushfl
      pushal
-     push   $0
-     push   $0
+     movl   %esp, tmp
+     [blit contents of argument_vector on stack]
+     pushl  tmp
+     pushl  $nargs
+     pushl  {address of argument_vector on stack}
      pushl  {address of function to call}
      call   0x8058db0 <call_into_lisp>
-     addl   $12,%esp
+     addl   $12, %esp
+     popl   %esp
      popal
      popfl
      leave
@@ -863,43 +871,54 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function)
      */
 
     u32 *sp=(u32 *)*os_context_register_addr(context,reg_ESP);
-
+    lispobj *arg_vector;
 #if defined(LISP_FEATURE_DARWIN)
     u32 *register_save_area = (u32 *)os_validate(0, 0x40);
+
+    if (nargs*sizeof(lispobj) > 0x40-sizeof(u32)*10)
+        lose("Too many args for artlf on darwin/x86");
 
     FSHOW_SIGNAL((stderr, "/arrange_return_to_lisp_function: preparing to go to function %x, sp: %x\n", function, sp));
     FSHOW_SIGNAL((stderr, "/arrange_return_to_lisp_function: context: %x, &context %x\n", context, &context));
 
     /* 1. os_validate (malloc/mmap) register_save_block
      * 2. copy register state into register_save_block
+     * 2.5 copy the arguments into the remainder of register_save_block
      * 3. put a pointer to register_save_block in a register in the context
      * 4. set the context's EIP to point to a trampoline which:
-     *    a. builds the fake stack frame from the block
-     *    b. frees the block
-     *    c. calls the function
+     *    a. blits the arguments on the stack
+     *    b. builds the fake stack frame from the block
+     *    c. frees the block
+     *    d. calls the function
      */
 
     *register_save_area = *os_context_pc_addr(context);
     *(register_save_area + 1) = function;
-    *(register_save_area + 2) = *os_context_register_addr(context,reg_EDI);
-    *(register_save_area + 3) = *os_context_register_addr(context,reg_ESI);
-    *(register_save_area + 4) = *os_context_register_addr(context,reg_EDX);
-    *(register_save_area + 5) = *os_context_register_addr(context,reg_ECX);
-    *(register_save_area + 6) = *os_context_register_addr(context,reg_EBX);
-    *(register_save_area + 7) = *os_context_register_addr(context,reg_EAX);
-    *(register_save_area + 8) = *context_eflags_addr(context);
+    *(register_save_area + 2) = nargs;
+    *(register_save_area + 3) = *os_context_register_addr(context,reg_EDI);
+    *(register_save_area + 4) = *os_context_register_addr(context,reg_ESI);
+    *(register_save_area + 5) = *os_context_register_addr(context,reg_EDX);
+    *(register_save_area + 6) = *os_context_register_addr(context,reg_ECX);
+    *(register_save_area + 7) = *os_context_register_addr(context,reg_EBX);
+    *(register_save_area + 8) = *os_context_register_addr(context,reg_EAX);
+    *(register_save_area + 9) = *context_eflags_addr(context);
+
+    arg_vector = register_save_area+10;
 
     *os_context_pc_addr(context) =
       (os_context_register_t) call_into_lisp_tramp;
     *os_context_register_addr(context,reg_ECX) =
       (os_context_register_t) register_save_area;
 #else
-
     /* return address for call_into_lisp: */
-    *(sp-15) = (u32)post_signal_tramp;
-    *(sp-14) = function;        /* args for call_into_lisp : function*/
-    *(sp-13) = 0;               /*                           arg array */
-    *(sp-12) = 0;               /*                           no. args */
+    *(sp-16-nargs) = (u32)post_signal_tramp;
+    /* args for call_into_lisp */
+    *(sp-15-nargs) = function;
+    *(sp-14-nargs) = (u32)arg_vector;
+    *(sp-13-nargs) = nargs;
+    *(sp-12-nargs) = (u32)sp-11;
+    /* this space will receive the contents of args */
+    arg_vector = sp-11-nargs;
     /* this order matches that used in POPAD */
     *(sp-11)=*os_context_register_addr(context,reg_EDI);
     *(sp-10)=*os_context_register_addr(context,reg_ESI);
@@ -920,10 +939,13 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function)
 
 #elif defined(LISP_FEATURE_X86_64)
     u64 *sp=(u64 *)*os_context_register_addr(context,reg_RSP);
+    lispobj * arg_vector;
 
     /* return address for call_into_lisp: */
-    *(sp-18) = (u64)post_signal_tramp;
-
+    *(sp-(19+nargs)) = (u64)post_signal_tramp;
+    *(sp-(18+nargs)) = (u64)sp-17;
+    /* reserve space for the contents of args */
+    arg_vector = sp-(17+nargs);
     *(sp-17)=*os_context_register_addr(context,reg_R15);
     *(sp-16)=*os_context_register_addr(context,reg_R14);
     *(sp-15)=*os_context_register_addr(context,reg_R13);
@@ -943,13 +965,22 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function)
     *(sp-2)=*os_context_register_addr(context,reg_RBP);
     *(sp-1)=*os_context_pc_addr(context);
 
-    *os_context_register_addr(context,reg_RDI) =
-        (os_context_register_t)function; /* function */
-    *os_context_register_addr(context,reg_RSI) = 0;        /* arg. array */
-    *os_context_register_addr(context,reg_RDX) = 0;        /* no. args */
+    *os_context_register_addr(context,reg_RDI)
+        = (os_context_register_t)function;
+    *os_context_register_addr(context,reg_RSI)
+        = (os_context_register_t)arg_vector;
+    *os_context_register_addr(context,reg_RDX) = nargs;
 #else
     struct thread *th=arch_os_get_current_thread();
     build_fake_control_stack_frames(th,context);
+#endif
+
+#if (defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64))
+    {
+            unsigned int i;
+            for (i = 0; i < nargs; i++)
+                    arg_vector[i] = args[i];
+    }
 #endif
 
 #ifdef LISP_FEATURE_X86
@@ -960,9 +991,10 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function)
     *os_context_register_addr(context,reg_EBP) = (os_context_register_t)(sp-2);
 #ifdef __NetBSD__
     *os_context_register_addr(context,reg_UESP) =
-        (os_context_register_t)(sp-15);
+        (os_context_register_t)(sp-16-nargs);
 #else
-    *os_context_register_addr(context,reg_ESP) = (os_context_register_t)(sp-15);
+    *os_context_register_addr(context,reg_ESP)
+        = (os_context_register_t)(sp-16-nargs);
 #endif /* __NETBSD__ */
 #endif /* LISP_FEATURE_DARWIN */
 
@@ -970,7 +1002,8 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function)
     *os_context_pc_addr(context) = (os_context_register_t)call_into_lisp;
     *os_context_register_addr(context,reg_RCX) = 0;
     *os_context_register_addr(context,reg_RBP) = (os_context_register_t)(sp-2);
-    *os_context_register_addr(context,reg_RSP) = (os_context_register_t)(sp-18);
+    *os_context_register_addr(context,reg_RSP)
+        = (os_context_register_t)(sp-(19+nargs));
 #else
     /* this much of the calling convention is common to all
        non-x86 ports */
@@ -1002,7 +1035,8 @@ interrupt_thread_handler(int num, siginfo_t *info, void *v_context)
 
     /* let the handler enable interrupts again when it sees fit */
     sigaddset_deferrable(os_context_sigmask_addr(context));
-    arrange_return_to_lisp_function(context, StaticSymbolFunction(RUN_INTERRUPTION));
+    lispobj args[1] = {0};
+    arrange_return_to_lisp_function(context, StaticSymbolFunction(RUN_INTERRUPTION), args, 1);
 }
 
 #endif
@@ -1036,7 +1070,7 @@ handle_guard_page_triggered(os_context_t *context,os_vm_address_t addr)
         protect_control_stack_return_guard_page(1);
 
         arrange_return_to_lisp_function
-            (context, StaticSymbolFunction(CONTROL_STACK_EXHAUSTED_ERROR));
+            (context, StaticSymbolFunction(CONTROL_STACK_EXHAUSTED_ERROR), NULL, 0);
         return 1;
     }
     else if(addr >= CONTROL_STACK_RETURN_GUARD_PAGE(th) &&
@@ -1052,7 +1086,7 @@ handle_guard_page_triggered(os_context_t *context,os_vm_address_t addr)
     else if (addr >= undefined_alien_address &&
              addr < undefined_alien_address + os_vm_page_size) {
         arrange_return_to_lisp_function
-          (context, StaticSymbolFunction(UNDEFINED_ALIEN_VARIABLE_ERROR));
+          (context, StaticSymbolFunction(UNDEFINED_ALIEN_VARIABLE_ERROR), NULL, 0);
         return 1;
     }
     else return 0;
@@ -1276,7 +1310,9 @@ siginfo_code(siginfo_t *info)
 {
     return info->si_code;
 }
+#if !(defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64))
 os_vm_address_t current_memory_fault_address;
+#endif
 
 void
 lisp_memory_fault_error(os_context_t *context, os_vm_address_t addr)
@@ -1286,8 +1322,17 @@ lisp_memory_fault_error(os_context_t *context, os_vm_address_t addr)
     * However, since this is mostly informative, we'll live with that for
     * now -- some address is better then no address in this case.
     */
+#if !(defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64))
     current_memory_fault_address = addr;
-    arrange_return_to_lisp_function(context, StaticSymbolFunction(MEMORY_FAULT_ERROR));
+#endif
+    lispobj args[1] = {make_fixnum(addr)};
+    arrange_return_to_lisp_function(context, StaticSymbolFunction(MEMORY_FAULT_ERROR),
+#if defined(LISP_FEATURE_X86) || defined (LISP_FEATURE_X86_64)
+                                    args, 1
+#else
+                                    NULL, 0
+#endif
+            );
 }
 #endif
 

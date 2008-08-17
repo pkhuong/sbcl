@@ -133,8 +133,8 @@ void open_stack_allocation(x86_thread_state64_t *context)
     push_context(context->r8, context);
     push_context(context->rcx, context);
     push_context(context->rdx, context);
-    push_context(context->rsi, context);
     push_context(context->rdi, context);
+    push_context(context->rsi, context);
 
     context->rbp = context->rsp;
     context->rip = (u64) stack_allocation_recover;
@@ -196,6 +196,9 @@ void call_c_function_in_context(x86_thread_state64_t *context,
     context->rip = (u64) function;
 }
 
+extern unsigned long exception_number;
+unsigned long exception_number = 0;
+
 void signal_emulation_wrapper(x86_thread_state64_t *thread_state,
                               x86_float_state64_t *float_state,
                               int signal,
@@ -247,7 +250,7 @@ void signal_emulation_wrapper(x86_thread_state64_t *thread_state,
                   : : "r" (thread_state), "r" (float_state));
 }
 
-#if defined DUMP_CONTEXT
+#if 1 /* defined DUMP_CONTEXT */
 void dump_context(x86_thread_state64_t *context)
 {
     int i;
@@ -258,21 +261,23 @@ void dump_context(x86_thread_state64_t *context)
     printf("rsp: %08lx  rbp: %08lx  rsi: %08lx  rdi: %08lx\n",
            context->rsp, context->rbp, context->rsi, context->rdi);
     printf("rip: %08lx  eflags: %08lx\n",
-           context->rip, context->rflags);
+           context->rip, 0); /* context->rflags); */
+/*
     printf("cs: %04hx  ds: %04hx  es: %04hx  "
            "ss: %04hx  fs: %04hx  gs: %04hx\n",
            context->cs, context->ds, context->rs,
            context->ss, context->fs, context->gs);
-
+*/
     stack_pointer = (u64 *)context->rsp;
-    for (i = 0; i < 48; i+=4) {
-        printf("%08x:  %08x %08x %08x %08x\n",
-               context->rsp + (i * 4),
-               stack_pointer[i],
-               stack_pointer[i+1],
-               stack_pointer[i+2],
-               stack_pointer[i+3]);
-    }
+    if (stack_pointer)
+        for (i = 0; i < 48; i+=4) {
+            printf("%08lx:  %08lx %08lx %08lx %08lx\n",
+                   context->rsp + (i * 4),
+                   stack_pointer[i],
+                   stack_pointer[i+1],
+                   stack_pointer[i+2],
+                   stack_pointer[i+3]);
+        }
 }
 #endif
 
@@ -281,7 +286,7 @@ control_stack_exhausted_handler(int signal, siginfo_t *siginfo, void *void_conte
     os_context_t *context = arch_os_get_context(&void_context);
 
     arrange_return_to_lisp_function
-        (context, StaticSymbolFunction(CONTROL_STACK_EXHAUSTED_ERROR));
+        (context, StaticSymbolFunction(CONTROL_STACK_EXHAUSTED_ERROR), NULL, 0);
 }
 
 void
@@ -289,7 +294,7 @@ undefined_alien_handler(int signal, siginfo_t *siginfo, void *void_context) {
     os_context_t *context = arch_os_get_context(&void_context);
 
     arrange_return_to_lisp_function
-        (context, StaticSymbolFunction(UNDEFINED_ALIEN_VARIABLE_ERROR));
+        (context, StaticSymbolFunction(UNDEFINED_ALIEN_VARIABLE_ERROR), NULL, 0);
 }
 
 kern_return_t
@@ -425,9 +430,11 @@ catch_exception_raise(mach_port_t exception_port,
                                        siginfo,
                                        undefined_alien_handler);
         } else {
-
+            exception_number++;
             backup_thread_state = thread_state;
             open_stack_allocation(&thread_state);
+
+            stack_allocate(&thread_state, 256);
 
             /* Save thread state */
             target_thread_state =

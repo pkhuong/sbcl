@@ -83,7 +83,8 @@ struct interrupt_data {
 extern void interrupt_init(void);
 extern void fake_foreign_function_call(os_context_t* context);
 extern void undo_fake_foreign_function_call(os_context_t* context);
-extern void arrange_return_to_lisp_function(os_context_t *, lispobj);
+extern void arrange_return_to_lisp_function(os_context_t *, lispobj function,
+                                            lispobj *args, unsigned int nargs);
 extern void interrupt_handle_now(int, siginfo_t*, os_context_t*);
 extern void interrupt_handle_pending(os_context_t*);
 extern void interrupt_internal_error(os_context_t*, boolean continuable);

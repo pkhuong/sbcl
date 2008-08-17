@@ -312,6 +312,7 @@ void call_handler_on_thread(mach_port_t thread,
     /* Initialize the new state */
     new_state = *thread_state;
     open_stack_allocation(&new_state);
+    stack_allocate(&new_state, 256);
     /* Save old state */
     save_thread_state = (x86_thread_state32_t *)stack_allocate(&new_state, sizeof(*save_thread_state));
     *save_thread_state = *thread_state;
@@ -386,7 +387,7 @@ control_stack_exhausted_handler(int signal, siginfo_t *siginfo, void *void_conte
     os_context_t *context = arch_os_get_context(&void_context);
 
     arrange_return_to_lisp_function
-        (context, StaticSymbolFunction(CONTROL_STACK_EXHAUSTED_ERROR));
+        (context, StaticSymbolFunction(CONTROL_STACK_EXHAUSTED_ERROR), NULL, 0);
 }
 
 void
@@ -394,7 +395,7 @@ undefined_alien_handler(int signal, siginfo_t *siginfo, void *void_context) {
     os_context_t *context = arch_os_get_context(&void_context);
 
     arrange_return_to_lisp_function
-        (context, StaticSymbolFunction(UNDEFINED_ALIEN_VARIABLE_ERROR));
+        (context, StaticSymbolFunction(UNDEFINED_ALIEN_VARIABLE_ERROR), NULL, 0);
 }
 
 kern_return_t
