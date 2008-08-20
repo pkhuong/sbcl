@@ -685,8 +685,8 @@ GNAME(call_into_lisp_tramp):
         pushl   0(%ecx)          /* return address */
 
         pushl   %ebp
-        movl    %esp, %ebp        
-        
+        movl    %esp, %ebp
+
         pushl   36(%ecx)         /* eflags */
         pushl   32(%ecx)         /* EAX */
         pushl   24(%ecx)         /* ECX */
@@ -732,7 +732,7 @@ Ltest:  or      %eax, %eax
         popfl
         leave
         ret
-        
+
         SIZE(call_into_lisp_tramp)
 #endif
 
@@ -741,7 +741,7 @@ Ltest:  or      %eax, %eax
 	TYPE(GNAME(post_signal_tramp))
 GNAME(post_signal_tramp):
 	/* this is notionally the second half of a function whose first half
- 	 * doesn't exist.  This is where call_into_lisp returns when called 
+	 * doesn't exist.  This is where call_into_lisp returns when called 
 	 * using return_to_lisp_function */
 	addl $12,%esp  	/* clear call_into_lisp args from stack */
         popl %esp
