@@ -465,16 +465,6 @@ catch_exception_raise(mach_port_t exception_port,
                              &info_count,
                              &region_name)))
             lose("vm_region (VM_REGION_BASIC_INFO) failed failed %d\n", ret);
-        /* Check if still protected */
-        if ((region_info.protection & OS_VM_PROT_ALL) == 0) {
-          /* KLUDGE:
-           * If two threads fault on the same page, the protection
-           * is cleared as the first thread runs memory_fault_handler.
-           * Grep for "not marked as write-protected" in gencgc.c
-           */
-            ret = KERN_SUCCESS;
-            break;
-        }
         /* Regular memory fault */
         handler = memory_fault_handler;
         break;

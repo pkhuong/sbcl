@@ -870,10 +870,9 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function,
      * must obviously exist in reality.  That would be post_signal_tramp
      */
 
-    u32 *sp=(u32 *)*os_context_register_addr(context,reg_ESP);
-    lispobj *arg_vector;
 #if defined(LISP_FEATURE_DARWIN)
     u32 *register_save_area = (u32 *)os_validate(0, 0x40);
+    unsigned int i;
 
     if (nargs*sizeof(lispobj) > 0x40-sizeof(u32)*10)
         lose("Too many args for artlf on darwin/x86");
@@ -902,14 +901,18 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function,
     *(register_save_area + 7) = *os_context_register_addr(context,reg_EBX);
     *(register_save_area + 8) = *os_context_register_addr(context,reg_EAX);
     *(register_save_area + 9) = *context_eflags_addr(context);
-
-    arg_vector = register_save_area+10;
+    for (i = 0; i < nargs; i++)
+        (register_save_area+10)[i] = args[i];
 
     *os_context_pc_addr(context) =
       (os_context_register_t) call_into_lisp_tramp;
     *os_context_register_addr(context,reg_ECX) =
       (os_context_register_t) register_save_area;
 #else
+    u32 *sp=(u32 *)*os_context_register_addr(context,reg_ESP);
+    lispobj * arg_vector = sp-11-nargs;
+    unsigned int i;
+
     /* return address for call_into_lisp: */
     *(sp-16-nargs) = (u32)post_signal_tramp;
     /* args for call_into_lisp */
@@ -917,8 +920,9 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function,
     *(sp-14-nargs) = (u32)arg_vector;
     *(sp-13-nargs) = nargs;
     *(sp-12-nargs) = (u32)sp-11;
-    /* this space will receive the contents of args */
-    arg_vector = sp-11-nargs;
+    /* the contents of args */
+    for (i = 0; i < nargs; i++)
+        arg_vector[i] = args[i];
     /* this order matches that used in POPAD */
     *(sp-11)=*os_context_register_addr(context,reg_EDI);
     *(sp-10)=*os_context_register_addr(context,reg_ESI);
@@ -935,17 +939,30 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function,
     *(sp-2)=*os_context_register_addr(context,reg_EBP);
     *(sp-1)=*os_context_pc_addr(context);
 
+    *os_context_pc_addr(context) = (os_context_register_t)call_into_lisp;
+    *os_context_register_addr(context,reg_ECX) = 0;
+    *os_context_register_addr(context,reg_EBP) = (os_context_register_t)(sp-2);
+#ifdef __NetBSD__
+    *os_context_register_addr(context,reg_UESP) =
+        (os_context_register_t)(sp-16-nargs);
+#else
+    *os_context_register_addr(context,reg_ESP)
+        = (os_context_register_t)(sp-16-nargs);
+#endif /* __NETBSD__ */
+
 #endif
 
 #elif defined(LISP_FEATURE_X86_64)
     u64 *sp=(u64 *)*os_context_register_addr(context,reg_RSP);
-    lispobj * arg_vector;
+    lispobj * arg_vector = sp-17-nargs;
+    unsigned int i;
 
     /* return address for call_into_lisp: */
     *(sp-(19+nargs)) = (u64)post_signal_tramp;
     *(sp-(18+nargs)) = (u64)sp-17;
     /* reserve space for the contents of args */
-    arg_vector = sp-(17+nargs);
+    for (i = 0; i < nargs; i++)
+        arg_vector[i] = args[i];
     *(sp-17)=*os_context_register_addr(context,reg_R15);
     *(sp-16)=*os_context_register_addr(context,reg_R14);
     *(sp-15)=*os_context_register_addr(context,reg_R13);
@@ -970,50 +987,24 @@ arrange_return_to_lisp_function(os_context_t *context, lispobj function,
     *os_context_register_addr(context,reg_RSI)
         = (os_context_register_t)arg_vector;
     *os_context_register_addr(context,reg_RDX) = nargs;
-#else
-    struct thread *th=arch_os_get_current_thread();
-    build_fake_control_stack_frames(th,context);
-#endif
-
-#if (defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64))
-    {
-            unsigned int i;
-            for (i = 0; i < nargs; i++)
-                    arg_vector[i] = args[i];
-    }
-#endif
-
-#ifdef LISP_FEATURE_X86
-
-#if !defined(LISP_FEATURE_DARWIN)
     *os_context_pc_addr(context) = (os_context_register_t)call_into_lisp;
-    *os_context_register_addr(context,reg_ECX) = 0;
-    *os_context_register_addr(context,reg_EBP) = (os_context_register_t)(sp-2);
-#ifdef __NetBSD__
-    *os_context_register_addr(context,reg_UESP) =
-        (os_context_register_t)(sp-16-nargs);
-#else
-    *os_context_register_addr(context,reg_ESP)
-        = (os_context_register_t)(sp-16-nargs);
-#endif /* __NETBSD__ */
-#endif /* LISP_FEATURE_DARWIN */
 
-#elif defined(LISP_FEATURE_X86_64)
-    *os_context_pc_addr(context) = (os_context_register_t)call_into_lisp;
     *os_context_register_addr(context,reg_RCX) = 0;
     *os_context_register_addr(context,reg_RBP) = (os_context_register_t)(sp-2);
     *os_context_register_addr(context,reg_RSP)
         = (os_context_register_t)(sp-(19+nargs));
 #else
-    /* this much of the calling convention is common to all
-       non-x86 ports */
+    struct thread *th=arch_os_get_current_thread();
+    build_fake_control_stack_frames(th,context);
     *os_context_pc_addr(context) = (os_context_register_t)(unsigned long)code;
+
     *os_context_register_addr(context,reg_NARGS) = 0;
     *os_context_register_addr(context,reg_LIP) =
         (os_context_register_t)(unsigned long)code;
     *os_context_register_addr(context,reg_CFP) =
         (os_context_register_t)(unsigned long)current_control_frame_pointer;
 #endif
+
 #ifdef ARCH_HAS_NPC_REGISTER
     *os_context_npc_addr(context) =
         4 + *os_context_pc_addr(context);
@@ -1310,9 +1301,8 @@ siginfo_code(siginfo_t *info)
 {
     return info->si_code;
 }
-#if !(defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64))
+
 os_vm_address_t current_memory_fault_address;
-#endif
 
 void
 lisp_memory_fault_error(os_context_t *context, os_vm_address_t addr)
@@ -1322,10 +1312,10 @@ lisp_memory_fault_error(os_context_t *context, os_vm_address_t addr)
     * However, since this is mostly informative, we'll live with that for
     * now -- some address is better then no address in this case.
     */
-#if !(defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64))
+
     current_memory_fault_address = addr;
-#endif
-    lispobj args[1] = {make_fixnum(addr)};
+
+    lispobj args[1] = {make_fixnum((unsigned long)addr)};
     arrange_return_to_lisp_function(context, StaticSymbolFunction(MEMORY_FAULT_ERROR),
 #if defined(LISP_FEATURE_X86) || defined (LISP_FEATURE_X86_64)
                                     args, 1

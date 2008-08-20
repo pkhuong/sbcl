@@ -500,8 +500,9 @@
 #!-win32
 (defun memory-fault-error (#!+(or x86 x86-64) addr)
   (error 'memory-fault-error
-         :address #!+(or x86 x86-64) addr
-                  #!-(or x86 x86-64) current-memory-fault-address))
+         :address
+         #!+(or x86 x86-64) addr
+         #!-(or x86 x86-64) current-memory-fault-address))
 
 ;;; This is SIGTRAP / EXCEPTION_BREAKPOINT that runtime could not deal
 ;;; with. Prior to Windows we just had a Lisp side handler for

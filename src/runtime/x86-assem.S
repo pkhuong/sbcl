@@ -699,12 +699,11 @@ GNAME(call_into_lisp_tramp):
 
         /* blit arg vector */
         movl    8(%ecx), %eax    /* nargs */
-        jmp     Lcheck
-Lloop:
-        decl    %eax
+        jmp     Ltest
+
+Lloop:  decl    %eax
         pushl   40(%ecx, %eax, 4)
-Lcheck:
-        or      %eax, %eax
+Ltest:  or      %eax, %eax
         jnz     Lloop
 
         movl    %esp, %eax       /* head of arg vector */
