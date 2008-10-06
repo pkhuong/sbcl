@@ -1426,3 +1426,9 @@
      (inst break single-step-before-trap)
      DONE
      (note-this-location vop :step-before-vop)))
+
+(define-vop (insert-stop-check)
+  (:temporary (:sc any-reg) tmp)
+  (:generator 0
+     (loadw tmp thread-base-tn thread-magic-address-slot)
+     (inst mov (make-ea :dword :base tmp) #xEFBEADDE)))

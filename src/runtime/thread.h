@@ -192,6 +192,9 @@ static inline struct thread *arch_os_get_current_thread(void)
 #define thread_sigmask pthread_sigmask
 #define thread_mutex_lock(l) pthread_mutex_lock(l)
 #define thread_mutex_unlock(l) pthread_mutex_unlock(l)
+extern pthread_cond_t stop_the_world_cond;
+extern pthread_mutex_t stop_the_world_mutex;
+extern int            stop_the_world_flag;
 #else
 #define thread_self getpid
 #define thread_kill kill

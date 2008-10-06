@@ -292,22 +292,25 @@
 
 #!+sb-thread
 (defmacro pseudo-atomic (&rest forms)
-  (with-unique-names (label)
-    `(let ((,label (gen-label)))
-      (inst or (make-ea :byte
-                 :base thread-base-tn
-                 :disp (* 8 thread-pseudo-atomic-bits-slot))
-            (fixnumize 1))
-      ,@forms
-      (inst xor (make-ea :byte
-                 :base thread-base-tn
-                 :disp (* 8 thread-pseudo-atomic-bits-slot))
-            (fixnumize 1))
-      (inst jmp :z ,label)
-      ;; if PAI was set, interrupts were disabled at the same
-      ;; time using the process signal mask.
-      (inst break pending-interrupt-trap)
-      (emit-label ,label))))
+  `(progn
+     ,@forms)
+
+  #+nil(with-unique-names (label)
+         `(let ((,label (gen-label)))
+            (inst or (make-ea :byte
+                              :base thread-base-tn
+                              :disp (* 8 thread-pseudo-atomic-bits-slot))
+                  (fixnumize 1))
+            ,@forms
+            (inst xor (make-ea :byte
+                               :base thread-base-tn
+                               :disp (* 8 thread-pseudo-atomic-bits-slot))
+                  (fixnumize 1))
+            (inst jmp :z ,label)
+            ;; if PAI was set, interrupts were disabled at the same
+            ;; time using the process signal mask.
+            (inst break pending-interrupt-trap)
+            (emit-label ,label))))
 
 
 #!-sb-thread

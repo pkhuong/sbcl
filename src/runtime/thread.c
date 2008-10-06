@@ -314,6 +314,11 @@ free_thread_struct(struct thread *th)
                       (sizeof (struct interrupt_data)));
     os_invalidate((os_vm_address_t) th->os_address,
                   THREAD_STRUCT_SIZE);
+#ifdef LISP_FEATURE_SB_THREAD)
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+    os_invalidate((os_vm_address_t)th->magic_address, 1);
+#endif
+#endif
 }
 
 /* this is called from any other thread to create the new one, and
@@ -451,6 +456,12 @@ create_thread_struct(lispobj initial_function) {
     th->no_tls_value_marker=initial_function;
 
     th->stepping = NIL;
+#ifdef LISP_FEATURE_SB_THREAD)
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+    th->magic_address = os_validate(0, 1);
+    fprintf(stderr, "new magic address: %x\n", th->magic_address);
+#endif
+#endif
     return th;
 }
 
@@ -587,6 +598,11 @@ int signal_interrupt_thread(os_thread_t os_thread)
 /* To avoid deadlocks when gc stops the world all clients of each
  * mutex must enable or disable SIG_STOP_FOR_GC for the duration of
  * holding the lock, but they must agree on which. */
+pthread_cond_t  stop_the_world_cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t stop_the_world_mutex = PTHREAD_MUTEX_INITIALIZER;
+int             stop_the_world_flag = 0;
+
+
 void gc_stop_the_world()
 {
     struct thread *p,*th=arch_os_get_current_thread();
@@ -610,23 +626,20 @@ void gc_stop_the_world()
     FSHOW_SIGNAL((stderr,"/gc_stop_the_world:got lock, thread=%lu\n",
                   th->os_thread));
     /* stop all other threads by sending them SIG_STOP_FOR_GC */
+    pthread_mutex_lock(&stop_the_world_mutex);
+    stop_the_world_flag = 1;
     for(p=all_threads; p; p=p->next) {
         gc_assert(p->os_thread != 0);
         FSHOW_SIGNAL((stderr,"/gc_stop_the_world: p->state: %x\n", p->state));
         if((p!=th) && ((p->state==STATE_RUNNING))) {
             FSHOW_SIGNAL((stderr,"/gc_stop_the_world: suspending %x, os_thread %x\n",
                           p, p->os_thread));
-            status=kill_thread_safely(p->os_thread,SIG_STOP_FOR_GC);
-            if (status==ESRCH) {
-                /* This thread has exited. */
-                gc_assert(p->state==STATE_DEAD);
-            } else if (status) {
-                lose("cannot send suspend thread=%lu: %d, %s\n",
-                     p->os_thread,status,strerror(status));
-            }
+            os_protect((os_vm_address_t)p->magic_address, 1, OS_VM_PROT_NONE);
         }
     }
     FSHOW_SIGNAL((stderr,"/gc_stop_the_world:signals sent\n"));
+    pthread_mutex_unlock(&stop_the_world_mutex);
+
     /* wait for the running threads to stop or finish */
     for(p=all_threads;p;) {
         FSHOW_SIGNAL((stderr,"/gc_stop_the_world: th: %p, p: %p\n", th, p));
@@ -648,6 +661,8 @@ void gc_start_the_world()
      * all_threads, but it won't have been stopped so won't need
      * restarting */
     FSHOW_SIGNAL((stderr,"/gc_start_the_world:begin\n"));
+    pthread_mutex_lock(&stop_the_world_mutex);
+
     for(p=all_threads;p;p=p->next) {
         gc_assert(p->os_thread!=0);
         if((p!=th) && (p->state!=STATE_DEAD)) {
@@ -655,21 +670,12 @@ void gc_start_the_world()
                 lose("gc_start_the_world: wrong thread state is %d\n",
                      fixnum_value(p->state));
             }
-            FSHOW_SIGNAL((stderr, "/gc_start_the_world: resuming %lu\n",
-                          p->os_thread));
-            p->state=STATE_RUNNING;
-
-#if defined(SIG_RESUME_FROM_GC)
-            status=kill_thread_safely(p->os_thread,SIG_RESUME_FROM_GC);
-#else
-            status=kill_thread_safely(p->os_thread,SIG_STOP_FOR_GC);
-#endif
-            if (status) {
-                lose("cannot resume thread=%lu: %d, %s\n",
-                     p->os_thread,status,strerror(status));
-            }
+            os_protect((os_vm_address_t)p->magic_address, 1, OS_VM_PROT_ALL);
         }
     }
+    stop_the_world_flag = 0;
+    pthread_cond_broadcast(&stop_the_world_cond);
+    pthread_mutex_unlock(&stop_the_world_mutex);
     /* If we waited here until all threads leave STATE_SUSPENDED, then
      * SIG_STOP_FOR_GC wouldn't need to be a rt signal. That has some
      * performance implications, but does away with the 'rt signal

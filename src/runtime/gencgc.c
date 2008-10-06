@@ -4680,7 +4680,9 @@ alloc(long nbytes)
      * we should GC in the near future
      */
     if (auto_gc_trigger && bytes_allocated > auto_gc_trigger) {
+#if 0
         gc_assert(get_pseudo_atomic_atomic(thread));
+#endif
         /* Don't flood the system with interrupts if the need to gc is
          * already noted. This can happen for example when SUB-GC
          * allocates or after a gc triggered in a WITHOUT-GCING. */
@@ -4689,7 +4691,10 @@ alloc(long nbytes)
              * section */
             SetSymbolValue(GC_PENDING,T,thread);
             if (SymbolValue(GC_INHIBIT,thread) == NIL)
+              os_protect((os_vm_address_t)thread->magic_address, 1, OS_VM_PROT_NONE);
+#if 0
               set_pseudo_atomic_interrupted(thread);
+#endif
         }
     }
     new_obj = gc_alloc_with_region(nbytes,0,region,0);
@@ -4732,10 +4737,46 @@ void unhandled_sigmemoryfault(void* addr);
  * we were able to handle, or false if it was abnormal and control
  * should fall through to the general SIGSEGV/SIGBUS/whatever logic. */
 
+int stop_and_wait_for_resume (struct thread * th)
+{
+    fprintf(stderr, "stopping %x\n", th);
+    pthread_mutex_lock(&stop_the_world_mutex);
+    th->state = STATE_SUSPENDED;
+    if (stop_the_world_flag) goto wait;
+
+    if (SymbolValue(GC_PENDING,th) == T) {
+        fprintf(stderr, "trigger gc: %x\n", th);
+        SetSymbolValue(GC_PENDING, NIL, th);
+        stop_the_world_flag = 1;
+        os_protect((os_vm_address_t)th->magic_address, 1, OS_VM_PROT_ALL);
+        th->state =  STATE_RUNNING;
+        pthread_mutex_unlock(&stop_the_world_mutex);
+
+        funcall0(StaticSymbolFunction(SUB_GC));
+
+        fprintf(stderr, "gc done: %x\n", th);
+        return 1;
+    }
+
+    wait:
+    SetSymbolValue(GC_PENDING, NIL, th);
+    while (stop_the_world_flag)
+        pthread_cond_wait(&stop_the_world_cond, &stop_the_world_mutex);
+    th->state =  STATE_RUNNING;
+
+    pthread_mutex_unlock(&stop_the_world_mutex);
+    fprintf(stderr, "resuming %x\n", th);
+
+    return 1;
+}
+
 int
 gencgc_handle_wp_violation(void* fault_addr)
 {
     page_index_t page_index = find_page_index(fault_addr);
+#ifdef LISP_FEATURE_SB_THREAD
+    struct thread * th;
+#endif
 
 #ifdef QSHOW_SIGNALS
     FSHOW((stderr, "heap WP violation? fault_addr=%x, page_index=%d\n",
@@ -4744,14 +4785,19 @@ gencgc_handle_wp_violation(void* fault_addr)
 
     /* Check whether the fault is within the dynamic space. */
     if (page_index == (-1)) {
+        th = arch_os_get_current_thread();
 
-        /* It can be helpful to be able to put a breakpoint on this
-         * case to help diagnose low-level problems. */
-        unhandled_sigmemoryfault(fault_addr);
+        if (fault_addr == th->magic_address) {
+            fprintf(stderr, "Magic Address fault @ %x\n", fault_addr);
+            return stop_and_wait_for_resume(th);
+        } else {
+            /* It can be helpful to be able to put a breakpoint on this
+             * case to help diagnose low-level problems. */
+            unhandled_sigmemoryfault(fault_addr);
 
-        /* not within the dynamic space -- not our responsibility */
-        return 0;
-
+            /* not within the dynamic space -- not our responsibility */
+            return 0;
+        }
     } else {
         if (page_table[page_index].write_protected) {
             /* Unprotect the page. */
