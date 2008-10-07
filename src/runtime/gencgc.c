@@ -4691,7 +4691,7 @@ alloc(long nbytes)
              * section */
             SetSymbolValue(GC_PENDING,T,thread);
             if (SymbolValue(GC_INHIBIT,thread) == NIL)
-              os_protect((os_vm_address_t)thread->magic_address, 1, OS_VM_PROT_NONE);
+                os_protect((os_vm_address_t)thread - BACKEND_PAGE_SIZE, BACKEND_PAGE_SIZE, OS_VM_PROT_NONE);
 #if 0
               set_pseudo_atomic_interrupted(thread);
 #endif
@@ -4739,33 +4739,32 @@ void unhandled_sigmemoryfault(void* addr);
 
 int stop_and_wait_for_resume (struct thread * th)
 {
-    fprintf(stderr, "stopping %x\n", th);
+    //fprintf(stderr, "stopping %x\n", th);
     pthread_mutex_lock(&stop_the_world_mutex);
     th->state = STATE_SUSPENDED;
     if (stop_the_world_flag) goto wait;
 
     if (SymbolValue(GC_PENDING,th) == T) {
-        fprintf(stderr, "trigger gc: %x\n", th);
+        //fprintf(stderr, "trigger gc: %x\n", th);
         SetSymbolValue(GC_PENDING, NIL, th);
         stop_the_world_flag = 1;
-        os_protect((os_vm_address_t)th->magic_address, 1, OS_VM_PROT_ALL);
+        os_protect((os_vm_address_t)th - BACKEND_PAGE_SIZE, BACKEND_PAGE_SIZE, OS_VM_PROT_ALL);
         th->state =  STATE_RUNNING;
         pthread_mutex_unlock(&stop_the_world_mutex);
 
         funcall0(StaticSymbolFunction(SUB_GC));
 
-        fprintf(stderr, "gc done: %x\n", th);
+        //fprintf(stderr, "gc done: %x\n", th);
         return 1;
     }
 
     wait:
-    SetSymbolValue(GC_PENDING, NIL, th);
     while (stop_the_world_flag)
         pthread_cond_wait(&stop_the_world_cond, &stop_the_world_mutex);
     th->state =  STATE_RUNNING;
 
     pthread_mutex_unlock(&stop_the_world_mutex);
-    fprintf(stderr, "resuming %x\n", th);
+    //fprintf(stderr, "resuming %x\n", th);
 
     return 1;
 }
@@ -4787,8 +4786,9 @@ gencgc_handle_wp_violation(void* fault_addr)
     if (page_index == (-1)) {
         th = arch_os_get_current_thread();
 
-        if (fault_addr == th->magic_address) {
-            fprintf(stderr, "Magic Address fault @ %x\n", fault_addr);
+        if ((((os_vm_address_t)th - 4*BACKEND_PAGE_SIZE) <= fault_addr)
+            && (fault_addr <= th)) {
+            //fprintf(stderr, "Magic Address fault @ %x\n", fault_addr);
             return stop_and_wait_for_resume(th);
         } else {
             /* It can be helpful to be able to put a breakpoint on this

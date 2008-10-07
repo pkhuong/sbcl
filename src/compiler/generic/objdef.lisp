@@ -400,6 +400,4 @@
   (interrupt-data :c-type "struct interrupt_data *"
                   :length #!+alpha 2 #!-alpha 1)
   (stepping)
-  #!+(and sb-thread (or x86 x86-64))
-  (magic-address :c-type "char *" :length #!+alpha 2 #!-alpha 1)
   (interrupt-contexts :c-type "os_context_t *" :rest-p t))

@@ -313,12 +313,7 @@ free_thread_struct(struct thread *th)
         os_invalidate((os_vm_address_t) th->interrupt_data,
                       (sizeof (struct interrupt_data)));
     os_invalidate((os_vm_address_t) th->os_address,
-                  THREAD_STRUCT_SIZE);
-#ifdef LISP_FEATURE_SB_THREAD)
-#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
-    os_invalidate((os_vm_address_t)th->magic_address, 1);
-#endif
-#endif
+                  THREAD_STRUCT_SIZE+4*BACKEND_PAGE_SIZE);
 }
 
 /* this is called from any other thread to create the new one, and
@@ -344,7 +339,7 @@ create_thread_struct(lispobj initial_function) {
      * on the alignment passed from os_validate, since that might
      * assume the current (e.g. 4k) pagesize, while we calculate with
      * the biggest (e.g. 64k) pagesize allowed by the ABI. */
-    spaces=os_validate(0, THREAD_STRUCT_SIZE);
+    spaces=os_validate(0, THREAD_STRUCT_SIZE+4*BACKEND_PAGE_SIZE);
     if(!spaces)
         return NULL;
     /* Aligning up is safe as THREAD_STRUCT_SIZE has
@@ -356,7 +351,8 @@ create_thread_struct(lispobj initial_function) {
         (aligned_spaces+
          thread_control_stack_size+
          BINDING_STACK_SIZE+
-         ALIEN_STACK_SIZE);
+         ALIEN_STACK_SIZE+
+         4*BACKEND_PAGE_SIZE);
 
 #ifdef LISP_FEATURE_SB_THREAD
     for(i = 0; i < (dynamic_values_bytes / sizeof(lispobj)); i++)
@@ -456,12 +452,6 @@ create_thread_struct(lispobj initial_function) {
     th->no_tls_value_marker=initial_function;
 
     th->stepping = NIL;
-#ifdef LISP_FEATURE_SB_THREAD)
-#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
-    th->magic_address = os_validate(0, 1);
-    fprintf(stderr, "new magic address: %x\n", th->magic_address);
-#endif
-#endif
     return th;
 }
 
@@ -598,15 +588,17 @@ int signal_interrupt_thread(os_thread_t os_thread)
 /* To avoid deadlocks when gc stops the world all clients of each
  * mutex must enable or disable SIG_STOP_FOR_GC for the duration of
  * holding the lock, but they must agree on which. */
-pthread_cond_t  stop_the_world_cond = PTHREAD_COND_INITIALIZER;
+pthread_cond_t  stop_the_world_cond  = PTHREAD_COND_INITIALIZER;
 pthread_mutex_t stop_the_world_mutex = PTHREAD_MUTEX_INITIALIZER;
-int             stop_the_world_flag = 0;
-
+int             stop_the_world_flag  = 0;
 
 void gc_stop_the_world()
 {
     struct thread *p,*th=arch_os_get_current_thread();
     int status, lock_ret;
+    pthread_mutex_lock(&stop_the_world_mutex);
+    stop_the_world_flag = 1;
+
 #ifdef LOCK_CREATE_THREAD
     /* KLUDGE: Stopping the thread during pthread_create() causes deadlock
      * on FreeBSD. */
@@ -626,15 +618,13 @@ void gc_stop_the_world()
     FSHOW_SIGNAL((stderr,"/gc_stop_the_world:got lock, thread=%lu\n",
                   th->os_thread));
     /* stop all other threads by sending them SIG_STOP_FOR_GC */
-    pthread_mutex_lock(&stop_the_world_mutex);
-    stop_the_world_flag = 1;
     for(p=all_threads; p; p=p->next) {
         gc_assert(p->os_thread != 0);
         FSHOW_SIGNAL((stderr,"/gc_stop_the_world: p->state: %x\n", p->state));
         if((p!=th) && ((p->state==STATE_RUNNING))) {
             FSHOW_SIGNAL((stderr,"/gc_stop_the_world: suspending %x, os_thread %x\n",
                           p, p->os_thread));
-            os_protect((os_vm_address_t)p->magic_address, 1, OS_VM_PROT_NONE);
+            os_protect((os_vm_address_t)p - BACKEND_PAGE_SIZE, BACKEND_PAGE_SIZE, OS_VM_PROT_NONE);
         }
     }
     FSHOW_SIGNAL((stderr,"/gc_stop_the_world:signals sent\n"));
@@ -670,7 +660,7 @@ void gc_start_the_world()
                 lose("gc_start_the_world: wrong thread state is %d\n",
                      fixnum_value(p->state));
             }
-            os_protect((os_vm_address_t)p->magic_address, 1, OS_VM_PROT_ALL);
+            os_protect((os_vm_address_t)p - BACKEND_PAGE_SIZE, BACKEND_PAGE_SIZE, OS_VM_PROT_ALL);
         }
     }
     stop_the_world_flag = 0;
