@@ -142,4 +142,14 @@ new_space_p(lispobj obj)
 extern page_index_t last_free_page;
 extern boolean gencgc_partial_pickup;
 
+struct malloc_object_descriptor;
+typedef struct malloc_object_descriptor * table_value_t;
+
+#include "hash-table.h"
+
+extern table_t malloc_object_table;
+extern struct malloc_object_descriptor * marked_malloc_descriptors;
+extern int enable_malloc;
+
+void mark_address_seen(struct malloc_object_descriptor * address);
 #endif

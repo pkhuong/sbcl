@@ -149,10 +149,13 @@
 ;;; This macro should only be used inside a pseudo-atomic section,
 ;;; which should also cover subsequent initialization of the
 ;;; object.
-(defun allocation-tramp (alloc-tn size lowtag)
+(defun allocation-tramp (alloc-tn size lowtag &key unboxed)
   (inst push size)
   (inst lea temp-reg-tn (make-ea :qword
-                            :disp (make-fixup "alloc_tramp" :foreign)))
+                            :disp (make-fixup (if unboxed
+                                                  "alloc_unboxed_tramp"
+                                                  "alloc_tramp")
+                                              :foreign)))
   (inst call temp-reg-tn)
   (inst pop alloc-tn)
   (when lowtag
@@ -213,6 +216,64 @@
                    (t
                     (inst sub alloc-tn free-pointer)
                     (allocation-tramp alloc-tn alloc-tn lowtag)))
+             (inst jmp DONE))))
+    (values)))
+
+(defun unboxed-allocation
+    (alloc-tn size &optional ignored dynamic-extent lowtag)
+  (declare (ignore ignored))
+  (when dynamic-extent
+    (allocation-dynamic-extent alloc-tn size lowtag)
+    (return-from unboxed-allocation (values)))
+  (let ((NOT-INLINE (gen-label))
+        (DONE (gen-label))
+        ;; Yuck.
+        (in-elsewhere (eq *elsewhere* sb!assem::**current-segment**))
+        ;; thread->alloc_region.free_pointer
+        (free-pointer
+         #!+sb-thread
+         (make-ea :qword
+                  :base thread-base-tn :scale 1
+                  :disp (* n-word-bytes thread-alloc-region-slot))
+         #!-sb-thread
+         (make-ea :qword
+                  :scale 1 :disp
+                  (make-fixup "unboxed_region" :foreign)))
+        ;; thread->alloc_region.end_addr
+        (end-addr
+         #!+sb-thread
+         (make-ea :qword
+                  :base thread-base-tn :scale 1
+                  :disp (* n-word-bytes (1+ thread-alloc-region-slot)))
+         #!-sb-thread
+         (make-ea :qword
+                  :scale 1 :disp
+                  (make-fixup "unboxed_region" :foreign 8))))
+    (cond (in-elsewhere
+           (allocation-tramp alloc-tn size lowtag :unboxed t))
+          (t
+           (inst mov temp-reg-tn free-pointer)
+           (if (tn-p size)
+               (if (location= alloc-tn size)
+                   (inst add alloc-tn temp-reg-tn)
+                   (inst lea alloc-tn
+                         (make-ea :qword :base temp-reg-tn :index size)))
+               (inst lea alloc-tn
+                     (make-ea :qword :base temp-reg-tn :disp size)))
+           (inst cmp end-addr alloc-tn)
+           (inst jmp :be NOT-INLINE)
+           (inst mov free-pointer alloc-tn)
+           (if lowtag
+               (inst lea alloc-tn (make-ea :byte :base temp-reg-tn :disp lowtag))
+               (inst mov alloc-tn temp-reg-tn))
+           (emit-label DONE)
+           (assemble (*elsewhere*)
+             (emit-label NOT-INLINE)
+             (cond ((numberp size)
+                    (allocation-tramp alloc-tn size lowtag :unboxed t))
+                   (t
+                    (inst sub alloc-tn free-pointer)
+                    (allocation-tramp alloc-tn alloc-tn lowtag :unboxed t)))
              (inst jmp DONE))))
     (values)))
 

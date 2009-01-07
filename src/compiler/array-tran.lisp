@@ -365,7 +365,10 @@
                  `(ceiling ,padded-length-form ,n-elements-per-word))))))
       (values
        `(truly-the ,result-type-spec
-         (allocate-vector ,typecode length ,n-words-form))
+                   (,(if (eq (sb!vm:saetp-specifier saetp) t)
+                         'allocate-vector
+                         'sb!vm::allocate-unboxed-vector)
+                     ,typecode length ,n-words-form))
        '((declare (type index length)))))))
 
 ;;; The list type restriction does not ensure that the result will be a

@@ -171,6 +171,10 @@ scavenge(lispobj *start, long n_words)
                 /* It points somewhere other than oldspace. Leave it
                  * alone. */
                 n_words_scavenged = 1;
+                struct malloc_object_descriptor ** dtor
+                        = hash_table_get(&malloc_object_table, (size_t)object);
+                if (dtor)
+                        mark_address_seen(*dtor);
             }
         }
 #if !defined(LISP_FEATURE_X86) && !defined(LISP_FEATURE_X86_64)

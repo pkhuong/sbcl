@@ -256,6 +256,45 @@ size_t void_diff(void *x, void *y)
     return (pointer_sized_uint_t)x - (pointer_sized_uint_t)y;
 }
 
+typedef struct malloc_object_descriptor {
+    struct malloc_object_descriptor * next;
+    int marked;
+    char * address;
+} malloc_object_descriptor_t;
+
+table_t malloc_object_table;
+malloc_object_descriptor_t * malloc_descriptors = 0;
+int enable_malloc = 0;
+
+void mark_address_seen (malloc_object_descriptor_t * descriptor)
+{
+    descriptor->marked = 1;
+    return;
+}
+
+void clean_malloc_descriptors ()
+{
+    malloc_object_descriptor_t ** prev;
+    malloc_object_descriptor_t * cur;
+    malloc_object_descriptor_t * next;
+
+    prev = &malloc_descriptors;
+
+    for (cur = *prev; cur; cur = next) {
+        next = cur->next;
+        if (cur->marked) {
+            cur->marked = 0;
+            prev = &cur->next;
+        } else {
+            next = cur->next;
+            hash_table_del(&malloc_object_table, (size_t) cur->address);
+            free(cur);
+            printf("freed %p\n", cur);
+            *prev = next;
+        }
+    }
+}
+
 /* a structure to hold the state of a generation */
 struct generation {
 
@@ -1037,6 +1076,32 @@ gc_alloc_update_page_tables(int page_type_flag, struct alloc_region *alloc_regio
 
 static inline void *gc_quick_alloc(long nbytes);
 
+
+void *
+gc_alloc_large_unboxed (long nbytes)
+{
+    size_t mask = (1UL << 6)-1;
+    size_t total_bytes = nbytes + sizeof(malloc_object_descriptor_t) + mask;
+    void * addr = malloc(total_bytes);
+
+    bzero(addr, total_bytes);
+
+    pointer_sized_uint_t aligned_addr
+        = ((pointer_sized_uint_t)((addr + sizeof(malloc_object_descriptor_t)) + mask)
+           & ~mask);
+
+    malloc_object_descriptor_t * descriptor = addr;
+
+    descriptor->address = (char*)aligned_addr;
+    descriptor->next = malloc_descriptors;
+    malloc_descriptors = descriptor;
+    hash_table_set(&malloc_object_table, aligned_addr, descriptor);
+
+    fprintf(stderr, "Large unboxed @ %lx (%l)\n", aligned_addr, nbytes);
+
+    return (void*) aligned_addr;
+}
+
 /* Allocate a possibly large object. */
 void *
 gc_alloc_large(long nbytes, int page_type_flag, struct alloc_region *alloc_region)
@@ -1052,6 +1117,14 @@ gc_alloc_large(long nbytes, int page_type_flag, struct alloc_region *alloc_regio
 
     ret = thread_mutex_lock(&free_pages_lock);
     gc_assert(ret == 0);
+
+    if (UNBOXED_PAGE_FLAG == page_type_flag)
+        if (enable_malloc) {
+            void * ptr = gc_alloc_large_unboxed(nbytes);
+            ret = thread_mutex_unlock(&free_pages_lock);
+            gc_assert(ret == 0);
+            return ptr;
+        }
 
     first_page = generation_alloc_start_page(gc_alloc_generation, page_type_flag, 1);
     if (first_page <= alloc_region->last_page) {
@@ -2683,6 +2756,15 @@ preserve_pointer(void *addr)
     page_index_t first_page;
     page_index_t i;
     unsigned int region_allocation;
+
+    if (is_lisp_pointer(addr)) {
+        malloc_object_descriptor_t ** dtor
+            = hash_table_get(&malloc_object_table, (size_t)addr);
+        if (dtor) {
+            mark_address_seen(*dtor);
+            return;
+        }
+    }
 
     /* quick check 1: Address is quite likely to have been invalid. */
     if ((addr_page_index == -1)
@@ -4369,6 +4451,8 @@ collect_garbage(generation_index_t last_gen)
                      && (gen_av_mem_age(gen)
                          > generations[gen].min_av_mem_age))));
 
+    clean_malloc_descriptors();
+
     /* Now if gen-1 was raised all generations before gen are empty.
      * If it wasn't raised then all generations before gen-1 are empty.
      *
@@ -4581,6 +4665,7 @@ gc_init(void)
     gc_set_region_empty(&unboxed_region);
 
     last_free_page = 0;
+    init_table(&malloc_object_table);
 }
 
 /*  Pick up the dynamic space from after a core load.
@@ -4745,6 +4830,13 @@ alloc(long nbytes)
 {
     return general_alloc(nbytes, BOXED_PAGE_FLAG);
 }
+
+lispobj *
+alloc_unboxed_object(long nbytes)
+{
+    return general_alloc(nbytes, UNBOXED_PAGE_FLAG);
+}
+
 
 /*
  * shared support for the OS-dependent signal handlers which

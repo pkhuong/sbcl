@@ -43,7 +43,8 @@ COMMON_SRC = alloc.c backtrace.c breakpoint.c coreparse.c \
 	largefile.c monitor.c os-common.c parse.c print.c purify.c \
 	pthread-futex.c pthread-lutex.c \
 	regnames.c run-program.c runtime.c save.c search.c \
-	thread.c time.c util.c validate.c vars.c wrap.c	
+	thread.c time.c util.c validate.c vars.c wrap.c	\
+	hash-table.c
 
 C_SRC = $(COMMON_SRC) ${ARCH_SRC} ${OS_SRC} ${GC_SRC}
 

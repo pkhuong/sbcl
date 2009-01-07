@@ -89,6 +89,27 @@
       (storew type result 0 other-pointer-lowtag)
       (storew length result vector-length-slot other-pointer-lowtag))))
 
+(define-vop (allocate-unboxed-vector-on-heap)
+  (:args (type :scs (unsigned-reg))
+         (length :scs (any-reg))
+         (words :scs (any-reg)))
+  (:results (result :scs (descriptor-reg) :from :load))
+  (:arg-types positive-fixnum
+              positive-fixnum
+              positive-fixnum)
+  (:translate allocate-unboxed-vector)
+  (:policy :fast-safe)
+  (:generator 100
+    (inst lea result (make-ea :byte :base words :disp
+                              (+ (1- (ash 1 n-lowtag-bits))
+                                 (* vector-data-offset n-word-bytes))))
+    (inst and result (lognot lowtag-mask))
+    (pseudo-atomic
+      (unboxed-allocation result result)
+      (inst lea result (make-ea :byte :base result :disp other-pointer-lowtag))
+      (storew type result 0 other-pointer-lowtag)
+      (storew length result vector-length-slot other-pointer-lowtag))))
+
 (define-vop (allocate-vector-on-stack)
   (:args (type :scs (unsigned-reg))
          (length :scs (any-reg))
