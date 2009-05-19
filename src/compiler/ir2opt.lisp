@@ -12,6 +12,152 @@
 ;;;; files for more information.
 
 (in-package "SB!C")
+(def!struct peephole-pattern
+  ;; Name of the transform
+  (name    (missing-arg) :type symbol)
+  ;; If non-NIL, printed as an optimisation note
+  ;; when the emitter function returns NIL.
+  (note    nil           :type (or null string))
+  ;; Receives the pattern, 2block and the first VOP
+  ;; in the pattern, returns NIL or the first & last
+  ;; VOPs in the sequence to replace the pattern.
+  (emitter (missing-arg) :type function)
+  ;; Vector of VOP names
+  (pattern (missing-arg) :type vector)
+  ;; Higher weights fire first
+  (weight  0             :type fixnum))
+
+(defvar *max-pattern-length* 0)
+;; Table: Vector of VOP names -> vector of patterns
+;; least weight first (fired back to front)
+(defvar *patterns* (make-hash-table :test 'equalp))
+
+(defun insert-pattern (pattern)
+  (let* ((vops (peephole-pattern-pattern pattern))
+         (hits (gethash vops *patterns*))
+         (length (length vops)))
+    (when (> length *max-pattern-length*)
+      (setf *max-pattern-length* length))
+    (unless hits
+      (setf hits
+            (setf (gethash vops *patterns*)
+                  (make-array 2 :adjustable t :fill-pointer 0))))
+    (let ((name (peephole-pattern-name pattern)))
+      (dotimes (i (length hits) (vector-push-extend pattern hits))
+        (when (eq name (peephole-pattern-name (aref hits i)))
+          (setf (aref hits i) pattern)
+          (return))))
+    (stable-sort hits #'< :key #'peephole-pattern-weight)))
+
+(def!macro define-peephole-pattern (name ((vop &rest vops) &key note (weight 0))
+                                         &body body)
+  `(insert-pattern (make-peephole-pattern
+                    :name ',name
+                    :note ',note
+                    :emitter (lambda (pattern 2block vop)
+                               (declare (ignorable pattern 2block vop))
+                               (block ,name
+                                 (locally
+                                     ,@body)))
+                    :pattern ',(coerce (cons vop vops) 'vector)
+                    :weight  ',weight)))
+
+(define-peephole-pattern box-around-add ((sb-vm::move-from-word/fixnum
+                                          sb-vm::fast-+-c/fixnum=>fixnum
+                                          sb-vm::move-to-word/fixnum))
+  (let* ((from-word vop)
+         (fast-+    (vop-next from-word))
+         (to-word   (vop-next fast-+)))
+    (let ((arg (tn-ref-tn (vop-args from-word)))
+          (res (tn-ref-tn (vop-results to-word)))
+          (inc (vop-codegen-info fast-+))
+          (signed-inc (template-or-lose 'sb-vm::fast-+-c/signed=>signed)))
+      (unless (and (eq (tn-ref-tn (vop-args fast-+))
+                       (tn-ref-tn (vop-results from-word)))
+                   (eq (tn-ref-tn (vop-results fast-+))
+                       (tn-ref-tn (vop-args to-word)))
+                   (null (tn-ref-next (tn-reads (tn-ref-tn (vop-results from-word)))))
+                   (null (tn-ref-next (tn-reads (tn-ref-tn (vop-results fast-+))))))
+        (return-from box-around-add))
+      (funcall (template-emit-function signed-inc)
+               (vop-node fast-+) 2block signed-inc
+               (reference-tn arg nil) (reference-tn res t) inc))))
+
+(define-peephole-pattern box-after-add ((sb-vm::fast-+-c/fixnum=>fixnum
+                                         sb-vm::move-to-word/fixnum))
+  (let* ((from-word (vop-prev vop))
+         (fast-+    vop)
+         (to-word   (vop-next fast-+)))
+    (unless (eq 'sb-vm::move-from-word/fixnum (vop-name from-word))
+      (return-from box-after-add))
+    (let ((arg (tn-ref-tn (vop-args from-word)))
+          (res (tn-ref-tn (vop-results to-word)))
+          (inc (vop-codegen-info fast-+))
+          (signed-inc (template-or-lose 'sb-vm::fast-+-c/signed=>signed)))
+      (unless (and (eq (tn-ref-tn (vop-args fast-+))
+                       (tn-ref-tn (vop-results from-word)))
+                   (eq (tn-ref-tn (vop-results fast-+))
+                       (tn-ref-tn (vop-args to-word)))
+                   (null (tn-ref-next (tn-reads (tn-ref-tn (vop-results fast-+))))))
+        (return-from box-after-add nil))
+      (funcall (template-emit-function signed-inc)
+               (vop-node fast-+) 2block signed-inc
+               (reference-tn arg nil) (reference-tn res t) inc))))
+
+(defvar *peephole-p* nil)
+
+;; FIXME: how to handle successor info? How about single-
+;; successor/predecessor 2blocks?
+(defun peephole-2block (2block)
+  (declare (type ir2-block 2block))
+  (let* ((max-length *max-pattern-length*)
+         (patterns   *patterns*)
+         (needle     (make-array max-length :fill-pointer 0)))
+    (flet ((subsearch (vop length)
+             (declare (type vop vop)
+                      (type (and unsigned-byte fixnum) length))
+             (setf (fill-pointer needle) 0)
+             (do ((vop vop (vop-next vop))
+                  (i   0   (1+ i)))
+                 ((>= i length))
+               (unless vop
+                 (return-from subsearch (values nil nil)))
+               (vector-push-extend (vop-name vop) needle))
+             (let* ((hits  (or (gethash needle patterns)
+                               (return-from subsearch (values nil nil))))
+                    (nhits (length hits)))
+               (declare (type (vector t) hits))
+               (loop for i from (1- nhits) downto 0
+                     for pattern = (aref hits i)
+                     do (multiple-value-bind (first last)
+                            (funcall (peephole-pattern-emitter pattern)
+                                     pattern 2block vop)
+                          (when (and first last)
+                            (return (values first last))))
+                     finally (return (values t nil)))))
+           (replace-vop (vop length new-first new-last)
+             (do ((vop vop (vop-next vop))
+                  (i   0   (1+ i)))
+                 ((>= i length)
+                    (insert-vop-sequence new-first new-last 2block vop)
+                    new-first)
+                 (delete-vop vop)))
+           (prev-n (vop n)
+             (do ((vop vop (vop-prev vop))
+                  (i 0 (1+ i)))
+                 ((or (>= i n)
+                      (null (vop-prev vop)))
+                    vop))))
+      (do ((vop (ir2-block-start-vop 2block)))
+          ((null vop))
+        (loop for i from max-length downto 1
+              do (multiple-value-bind (first last)
+                     (subsearch vop i)
+                   (when (and first last)
+                     (setf vop (prev-n (replace-vop vop i first last)
+                                       (1- max-length)))
+                     (return)))
+              finally (setf vop (vop-next vop)))))))
 
 ;;; We track pred/succ info at the IR2-block level, extrapolating
 ;;; most of the data from IR1 to initialise.
@@ -228,13 +374,19 @@
         (when (jump-falls-through-p 2block)
           (delete-vop (ir2-block-last-vop 2block)))))))
 
-(defun ir2-optimize (component)
+(defun ir2-optimize (component &key peephole-only)
   (let ((*2block-pred*  (make-hash-table))
         (*2block-succ*  (make-hash-table))
         (*label-2block* (make-hash-table)))
     (initialize-ir2-blocks-flow-info component)
 
-    (convert-cmovs component)
+    (unless peephole-only
+      (convert-cmovs component))
+
+    (when *peephole-p*
+      (do-ir2-blocks (2block component)
+        (peephole-2block 2block)))
+    
     (delete-unused-ir2-blocks component)
     (delete-fall-through-jumps component))
   (values))
