@@ -520,7 +520,7 @@
 ;;; Set assembler parameters. (In CMU CL, this was done with
 ;;; a call to a macro DEF-ASSEMBLER-PARAMS.)
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (setf sb!assem:*assem-scheduler-p* nil))
+  (setf sb!assem:*assem-scheduler-p* t))
 
 (sb!disassem:define-arg-type condition-code
   :printer *condition-name-vec*)

@@ -468,6 +468,10 @@
 ;;; return pc and jumps. Although this is an incredibly stupid trick
 ;;; the paired CALL/RET instructions are a big win.
 (defun make-local-call (target)
+  (declare (special sb!c::*local-call-prologue*))
+  (when sb!c::*local-call-prologue*
+    (inst call target)
+    (return-from make-local-call))
   (let ((tramp (gen-label)))
     (inst call tramp)
     (assemble (*elsewhere*)

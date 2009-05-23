@@ -14,6 +14,9 @@
 ;;;; This software is in the public domain and is provided with
 ;;;; absolutely no warranty. See the COPYING and CREDITS files for
 ;;;; more information.
+(cl:in-package :sb-c)
+(setf *assembly-optimize* t)
+(cl:in-package :cl-user)
 
 (when (eq sb-ext:*evaluator-mode* :interpret)
   (sb-ext:quit :unix-status 104))

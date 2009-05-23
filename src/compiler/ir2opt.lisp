@@ -62,16 +62,17 @@
                     :pattern ',(coerce (cons vop vops) 'vector)
                     :weight  ',weight)))
 
-(define-peephole-pattern box-around-add ((sb-vm::move-from-word/fixnum
-                                          sb-vm::fast-+-c/fixnum=>fixnum
-                                          sb-vm::move-to-word/fixnum))
+#+nil
+(define-peephole-pattern box-around-add ((sb!vm::move-from-word/fixnum
+                                          sb!vm::fast-+-c/fixnum=>fixnum
+                                          sb!vm::move-to-word/fixnum))
   (let* ((from-word vop)
          (fast-+    (vop-next from-word))
          (to-word   (vop-next fast-+)))
     (let ((arg (tn-ref-tn (vop-args from-word)))
           (res (tn-ref-tn (vop-results to-word)))
           (inc (vop-codegen-info fast-+))
-          (signed-inc (template-or-lose 'sb-vm::fast-+-c/signed=>signed)))
+          (signed-inc (template-or-lose 'sb!vm::fast-+-c/signed=>signed)))
       (unless (and (eq (tn-ref-tn (vop-args fast-+))
                        (tn-ref-tn (vop-results from-word)))
                    (eq (tn-ref-tn (vop-results fast-+))
@@ -83,17 +84,21 @@
                (vop-node fast-+) 2block signed-inc
                (reference-tn arg nil) (reference-tn res t) inc))))
 
-(define-peephole-pattern box-after-add ((sb-vm::fast-+-c/fixnum=>fixnum
-                                         sb-vm::move-to-word/fixnum))
-  (let* ((from-word (vop-prev vop))
+#+nil
+(define-peephole-pattern box-after-add ((sb!vm::fast-+-c/fixnum=>fixnum
+                                         sb!vm::move-to-word/fixnum))
+  (let* ((from-word (or (vop-prev vop)
+                        (return-from box-after-add)))
          (fast-+    vop)
          (to-word   (vop-next fast-+)))
-    (unless (eq 'sb-vm::move-from-word/fixnum (vop-name from-word))
+    (unless (eq 'sb!vm::move-from-word/fixnum (vop-name from-word))
       (return-from box-after-add))
-    (let ((arg (tn-ref-tn (vop-args from-word)))
-          (res (tn-ref-tn (vop-results to-word)))
-          (inc (vop-codegen-info fast-+))
-          (signed-inc (template-or-lose 'sb-vm::fast-+-c/signed=>signed)))
+    (let* ((arg (tn-ref-tn (vop-args from-word)))
+           (res (tn-ref-tn (vop-results to-word)))
+           (inc (vop-codegen-info fast-+))
+           (signed-inc (template-or-lose (if (eq (tn-primitive-type res) 'fixnum)
+                                             'sb!vm::fast-+-c/signed=>signed
+                                             'sb!vm::fast-+-c/unsigned=>unsigned))))
       (unless (and (eq (tn-ref-tn (vop-args fast-+))
                        (tn-ref-tn (vop-results from-word)))
                    (eq (tn-ref-tn (vop-results fast-+))
@@ -104,7 +109,7 @@
                (vop-node fast-+) 2block signed-inc
                (reference-tn arg nil) (reference-tn res t) inc))))
 
-(defvar *peephole-p* nil)
+(defvar *peephole-p* t)
 
 ;; FIXME: how to handle successor info? How about single-
 ;; successor/predecessor 2blocks?
@@ -208,6 +213,76 @@
   (setf (gethash 2block *2block-succ*) succ)
   (dolist (new succ)
     (pushnew 2block (gethash new *2block-pred*))))
+
+;;;; Local function prologue insertion code
+#!-sb-fluid (declaim (inline ir2-block-local-call-targets replace-branches))
+(defun ir2-block-local-call-targets (2block substitutions targets)
+  "Passes through all the local call VOPs in 2block, replacing every call to
+  label x to a call to another label and returns the list of substitutions."
+  (declare (type ir2-block 2block)
+           (type hash-table substitutions)
+           (type (vector t) targets))
+  (flet ((get-substitution (target)
+           (declare (type label target))
+           (aver (gethash target *label-2block*))
+           (or (gethash target substitutions)
+               (let ((new-target (gen-label)))
+                 (vector-push-extend target targets)
+                 (setf (gethash target substitutions) new-target)))))
+    (do ((vop (ir2-block-start-vop 2block)
+           (vop-next vop)))
+        ((null vop)
+           targets)
+      (let ((info (vop-codegen-info vop)))
+        (case (vop-name vop)
+          ((call-local
+            multiple-call-local
+            known-call-local)
+             (destructuring-bind (save-info callee target &rest rest) info
+               (declare (ignore save-info callee rest))
+               (setf (third info) (get-substitution target)))))))))
+
+(defun replace-branches (old-target new-target blocks)
+  (dolist (2block blocks)
+    (let ((last (ir2-block-last-vop 2block)))
+      (cond ((eq (vop-name last) 'branch)
+             (when (eq (first (vop-codegen-info last)) old-target)
+               (setf (first (vop-codegen-info last)) new-target)))
+            (t
+             (vop branch (vop-node last) 2block new-target))))))
+
+(defvar *local-call-prologue* t)
+
+(in-package "SB!VM")
+(define-vop (insert-local-prologue)
+  (:info target skip-label)
+  (:generator 0
+    (aver sb!c::*local-call-prologue*)
+    (emit-label target)
+    (popw rbp-tn (frame-word-offset return-pc-save-offset))
+    (when skip-label
+      (emit-label skip-label))))
+(in-package "SB!C")
+
+(defun replace-local-call-targets (component)
+  (let ((substitutions (make-hash-table))
+        (targets       (make-array 16 :adjustable t :fill-pointer 0)))
+    (do-ir2-blocks (2block component)
+      (ir2-block-local-call-targets 2block substitutions targets))
+    (loop with template = (template-or-lose 'sb!vm::insert-local-prologue)
+          with head     = (block-info (component-head component))
+          for target across targets
+          for 2block = (gethash target *label-2block*)
+          for new-target = (gethash target substitutions)
+          for preds = (remove head (gethash 2block *2block-pred*))
+          for skip-label = (and preds (gen-label))
+          do (multiple-value-bind (first last)
+                 (funcall (template-emit-function template)
+                          (vop-node (ir2-block-start-vop 2block))
+                          2block template
+                          nil nil (list new-target skip-label))
+               (insert-vop-sequence first last 2block (ir2-block-start-vop 2block)))
+             (replace-branches target skip-label preds))))
 
 ;;;; Conditional move insertion support code
 #!-sb-fluid (declaim (inline vop-name))
@@ -381,12 +456,14 @@
     (initialize-ir2-blocks-flow-info component)
 
     (unless peephole-only
-      (convert-cmovs component))
+      (convert-cmovs component)
+      (when *local-call-prologue*
+        (replace-local-call-targets component)))
 
     (when *peephole-p*
       (do-ir2-blocks (2block component)
         (peephole-2block 2block)))
-    
+
     (delete-unused-ir2-blocks component)
     (delete-fall-through-jumps component))
   (values))

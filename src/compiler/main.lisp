@@ -464,7 +464,7 @@
           (select-representations component)
 
           (ir2-optimize component :peephole-only t)
-          
+
           (when *check-consistency*
             (maybe-mumble "check2 ")
             (check-ir2-consistency component))

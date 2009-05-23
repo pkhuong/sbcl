@@ -13,6 +13,8 @@
 
 (cl:in-package :sb-c)
 
+(setf *assembly-optimize* t)
+
 (defknown compiler-derived-type (t) (values t t) (movable flushable unsafe))
 
 (deftransform compiler-derived-type ((x))

@@ -71,6 +71,9 @@
   ;; ``Number'' for last instruction queued. Used only to supply insts
   ;; with unique sset-element-number's.
   (inst-number 0 :type index)
+  ;; Queue of instructions not yet emitted, in emission order.
+  (queued-insts (make-array 16 :adjustable t :fill-pointer 0)
+   :type (vector t))
   ;; SIMPLE-VECTORs mapping locations to the instruction that reads them and
   ;; instructions that write them
   (readers (make-array *assem-max-locations* :initial-element nil)
@@ -107,7 +110,7 @@
   #!+sb-dyncount
   (collect-dynamic-statistics nil))
 (sb!c::defprinter (segment)
-  name)
+    type)
 
 (declaim (inline segment-current-index))
 (defun segment-current-index (segment)
@@ -198,11 +201,13 @@
 (def!struct (instruction
             (:include sset-element)
             (:conc-name inst-)
-            (:constructor make-instruction (number emitter attributes delay))
+            (:constructor make-instruction (number emitter form attributes delay))
             (:copier nil))
   ;; The function to envoke to actually emit this instruction. Gets called
   ;; with the segment as its one argument.
   (emitter (missing-arg) :type (or null function))
+  ;; A list of (instruction-name operands*)
+  (form    (missing-arg))
   ;; The attributes of this instruction.
   (attributes (instruction-attributes) :type sb!c:attributes)
   ;; Number of instructions or cycles of delay before additional
@@ -364,6 +369,11 @@
                                 (writes write))
                              (writes)))
   (aver (segment-run-scheduler segment))
+  #+nil
+  (funcall (inst-emitter inst) segment)
+  (vector-push-extend inst (segment-queued-insts segment))
+
+  #+nil
   (let ((countdown (segment-branch-countdown segment)))
     (when countdown
       (decf countdown)
@@ -389,6 +399,15 @@
 ;;; on, and emitted in the wrong place).
 (defun schedule-pending-instructions (segment)
   (aver (segment-run-scheduler segment))
+  #!+x86-64
+  (progn
+    (setf (segment-run-scheduler segment) nil)
+    (map nil (lambda (inst)
+               (funcall (inst-emitter inst) segment))
+         (segment-queued-insts segment))
+    (setf (fill-pointer (segment-queued-insts segment)) 0
+          (segment-run-scheduler segment) t)
+    (return-from schedule-pending-instructions (values)))
 
   ;; Quick blow-out if nothing to do.
   (when (and (sset-empty (segment-emittable-insts-sset segment))
@@ -1249,6 +1268,8 @@
    for anything after this."
   (when (segment-run-scheduler segment)
     (schedule-pending-instructions segment))
+    (when (segment-run-scheduler other-segment)
+    (schedule-pending-instructions other-segment))
   (let ((postits (segment-postits segment)))
     (setf (segment-postits segment) (segment-postits other-segment))
     (dolist (postit postits)
@@ -1297,6 +1318,7 @@
   (setf (segment-final-index segment) (segment-current-index segment))
   (setf (segment-final-posn segment) (segment-current-posn segment))
   (setf (segment-inst-hook segment) nil)
+  (setf (segment-queued-insts segment) #())
   (compress-output segment)
   (finalize-positions segment)
   (process-back-patches segment)
@@ -1612,9 +1634,10 @@
                                             (incf (segment-inst-number
                                                    ,segment-name))
                                             #',flet-name
+                                            (cons ',name ,arg-reconstructor)
                                             (instruction-attributes
                                              ,@attributes)
-                                            (progn ,@delay))))
+                                            (progn 0 ,@delay))))
                                       ,@(when dependencies
                                           `((note-dependencies
                                                 (,segment-name ,inst-name)
