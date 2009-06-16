@@ -330,6 +330,12 @@
          :datum object
          :expected-type '(complex long-float)))
 
+#!+x86-64
+(deferr object-not-sse-pack-error (object)
+  (error 'type-error
+         :datum object
+         :expected-type 'sse-pack))
+
 (deferr object-not-weak-pointer-error (object)
   (error 'type-error
          :datum object

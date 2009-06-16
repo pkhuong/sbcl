@@ -76,6 +76,13 @@
     (ea-for-cxf-stack tn :double :real base))
   (defun ea-for-cdf-imag-stack (tn &optional (base rbp-tn))
     (ea-for-cxf-stack tn :double :imag base)))
+
+(defun ea-for-sse-stack (tn &optional (base rbp-tn))
+  (make-ea :qword :base base
+           :disp (- (* (+ (tn-offset tn)
+                          2)
+                       n-word-bytes))))
+
 
 ;;;; move functions
 
@@ -122,7 +129,7 @@
 (eval-when (:compile-toplevel :execute)
   (setf *read-default-float-format* 'single-float))
 
-;;;; complex float move functions
+;;;; complex float and SSE move functions
 
 ;;; X is source, Y is destination.
 (define-move-fun (load-complex-single 2) (vop x y)
@@ -140,6 +147,14 @@
 (define-move-fun (store-complex-double 2) (vop x y)
   ((complex-double-reg) (complex-double-stack))
   (inst movupd (ea-for-cdf-data-stack y) x))
+
+(define-move-fun (load-sse-pack 2) (vop x y)
+  ((sse-stack) (sse-reg))
+  (inst movdqu y (ea-for-sse-stack x)))
+
+(define-move-fun (store-sse-pack 2) (vop x y)
+  ((sse-reg) (sse-stack))
+  (inst movdqu (ea-for-sse-stack y) x))
 
 ;;;; move VOPs
 
@@ -159,7 +174,8 @@
   (frob single-move single-reg)
   (frob double-move double-reg)
   (frob complex-single-move complex-single-reg)
-  (frob complex-double-move complex-double-reg))
+  (frob complex-double-move complex-double-reg)
+  (frob sse-move sse-reg))
 
 
 ;;; Move from float to a descriptor reg. allocating a new float
@@ -190,6 +206,22 @@
 (define-move-vop move-from-double :move
   (double-reg) (descriptor-reg))
 
+(define-vop (move-from-sse)
+  (:args (x :scs (sse-reg)))
+  (:results (y :scs (descriptor-reg)))
+  (:node-var node)
+  (:note "SSE to pointer coercion")
+  (:generator 13
+     (with-fixed-allocation (y
+                             sse-pack-widetag
+                             sse-pack-size
+                             node)
+       (inst movdqa (make-ea-for-object-slot
+                     y sse-pack-lo-value-slot other-pointer-lowtag)
+             x))))
+(define-move-vop move-from-sse :move
+  (sse-reg) (descriptor-reg))
+
 ;;; Move from a descriptor to a float register.
 (define-vop (move-to-single)
   (:args (x :scs (descriptor-reg) :target tmp))
@@ -210,6 +242,15 @@
   (:generator 2
     (inst movsd y (ea-for-df-desc x))))
 (define-move-vop move-to-double :move (descriptor-reg) (double-reg))
+
+(define-vop (move-to-sse)
+  (:args (x :scs (descriptor-reg)))
+  (:results (y :scs (sse-reg)))
+  (:note "pointer to SSE coercion")
+  (:generator 2
+    (inst movdqa y (make-ea-for-object-slot
+                    x sse-pack-lo-value-slot other-pointer-lowtag))))
+(define-move-vop move-to-sse :move (descriptor-reg) (sse-reg))
 
 
 ;;; Move from complex float to a descriptor reg. allocating a new
@@ -295,6 +336,22 @@
   (frob move-single-float-arg single-reg single-stack :single)
   (frob move-double-float-arg double-reg double-stack :double))
 
+(define-vop (move-sse-arg)
+  (:args (x :scs (sse-reg) :target y)
+         (fp :scs (any-reg)
+             :load-if (not (sc-is y sse-reg))))
+  (:results (y))
+  (:note "SSE argument move")
+  (:generator 4
+     (sc-case y
+       (sse-reg
+        (unless (location= x y)
+          (inst movdqa y x)))
+       (sse-stack
+        (inst movdqa (ea-for-sse-stack y fp) x)))))
+(define-move-vop move-sse-arg :move-arg
+  (sse-reg descriptor-reg) (sse-reg))
+
 ;;;; complex float MOVE-ARG VOP
 (macrolet ((frob (name sc stack-sc format)
              `(progn
@@ -323,7 +380,8 @@
 
 (define-move-vop move-arg :move-arg
   (single-reg double-reg
-   complex-single-reg complex-double-reg)
+   complex-single-reg complex-double-reg
+   sse-reg)
   (descriptor-reg))
 
 
@@ -1386,6 +1444,8 @@
   (:ignore x)
   (:generator 0))
 
+;;; Additional function that must be provided by #!+complex-vops
+;;; platforms
 (defknown swap-complex ((complex float)) (complex float)
     (foldable flushable movable always-translatable))
 (defoptimizer (swap-complex derive-type) ((x))
@@ -1412,3 +1472,56 @@
   (:generator 2
      (move r x)
      (inst shufpd r r #b01)))
+
+
+;;;; SSE pack operation
+(define-vop (%sse-pack-low)
+  (:translate %sse-pack-low)
+  (:args (x :scs (sse-reg)))
+  (:arg-types sse-pack)
+  (:results (dst :scs (unsigned-reg)))
+  (:result-types unsigned-num)
+  (:policy :fast-safe)
+  (:generator 3
+    (inst movd dst x)))
+
+(defun %sse-pack-low (x)
+  (declare (type sse-pack x))
+  (%sse-pack-low x))
+
+(define-vop (%sse-pack-high)
+  (:translate %sse-pack-high)
+  (:args (x :scs (sse-reg)))
+  (:arg-types sse-pack)
+  (:temporary (:sc sse-reg) tmp)
+  (:results (dst :scs (unsigned-reg)))
+  (:result-types unsigned-num)
+  (:policy :fast-safe)
+  (:generator 3
+    (inst movdqa tmp x)
+    (inst psrldq tmp 8)
+    (inst movd dst tmp)))
+
+(defun %sse-pack-high (x)
+  (declare (type sse-pack x))
+  (%sse-pack-high x))
+
+(define-vop (%make-sse-pack)
+  (:translate %make-sse-pack)
+  (:policy :fast-safe)
+  (:args (lo :scs (unsigned-reg))
+         (hi :scs (unsigned-reg)))
+  (:arg-types unsigned-num unsigned-num)
+  (:temporary (:sc sse-stack) tmp)
+  (:results (dst :scs (sse-reg)))
+  (:result-types sse-pack)
+  (:generator 5
+    (let ((offset (- (* (1+ (tn-offset tmp))
+                        n-word-bytes))))
+      (inst mov (make-ea :qword :base rbp-tn :disp (- offset 8)) lo)
+      (inst mov (make-ea :qword :base rbp-tn :disp offset) hi))
+    (inst movdqa dst (ea-for-sse-stack tmp))))
+
+(defun %make-sse-pack (low high)
+  (declare (type (unsigned-byte 64) low high))
+  (%make-sse-pack low high))

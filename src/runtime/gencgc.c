@@ -2371,6 +2371,9 @@ looks_like_valid_lisp_pointer_p(lispobj *pointer, lispobj *start_addr)
 #ifdef COMPLEX_LONG_FLOAT_WIDETAG
         case COMPLEX_LONG_FLOAT_WIDETAG:
 #endif
+#ifdef SSE_PACK_WIDETAG
+        case SSE_PACK_WIDETAG:
+#endif
         case SIMPLE_ARRAY_WIDETAG:
         case COMPLEX_BASE_STRING_WIDETAG:
 #ifdef COMPLEX_CHARACTER_STRING_WIDETAG
@@ -3534,6 +3537,9 @@ verify_space(lispobj *start, size_t words)
 #endif
 #ifdef COMPLEX_LONG_FLOAT_WIDETAG
                 case COMPLEX_LONG_FLOAT_WIDETAG:
+#endif
+#ifdef SSE_PACK_WIDETAG
+                case SSE_PACK_WIDETAG:
 #endif
                 case SIMPLE_BASE_STRING_WIDETAG:
 #ifdef SIMPLE_CHARACTER_STRING_WIDETAG

@@ -1965,6 +1965,9 @@ gc_init_tables(void)
 #ifdef COMPLEX_LONG_FLOAT_WIDETAG
     scavtab[COMPLEX_LONG_FLOAT_WIDETAG] = scav_unboxed;
 #endif
+#ifdef SSE_PACK_WIDETAG
+    scavtab[SSE_PACK_WIDETAG] = scav_unboxed;
+#endif
     scavtab[SIMPLE_ARRAY_WIDETAG] = scav_boxed;
     scavtab[SIMPLE_BASE_STRING_WIDETAG] = scav_base_string;
 #ifdef SIMPLE_CHARACTER_STRING_WIDETAG
@@ -2203,6 +2206,9 @@ gc_init_tables(void)
     transother[SYMBOL_HEADER_WIDETAG] = trans_boxed;
     transother[CHARACTER_WIDETAG] = trans_immediate;
     transother[SAP_WIDETAG] = trans_unboxed;
+#ifdef SSE_PACK_WIDETAG
+    transother[SSE_PACK_WIDETAG] = trans_unboxed;
+#endif
     transother[UNBOUND_MARKER_WIDETAG] = trans_immediate;
     transother[NO_TLS_VALUE_MARKER_WIDETAG] = trans_immediate;
     transother[WEAK_POINTER_WIDETAG] = trans_weak_pointer;
@@ -2343,6 +2349,9 @@ gc_init_tables(void)
     sizetab[SYMBOL_HEADER_WIDETAG] = size_boxed;
     sizetab[CHARACTER_WIDETAG] = size_immediate;
     sizetab[SAP_WIDETAG] = size_unboxed;
+#ifdef SSE_PACK_WIDETAG
+    sizetab[SSE_PACK_WIDETAG] = size_unboxed;
+#endif
     sizetab[UNBOUND_MARKER_WIDETAG] = size_immediate;
     sizetab[NO_TLS_VALUE_MARKER_WIDETAG] = size_immediate;
     sizetab[WEAK_POINTER_WIDETAG] = size_weak_pointer;

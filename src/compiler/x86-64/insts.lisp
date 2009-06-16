@@ -1666,6 +1666,8 @@
      ;; FIXME: might as well be COND instead of having to use #. readmacro
      ;; to hack up the code
      (case (sc-name (tn-sc thing))
+       (#.*oword-sc-names*
+        :oword)
        (#.*qword-sc-names*
         :qword)
        (#.*dword-sc-names*

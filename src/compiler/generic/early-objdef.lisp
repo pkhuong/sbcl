@@ -144,7 +144,10 @@
   unused01-widetag
   #!+(and sb-lutex sb-thread)
   lutex-widetag                             ; 01011110
-  unused02-widetag                          ; 01100010
+  #!-x86-64
+  unused02-widetag
+  #!+x86-64
+  sse-pack-widetag                          ; 01100010
   unused03-widetag                          ; 01100110
   unused04-widetag                          ; 01101010
   unused05-widetag                          ; 01101110

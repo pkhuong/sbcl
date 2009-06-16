@@ -131,6 +131,9 @@
   #!+long-float
   (object-not-complex-long-float
    "Object is not of type (COMPLEX LONG-FLOAT).")
+  #!+x86-64
+  (object-not-sse-pack
+   "Object is not of type SSE-PACK.")
   (object-not-weak-pointer
    "Object is not a WEAK-POINTER.")
   (object-not-instance

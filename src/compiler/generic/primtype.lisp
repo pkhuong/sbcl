@@ -95,7 +95,10 @@
 (/show0 "about to !DEF-PRIMITIVE-TYPE COMPLEX-DOUBLE-FLOAT")
 (!def-primitive-type complex-double-float (complex-double-reg descriptor-reg)
   :type (complex double-float))
-
+#!+x86-64
+(progn
+  (/show0 "about to !DEF-PRIMITIVE-TYPE SSE-PACK")
+  (!def-primitive-type sse-pack (sse-reg descriptor-reg)))
 
 ;;; primitive other-pointer array types
 (/show0 "primtype.lisp 96")
@@ -373,7 +376,7 @@
                (part-of character))))
         (built-in-classoid
          (case (classoid-name type)
-           ((complex function system-area-pointer weak-pointer)
+           ((complex function sse-pack system-area-pointer weak-pointer)
             (values (primitive-type-or-lose (classoid-name type)) t))
            (cons-type
             (part-of list))

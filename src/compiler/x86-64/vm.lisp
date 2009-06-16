@@ -262,7 +262,7 @@
   (double-stack stack)
   (complex-single-stack stack)  ; complex-single-floats
   (complex-double-stack stack :element-size 2)  ; complex-double-floats
-
+  (sse-stack stack :element-size 2)
 
   ;;
   ;; magic SCs
@@ -374,6 +374,12 @@
                       :save-p t
                       :alternate-scs (complex-double-stack))
 
+  (sse-reg float-registers
+           :locations #.*float-regs*
+           :constant-scs ()
+           :save-p t
+           :alternate-scs (sse-stack))
+
   ;; a catch or unwind block
   (catch-block stack :element-size kludge-nondeterministic-catch-block-size))
 
@@ -394,6 +400,7 @@
 (defparameter *double-sc-names* '(double-reg double-stack))
 (defparameter *complex-sc-names* '(complex-single-reg complex-single-stack
                                    complex-double-reg complex-double-stack))
+(defparameter *oword-sc-names* '(sse-reg sse-stack))
 ) ; EVAL-WHEN
 
 ;;;; miscellaneous TNs for the various registers

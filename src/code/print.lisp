@@ -461,6 +461,8 @@
      (output-code-component object stream))
     (fdefn
      (output-fdefn object stream))
+    (sse-pack
+     (output-sse-pack object stream))
     (t
      (output-random object stream))))
 
@@ -1672,6 +1674,16 @@
   (print-unreadable-object (fdefn stream)
     (write-string "FDEFINITION object for " stream)
     (output-object (fdefn-name fdefn) stream)))
+
+(defun output-sse-pack (pack stream)
+  (declare (type sse-pack pack))
+  (cond #+nil(*read-eval*
+         (format stream "#.(~S #X~8,'0X)" 'int-sap (sap-int sap)))
+        (t
+         (print-unreadable-object (pack stream)
+           (format stream "SSE pack: #X~16,'0X:#X~16,'0X"
+                   (%sse-pack-low  pack)
+                   (%sse-pack-high pack))))))
 
 ;;;; functions
 

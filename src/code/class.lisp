@@ -952,7 +952,7 @@
 ;;; hierarchy).  See NAMED :COMPLEX-SUBTYPEP-ARG2
 (defvar *non-instance-classoid-types*
   '(symbol system-area-pointer weak-pointer code-component
-    lra fdefn random-class))
+    lra fdefn random-class sse-pack))
 
 ;;; KLUDGE: we need this because of the need to represent
 ;;; intersections of two classes, even when empty at a given time, as
@@ -1078,6 +1078,9 @@
       :inherits (complex number)
       :codes (#.sb!vm:complex-long-float-widetag)
       :prototype-form (complex 42l0 42l0))
+     #!+x86-64
+     (sse-pack
+      :codes (#.sb!vm:sse-pack-widetag))
      (real :translation real :inherits (number))
      (float
       :translation float

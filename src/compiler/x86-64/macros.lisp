@@ -26,6 +26,9 @@
          ((double-reg complex-double-reg)
           (aver (xmm-register-p ,n-src))
           (inst movapd ,n-dst ,n-src))
+         ((sse-reg sse-stack)
+          (aver (xmm-register-p ,n-src))
+          (inst movdqa ,n-dst ,n-src))
          (t
           (inst mov ,n-dst ,n-src))))))
 
