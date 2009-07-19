@@ -39,7 +39,11 @@
 (!define-type-vops ratiop check-ratio ratio object-not-ratio-error
   (ratio-widetag))
 
-(!define-type-vops sse-pack-p check-sse-pack sse-pack object-not-sse-pack-error
+(!define-type-vops sse-pack-p check-sse-pack nil object-not-sse-pack-error
+  (sse-pack-widetag))
+(!define-type-vops nil check-sse-pack int-sse-pack object-not-sse-pack-error
+  (sse-pack-widetag))
+(!define-type-vops nil check-sse-pack float-sse-pack object-not-sse-pack-error
   (sse-pack-widetag))
 
 (!define-type-vops complexp check-complex complex object-not-complex-error

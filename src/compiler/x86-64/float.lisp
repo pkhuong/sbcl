@@ -83,6 +83,8 @@
                           2)
                        n-word-bytes))))
 
+(defun float-sse-pack-p (tn)
+  (eq (sb!c::tn-primitive-type tn) (primitive-type-or-lose 'float-sse-pack)))
 
 ;;;; move functions
 
@@ -150,11 +152,15 @@
 
 (define-move-fun (load-sse-pack 2) (vop x y)
   ((sse-stack) (sse-reg))
-  (inst movdqu y (ea-for-sse-stack x)))
+  (if (or (float-sse-pack-p x) (float-sse-pack-p y))
+      (inst movups y (ea-for-sse-stack x))
+      (inst movdqu y (ea-for-sse-stack x))))
 
 (define-move-fun (store-sse-pack 2) (vop x y)
   ((sse-reg) (sse-stack))
-  (inst movdqu (ea-for-sse-stack y) x))
+  (if (or (float-sse-pack-p x) (float-sse-pack-p y))
+      (inst movups (ea-for-sse-stack y) x)
+      (inst movdqu (ea-for-sse-stack y) x)))
 
 ;;;; move VOPs
 
@@ -174,8 +180,21 @@
   (frob single-move single-reg)
   (frob double-move double-reg)
   (frob complex-single-move complex-single-reg)
-  (frob complex-double-move complex-double-reg)
-  (frob sse-move sse-reg))
+  (frob complex-double-move complex-double-reg))
+
+(define-vop (sse-pack-move)
+  (:args (x :scs (sse-reg)
+            :target y
+            :load-if (not (location= x y))))
+  (:results (y :scs (sse-reg)
+               :load-if (not (location= x y))))
+  (:note "SSE move")
+  (:generator 0
+    (unless (location= x y)
+      (if (or (float-sse-pack-p x) (float-sse-pack-p y))
+          (inst movaps y x)
+          (inst movdqa y x)))))
+(define-move-vop sse-pack-move :move (sse-reg) (sse-reg))
 
 
 ;;; Move from float to a descriptor reg. allocating a new float
@@ -216,9 +235,11 @@
                              sse-pack-widetag
                              sse-pack-size
                              node)
-       (inst movdqa (make-ea-for-object-slot
-                     y sse-pack-lo-value-slot other-pointer-lowtag)
-             x))))
+       (let ((ea (make-ea-for-object-slot
+                  y sse-pack-lo-value-slot other-pointer-lowtag)))
+         (if (float-sse-pack-p x)
+             (inst movaps ea x)
+             (inst movdqa ea x))))))
 (define-move-vop move-from-sse :move
   (sse-reg) (descriptor-reg))
 
@@ -248,8 +269,11 @@
   (:results (y :scs (sse-reg)))
   (:note "pointer to SSE coercion")
   (:generator 2
-    (inst movdqa y (make-ea-for-object-slot
-                    x sse-pack-lo-value-slot other-pointer-lowtag))))
+    (let ((ea (make-ea-for-object-slot
+               x sse-pack-lo-value-slot other-pointer-lowtag)))
+      (if (float-sse-pack-p y)
+          (inst movaps y ea)
+          (inst movdqa y ea)))))
 (define-move-vop move-to-sse :move (descriptor-reg) (sse-reg))
 
 
@@ -346,9 +370,14 @@
      (sc-case y
        (sse-reg
         (unless (location= x y)
-          (inst movdqa y x)))
+          (if (or (float-sse-pack-p x)
+                  (float-sse-pack-p y))
+              (inst movaps y x)
+              (inst movdqa y x))))
        (sse-stack
-        (inst movdqa (ea-for-sse-stack y fp) x)))))
+        (if (float-sse-pack-p x)
+            (inst movups (ea-for-sse-stack y fp) x)
+            (inst movdqu (ea-for-sse-stack y fp) x))))))
 (define-move-vop move-sse-arg :move-arg
   (sse-reg descriptor-reg) (sse-reg))
 
@@ -1512,15 +1541,16 @@
   (:args (lo :scs (unsigned-reg))
          (hi :scs (unsigned-reg)))
   (:arg-types unsigned-num unsigned-num)
-  (:temporary (:sc sse-stack) tmp)
-  (:results (dst :scs (sse-reg)))
+  (:temporary (:sc sse-stack :target dst :to :result) tmp)
+  (:results (dst :scs (sse-reg sse-stack)))
   (:result-types sse-pack)
   (:generator 5
     (let ((offset (- (* (1+ (tn-offset tmp))
                         n-word-bytes))))
       (inst mov (make-ea :qword :base rbp-tn :disp (- offset 8)) lo)
       (inst mov (make-ea :qword :base rbp-tn :disp offset) hi))
-    (inst movdqa dst (ea-for-sse-stack tmp))))
+    (unless (location= dst tmp)
+      (inst movdqu dst tmp))))
 
 (defun %make-sse-pack (low high)
   (declare (type (unsigned-byte 64) low high))

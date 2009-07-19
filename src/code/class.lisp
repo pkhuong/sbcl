@@ -1081,7 +1081,8 @@
      #!+x86-64
      (sse-pack
       :translation sse-pack
-      :codes (#.sb!vm:sse-pack-widetag))
+      :codes (#.sb!vm:sse-pack-widetag)
+      :prototype-form (%make-sse-pack 42 42))
      (real :translation real :inherits (number))
      (float
       :translation float

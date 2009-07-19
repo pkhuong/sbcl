@@ -98,7 +98,11 @@
 #!+x86-64
 (progn
   (/show0 "about to !DEF-PRIMITIVE-TYPE SSE-PACK")
-  (!def-primitive-type sse-pack (sse-reg descriptor-reg)))
+  (!def-primitive-type float-sse-pack (sse-reg descriptor-reg)
+   :type (sse-pack float))
+  (!def-primitive-type int-sse-pack (sse-reg descriptor-reg)
+   :type (sse-pack integer))
+  (!def-primitive-type-alias sse-pack (:or float-sse-pack int-sse-pack)))
 
 ;;; primitive other-pointer array types
 (/show0 "primtype.lisp 96")
@@ -375,7 +379,9 @@
                (exactly character)
                (part-of character))))
         (sse-pack-type
-         (exactly sse-pack))
+         (if (eql 'float (sse-pack-type-supertype type))
+             (exactly float-sse-pack)
+             (exactly int-sse-pack)))
         (built-in-classoid
          (case (classoid-name type)
            ((complex cons-type function system-area-pointer weak-pointer)
