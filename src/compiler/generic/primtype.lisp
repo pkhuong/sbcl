@@ -374,12 +374,12 @@
                     (= (cdar pairs) (1- sb!xc:char-code-limit)))
                (exactly character)
                (part-of character))))
+        (sse-pack-type
+         (exactly sse-pack))
         (built-in-classoid
          (case (classoid-name type)
-           ((complex function sse-pack system-area-pointer weak-pointer)
+           ((complex cons-type function system-area-pointer weak-pointer)
             (values (primitive-type-or-lose (classoid-name type)) t))
-           (cons-type
-            (part-of list))
            (t
             (any))))
         (fun-type

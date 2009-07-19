@@ -121,6 +121,8 @@
      (and (consp object)
           (%%typep (car object) (cons-type-car-type type) strict)
           (%%typep (cdr object) (cons-type-cdr-type type) strict)))
+    (sse-pack-type
+     (sse-pack-p object))
     (character-set-type
      (and (characterp object)
          (let ((code (char-code object))

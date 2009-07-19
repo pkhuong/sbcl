@@ -217,6 +217,7 @@
            (numeric-type-p ctype)
            (array-type-p ctype)
            (cons-type-p ctype)
+           (sse-pack-type-p ctype)
            (intersection-type-p ctype)
            (union-type-p ctype)
            (negation-type-p ctype)

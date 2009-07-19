@@ -550,6 +550,28 @@
          (t (values min :maybe))))
     ()))
 
+;;; A SSE-PACK-TYPE is used to represent a SSE-PACK type.
+(defstruct (sse-pack-type
+             (:include ctype (class-info (type-class-or-lose 'sse-pack)))
+             (:constructor
+              %make-sse-pack-type (element-type supertype))
+             (:copier nil))
+  (element-type (missing-arg) :type ctype :read-only t)
+  (supertype    (missing-arg) :type (member float t) :read-only t))
+(defun make-sse-pack-type (element-type)
+  (aver (neq element-type *wild-type*))
+  (if (eq element-type *empty-type*)
+      *empty-type*
+      (%make-sse-pack-type element-type
+                           (if (csubtypep element-type
+                                          (specifier-type `(or float
+                                                               (complex short-float)
+                                                               (complex single-float)
+                                                               (complex double-float)
+                                                               (complex long-float))))
+                               'float
+                               't))))
+
 
 ;;;; type utilities
 
