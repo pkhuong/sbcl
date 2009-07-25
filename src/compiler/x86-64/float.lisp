@@ -1550,7 +1550,7 @@
       (inst mov (make-ea :qword :base rbp-tn :disp (- offset 8)) lo)
       (inst mov (make-ea :qword :base rbp-tn :disp offset) hi))
     (unless (location= dst tmp)
-      (inst movdqu dst tmp))))
+      (inst movdqu dst (ea-for-sse-stack tmp)))))
 
 (defun %make-sse-pack (low high)
   (declare (type (unsigned-byte 64) low high))

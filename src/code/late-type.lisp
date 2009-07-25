@@ -3427,8 +3427,6 @@ used for a COMPLEX component.~:@>"
   (csubtypep (sse-pack-type-element-type type1)
              (sse-pack-type-element-type type2)))
 
-;;; Give up if a precise type is not possible, to avoid returning
-;;; overly general types.
 (!define-type-method (sse-pack :simple-union2) (type1 type2)
   (declare (type sse-pack-type type1 type2))
   (make-sse-pack-type (type-union2 (sse-pack-type-element-type type1)
