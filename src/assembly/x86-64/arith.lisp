@@ -40,10 +40,10 @@
                 (inst ret)
 
                 DO-STATIC-FUN
-                ;; Same as: (inst enter (fixnumize 1))
+                ;; Same as: (inst enter (* n-word-bytes 1))
                 (inst push rbp-tn)
                 (inst mov rbp-tn rsp-tn)
-                (inst sub rsp-tn (fixnumize 1))
+                (inst sub rsp-tn (* n-word-bytes 1))
                 (inst push (make-ea :qword :base rbp-tn
                             :disp (frame-byte-offset return-pc-save-offset)))
                 (inst mov rcx (fixnumize 2)) ; arg count
@@ -128,7 +128,7 @@
 
   (inst push rbp-tn)
   (inst mov rbp-tn rsp-tn)
-  (inst sub rsp-tn (fixnumize 1))
+  (inst sub rsp-tn (* n-word-bytes 1))
   (inst push (make-ea :qword :base rbp-tn
                       :disp (frame-byte-offset return-pc-save-offset)))
   (inst mov rcx (fixnumize 1))    ; arg count
@@ -168,7 +168,7 @@
                 (inst ret)
 
                 DO-STATIC-FUN
-                (inst sub rsp-tn (fixnumize 3))
+                (inst sub rsp-tn (* n-word-bytes 3))
                 (inst mov (make-ea :qword :base rsp-tn
                                    :disp (frame-byte-offset
                                           (+ sp->fp-offset
@@ -238,7 +238,7 @@
   (inst ret)
 
   DO-STATIC-FUN
-  (inst sub rsp-tn (fixnumize 3))
+  (inst sub rsp-tn (* n-word-bytes 3))
   (inst mov (make-ea :qword :base rsp-tn
                      :disp (frame-byte-offset
                             (+ sp->fp-offset
@@ -300,7 +300,7 @@
   (inst ret)
 
   DO-STATIC-FUN
-  (inst sub rsp-tn (fixnumize 3))
+  (inst sub rsp-tn (* n-word-bytes 3))
   (inst mov (make-ea :qword :base rsp-tn
                      :disp (frame-byte-offset
                             (+ sp->fp-offset
