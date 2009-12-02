@@ -88,6 +88,14 @@
 (def!constant nil-value
     (+ static-space-start n-word-bytes other-pointer-lowtag))
 
+(defconstant-eqx fixnum-lowtags
+    '(even-fixnum-lowtag
+      odd-fixnum-lowtag
+      . #.(when (= 64 n-word-bits)
+            '(pad0-lowtag pad1-lowtag pad2-lowtag
+              pad3-lowtag pad4-lowtag pad5-lowtag)))
+  #'equal)
+
 ;;; the heap types, stored in 8 bits of the header of an object on the
 ;;; heap, to identify the type of the heap object (which'll be at
 ;;; least two machine words, often more)

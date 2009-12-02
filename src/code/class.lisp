@@ -1113,7 +1113,12 @@
       :translation (integer #.sb!xc:most-negative-fixnum
                     #.sb!xc:most-positive-fixnum)
       :inherits (integer rational real number)
-      :codes (#.sb!vm:even-fixnum-lowtag #.sb!vm:odd-fixnum-lowtag)
+      :codes (#.sb!vm:even-fixnum-lowtag #.sb!vm:odd-fixnum-lowtag
+              . #.(when (= 64 sb!vm:n-word-bits)
+                    (mapcar #'symbol-value
+                            '(sb!vm::pad0-lowtag sb!vm::pad1-lowtag
+                              sb!vm::pad2-lowtag sb!vm::pad3-lowtag
+                              sb!vm::pad4-lowtag sb!vm::pad5-lowtag))))
       :prototype-form 42)
      (bignum
       :translation (and integer (not fixnum))
