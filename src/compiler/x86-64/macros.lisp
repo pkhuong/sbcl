@@ -365,6 +365,7 @@
        (:generator 5
          (move rax old-value)
          (inst cmpxchg (make-ea :qword :base object :index index
+                                :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                                 :disp (- (* ,offset n-word-bytes) ,lowtag))
                new-value :lock)
          (move value rax)))))
@@ -382,6 +383,7 @@
        (:result-types ,el-type)
        (:generator 3                    ; pw was 5
          (inst mov value (make-ea :qword :base object :index index
+                                  :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                                   :disp (- (* ,offset n-word-bytes)
                                            ,lowtag)))))
      (define-vop (,(symbolicate name "-C"))
@@ -416,6 +418,7 @@
        (:result-types ,el-type)
        (:generator 3                    ; pw was 5
          (inst mov value (make-ea :qword :base object :index index
+                                  :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                                   :disp (- (* (+ ,offset offset) n-word-bytes)
                                            ,lowtag)))))
      (define-vop (,(symbolicate name "-C"))
@@ -450,6 +453,7 @@
        (:result-types ,el-type)
        (:generator 4                    ; was 5
          (inst mov (make-ea :qword :base object :index index
+                            :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                             :disp (- (* ,offset n-word-bytes) ,lowtag))
                value)
          (move result value)))
@@ -492,6 +496,7 @@
        (:result-types ,el-type)
        (:generator 4                    ; was 5
          (inst mov (make-ea :qword :base object :index index
+                            :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                             :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
                value)
          (move result value)))

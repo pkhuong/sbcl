@@ -628,6 +628,8 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
+    #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+    (inst shl tmp (- word-shift n-fixnum-tag-bits))
     (inst movss value (make-ea-for-raw-slot object index tmp))))
 
 (define-vop (raw-instance-ref-c/single)
@@ -661,6 +663,8 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
+    #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+    (inst shl tmp (- word-shift n-fixnum-tag-bits))
     (inst movss (make-ea-for-raw-slot object index tmp) value)
     (move result value)))
 
@@ -705,6 +709,8 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
+    #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+    (inst shl tmp (- word-shift n-fixnum-tag-bits))
     (inst movsd value (make-ea-for-raw-slot object index tmp))))
 
 (define-vop (raw-instance-ref-c/double)
@@ -738,6 +744,8 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
+    #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+    (inst shl tmp (- word-shift n-fixnum-tag-bits))
     (inst movsd (make-ea-for-raw-slot object index tmp) value)
     (move result value)))
 
@@ -782,6 +790,8 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
+    #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+    (inst shl tmp (- word-shift n-fixnum-tag-bits))
     (inst movq value (make-ea-for-raw-slot object index tmp))))
 
 (define-vop (raw-instance-ref-c/complex-single)
@@ -815,6 +825,8 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
+    #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+    (inst shl tmp (- word-shift n-fixnum-tag-bits))
     (move result value)
     (inst movq (make-ea-for-raw-slot object index tmp) value)))
 
@@ -859,6 +871,8 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
+    #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+    (inst shl tmp (- word-shift n-fixnum-tag-bits))
     (inst movdqu value (make-ea-for-raw-slot object index tmp -8))))
 
 (define-vop (raw-instance-ref-c/complex-double)
@@ -892,6 +906,8 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
+    #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+    (inst shl tmp (- word-shift n-fixnum-tag-bits))
     (move result value)
     (inst movdqu (make-ea-for-raw-slot object index tmp -8) value)))
 

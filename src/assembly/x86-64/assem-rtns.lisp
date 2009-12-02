@@ -57,7 +57,7 @@
   ;; address. Therefore, we need to iterate from larger addresses to
   ;; smaller addresses. pfw-this says copy ecx words from esi to edi
   ;; counting down.
-  (inst shr ecx (1- n-lowtag-bits))
+  (inst shr ecx n-fixnum-tag-bits)
   (inst std)                            ; count down
   (inst sub esi n-word-bytes)
   (inst lea edi (make-ea :qword :base ebx :disp (- n-word-bytes)))
@@ -166,10 +166,10 @@
   ;; Do the blit. Because we are coping from smaller addresses to
   ;; larger addresses, we have to start at the largest pair and work
   ;; our way down.
-  (inst shr ecx (1- n-lowtag-bits))
+  (inst shr ecx n-fixnum-tag-bits)
   (inst std)                            ; count down
   (inst lea edi (make-ea :qword :base rbp-tn :disp (frame-byte-offset 0)))
-  (inst sub esi (fixnumize 1))
+  (inst sub esi n-word-bytes)
   (inst rep)
   (inst movs :qword)
   (inst cld)
