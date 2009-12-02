@@ -902,6 +902,13 @@
      (%failed-aver ',expr)))
 
 (defun %failed-aver (expr)
+  ;; hackish way to tell we're so early in a cold sbcl that neither
+  ;; the hackish test below nor standard I/O will work.  the theory
+  ;; here is that EXPR is unlikely to be an integer, and will be
+  ;; passed as an argument in the internal error.
+  #-sb-xc-host
+  (when (not (boundp '*package-names*))
+    (1+ expr))
   ;; hackish way to tell we're in a cold sbcl and output the
   ;; message before signalling error, as it may be this is too
   ;; early in the cold init.
