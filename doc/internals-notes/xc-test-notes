@@ -1,0 +1,90 @@
+On the cross-compiler tests for SBCL.
+Alastair Bridgewater, December 2009.
+
+
+These tests are intended as a basic smoke-test and diagnostic for the
+cross-compiler, particularly for use when modifying complex parts of
+the backend such as calling conventions, non-local exits, etc.  They
+could also be used when developing a port for a new CPU.  Essentially,
+they're for when the normal cold-init doesn't work and you need to be
+able to track down compiler backend and assembler-routine problems.
+
+Basic setup -- We use an after-xc core, loaded as if to slam, use it
+to compile a set of small test programs while producing trace files,
+abuse genesis with a minimal set of objects to load to produce
+multiple test core files, run the test cores recording their output,
+and compare the generated output with a master record of what the
+output should be.
+
+A few things to note -- entirely automated, the basic structure is
+easy enough to build on for more tests, produces trace-files so that a
+failure can be diagnosed at the assembly level, trace-files can also
+be used to check VOP coverage (grep for the name of a VOP in the trace
+files).
+
+How do we use it?
+
+  1.) Build with :sb-after-xc-core.  If the build gets to
+      make-target-2 then you will be able to run the xc test suite,
+      even if cold-sbcl.core can't survive cold-init.
+
+  2.) Run ./run-xc-tests.sh.  This will build the test files, create a
+      series of minimal cores for each test file (containing just the
+      assembly routines, a single compiled test file, and the various
+      data structures that genesis normally puts in a cold-sbcl.core),
+      run each test core while redirecting its output to a file, then
+      compare the test output to master copies to see if anything has
+      changed.
+
+  3.) If there are any test failures, the recorded output will be
+      available at output/xc-tests/<test-name>.output, the master
+      output will be the same file in xc-tests/, and there will be a
+      trace-file from the compiler in xc-tests/<test-name>.trace to
+      help check what the compiler thought it was doing.
+
+How do we add new test files?
+
+  1.) Create a new test source file in xc-tests/.  Copying an existing
+      test file and gutting it will probably be simplest, though the
+      only thing that really needs to go into the test file is a
+      definition for #'!cold-init which ends up calling (%primitive
+      sb!c:halt).
+
+  2.) Run the test suite.  The new test will be listed as having no
+      master output.  If the file output/xc-tests/<test-name>.output
+      is correct, copy it to xc-tests/.  If not, tweak the new test
+      until it is correct, then copy the output.
+
+So, how does it work?
+
+  Each test file contains a !cold-init function, does its output via
+  %primitive print, and finishes with %primitive sb!c:halt.
+
+  Historically, genesis has only ever been run once in a given lisp
+  instance, but there is lip-service paid to the possibility of more,
+  we take advantage of that scenario in producing multiple cores.
+
+  In order to get a controlled output from the test cores, we start
+  the runtime with --noinform --disable-ldb and filter away the "fatal
+  error" message that includes the pid.
+
+The basic process is thus,
+
+  1.) [lisp] Load after-xc-core and genesis.
+
+  2.) [lisp] Compile test programs, directing trace-output to the same
+             place that the test cores will end up.
+
+  3.) [lisp] Run genesis to create test cores for each of the test
+             programs using a restricted list of supporting objects.
+
+  4.) [shell] Run each test core, logging its output to a file.
+
+  5.) [shell] Compare the output of each test core to the master copy,
+              telling the user if they differ.
+
+The first few test cores are basic function-calling tests, more
+advanced function-calling tests, possibly some assembly-routine /
+static-function tests, data structure accessors, etc.
+
+EOF

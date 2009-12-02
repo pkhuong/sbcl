@@ -3248,6 +3248,10 @@ initially undefined function references:~2%")
     (do-all-symbols (sym)
       (remprop sym 'cold-intern-info))
 
+    ;; (This doesn't matter in normal use, for the same reason as
+    ;; above, but it's necessary when running GENESIS multiple times.)
+    (clrhash *cold-fset-warm-names*)
+
     (check-spaces)
 
     (let* ((*foreign-symbol-placeholder-value* (if core-file-name nil 0))
@@ -3385,39 +3389,40 @@ initially undefined function references:~2%")
                                              :direction :output
                                              :if-exists :supersede)
             (write-map)))
-        (out-to "config" (write-config-h))
-        (out-to "constants" (write-constants-h))
-        #!+sb-ldb
-        (out-to "tagnames" (write-tagnames-h))
-        (let ((structs (sort (copy-list sb!vm:*primitive-objects*) #'string<
-                             :key (lambda (obj)
-                                    (symbol-name
-                                     (sb!vm:primitive-object-name obj))))))
-          (dolist (obj structs)
+        (when c-header-dir-name
+          (out-to "config" (write-config-h))
+          (out-to "constants" (write-constants-h))
+          #!+sb-ldb
+          (out-to "tagnames" (write-tagnames-h))
+          (let ((structs (sort (copy-list sb!vm:*primitive-objects*) #'string<
+                               :key (lambda (obj)
+                                      (symbol-name
+                                       (sb!vm:primitive-object-name obj))))))
+            (dolist (obj structs)
+              (out-to
+               (string-downcase (string (sb!vm:primitive-object-name obj)))
+               (write-primitive-object obj)))
+            (out-to "primitive-objects"
+                    (dolist (obj structs)
+                      (format t "~&#include \"~A.h\"~%"
+                              (string-downcase
+                               (string (sb!vm:primitive-object-name obj)))))))
+          (dolist (class '(hash-table
+                           layout
+                           sb!c::compiled-debug-info
+                           sb!c::compiled-debug-fun
+                           sb!xc:package))
             (out-to
-             (string-downcase (string (sb!vm:primitive-object-name obj)))
-             (write-primitive-object obj)))
-          (out-to "primitive-objects"
-                  (dolist (obj structs)
-                    (format t "~&#include \"~A.h\"~%"
-                            (string-downcase
-                             (string (sb!vm:primitive-object-name obj)))))))
-        (dolist (class '(hash-table
-                         layout
-                         sb!c::compiled-debug-info
-                         sb!c::compiled-debug-fun
-                         sb!xc:package))
-          (out-to
-           (string-downcase (string class))
-           (write-structure-object
-            (sb!kernel:layout-info (sb!kernel:find-layout class)))))
-        (out-to "static-symbols" (write-static-symbols))
+             (string-downcase (string class))
+             (write-structure-object
+              (sb!kernel:layout-info (sb!kernel:find-layout class)))))
+          (out-to "static-symbols" (write-static-symbols))
 
-        (let ((fn (format nil "~A/Makefile.features" c-header-dir-name)))
-          (ensure-directories-exist fn)
-          (with-open-file (*standard-output* fn :if-exists :supersede
-                                             :direction :output)
-            (write-makefile-features)))
+          (let ((fn (format nil "~A/Makefile.features" c-header-dir-name)))
+            (ensure-directories-exist fn)
+            (with-open-file (*standard-output* fn :if-exists :supersede
+                                               :direction :output)
+              (write-makefile-features))))
 
         (when core-file-name
           (write-initial-core-file core-file-name))))))
