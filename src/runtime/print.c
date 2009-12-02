@@ -221,7 +221,7 @@ static void brief_list(lispobj obj)
     }
 }
 
-#ifdef LISP_FEATURE_X86_64
+#if 0 //#ifdef LISP_FEATURE_X86_64
 static void print_unknown(lispobj obj)
 {
   printf("unknown object: %p", (void *)obj);
@@ -611,15 +611,15 @@ static void print_obj(char *prefix, lispobj obj)
 {
 #ifdef LISP_FEATURE_X86_64
     static void (*verbose_fns[])(lispobj obj)
-        = {print_fixnum,  print_otherimm, print_unknown, print_struct,
-           print_unknown, print_otherimm, print_unknown, print_list,
-           print_fixnum,  print_otherimm, print_unknown, print_otherptr,
-           print_unknown, print_otherimm, print_unknown, print_otherptr};
+        = {print_fixnum, print_otherimm, print_fixnum, print_struct,
+           print_fixnum, print_otherimm, print_fixnum, print_list,
+           print_fixnum, print_otherimm, print_fixnum, print_otherptr,
+           print_fixnum, print_otherimm, print_fixnum, print_otherptr};
     static void (*brief_fns[])(lispobj obj)
-        = {brief_fixnum,  brief_otherimm, print_unknown, brief_struct,
-           print_unknown, brief_otherimm, print_unknown, brief_list,
-           brief_fixnum,  brief_otherimm, print_unknown, brief_otherptr,
-           print_unknown, brief_otherimm, print_unknown, brief_otherptr};
+        = {brief_fixnum, brief_otherimm, brief_fixnum, brief_struct,
+           brief_fixnum, brief_otherimm, brief_fixnum, brief_list,
+           brief_fixnum, brief_otherimm, brief_fixnum, brief_otherptr,
+           brief_fixnum, brief_otherimm, brief_fixnum, brief_otherptr};
 #else
     static void (*verbose_fns[])(lispobj obj)
         = {print_fixnum, print_struct, print_otherimm, print_list,

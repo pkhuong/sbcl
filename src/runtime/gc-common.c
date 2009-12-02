@@ -2221,6 +2221,14 @@ gc_init_tables(void)
         sizetab[INSTANCE_POINTER_LOWTAG|(i<<N_LOWTAG_BITS)] = size_pointer;
         /* skipping OTHER_IMMEDIATE_1_LOWTAG */
         sizetab[OTHER_POINTER_LOWTAG|(i<<N_LOWTAG_BITS)] = size_pointer;
+#if N_WORD_BITS == 64
+        sizetab[PAD0_LOWTAG|(i<<N_LOWTAG_BITS)] = size_immediate;
+        sizetab[PAD1_LOWTAG|(i<<N_LOWTAG_BITS)] = size_immediate;
+        sizetab[PAD2_LOWTAG|(i<<N_LOWTAG_BITS)] = size_immediate;
+        sizetab[PAD3_LOWTAG|(i<<N_LOWTAG_BITS)] = size_immediate;
+        sizetab[PAD4_LOWTAG|(i<<N_LOWTAG_BITS)] = size_immediate;
+        sizetab[PAD5_LOWTAG|(i<<N_LOWTAG_BITS)] = size_immediate;
+#endif
     }
     sizetab[BIGNUM_WIDETAG] = size_unboxed;
     sizetab[RATIO_WIDETAG] = size_boxed;
