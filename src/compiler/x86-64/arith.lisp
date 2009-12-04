@@ -391,7 +391,7 @@
   (:note "inline fixnum arithmetic")
   (:generator 4
     (move r x)
-    (inst sar r 3)
+    (inst sar r n-fixnum-tag-bits)
     (inst imul r y)))
 
 (define-vop (fast-*-c/fixnum=>fixnum fast-safe-arith-op)
@@ -684,10 +684,12 @@
                       (progn
                         (inst sar result (- amount))
                         (inst and result (lognot fixnum-tag-mask)))))
+                 ;; shifting left (zero fill)
                  ((plusp amount)
                   (if (sc-is result any-reg)
                       (inst xor result result)
                       (inst mov result 0)))
+                 ;; shifting right (sign fill)
                  (t (inst sar result 63)
                     (inst and result (lognot fixnum-tag-mask))))))))
 
@@ -1220,7 +1222,7 @@
 (define-vop (fast-eql/fixnum fast-conditional)
   (:args (x :scs (any-reg)
             :load-if (not (and (sc-is x control-stack)
-                               (sc-is y any-reg))))
+-                               (sc-is y any-reg))))
          (y :scs (any-reg control-stack)))
   (:arg-types tagged-num tagged-num)
   (:note "inline fixnum comparison")
@@ -1619,7 +1621,7 @@
   (:result-types unsigned-num)
   (:generator 1
     (move digit fixnum)
-    (inst sar digit 3)))
+    (inst sar digit n-fixnum-tag-bits)))
 
 (define-vop (bignum-floor)
   (:translate sb!bignum:%floor)
@@ -1655,7 +1657,7 @@
   (:generator 1
     (move res digit)
     (when (sc-is res any-reg control-stack)
-      (inst shl res 3))))
+      (inst shl res n-fixnum-tag-bits))))
 
 (define-vop (digit-ashr)
   (:translate sb!bignum:%ashr)

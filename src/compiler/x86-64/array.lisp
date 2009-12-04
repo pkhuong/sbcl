@@ -358,7 +358,8 @@
   (:result-types single-float)
   (:generator 5
    (move dword-index index)
-   (inst shr dword-index 1)
+   #!+#.(cl:if (cl:<= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+   (inst shr dword-index (1+ (- sb!vm:n-fixnum-tag-bits sb!vm:word-shift)))
    (inst movss value (make-ea-for-float-ref object dword-index offset 4))))
 
 (define-vop (data-vector-ref-c-with-offset/simple-array-single-float)
@@ -392,7 +393,8 @@
   (:result-types single-float)
   (:generator 5
    (move dword-index index)
-   (inst shr dword-index 1)
+   #!+#.(cl:if (cl:<= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+   (inst shr dword-index (1+ (- sb!vm:n-fixnum-tag-bits sb!vm:word-shift)))
    (inst movss (make-ea-for-float-ref object dword-index offset 4) value)
    (move result value)))
 
@@ -426,7 +428,8 @@
   (:results (value :scs (double-reg)))
   (:result-types double-float)
   (:generator 7
-   (inst movsd value (make-ea-for-float-ref object index offset 8))))
+   (inst movsd value (make-ea-for-float-ref object index offset 8
+                                            :scale (ash 1 (- word-shift n-fixnum-tag-bits))))))
 
 (define-vop (data-vector-ref-c/simple-array-double-float)
   (:note "inline array access")
@@ -457,7 +460,9 @@
   (:results (result :scs (double-reg)))
   (:result-types double-float)
   (:generator 20
-   (inst movsd (make-ea-for-float-ref object index offset 8) value)
+   (inst movsd (make-ea-for-float-ref object index offset 8
+                                      :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
+         value)
    (move result value)))
 
 (define-vop (data-vector-set-c-with-offset/simple-array-double-float)
@@ -493,7 +498,8 @@
   (:results (value :scs (complex-single-reg)))
   (:result-types complex-single-float)
   (:generator 5
-    (inst movq value (make-ea-for-float-ref object index offset 8))))
+    (inst movq value (make-ea-for-float-ref object index offset 8
+                                            :scale (ash 1 (- word-shift n-fixnum-tag-bits))))))
 
 (define-vop (data-vector-ref-c-with-offset/simple-array-complex-single-float)
   (:note "inline array access")
@@ -525,7 +531,9 @@
   (:result-types complex-single-float)
   (:generator 5
     (move result value)
-    (inst movq (make-ea-for-float-ref object index offset 8) value)))
+    (inst movq (make-ea-for-float-ref object index offset 8
+                                      :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
+          value)))
 
 (define-vop (data-vector-set-c-with-offset/simple-array-complex-single-float)
   (:note "inline array store")
@@ -557,7 +565,8 @@
   (:results (value :scs (complex-double-reg)))
   (:result-types complex-double-float)
   (:generator 7
-    (inst movapd value (make-ea-for-float-ref object index offset 16 :scale 2))))
+    (inst movapd value (make-ea-for-float-ref object index offset 16
+                                              :scale (ash 2 (- word-shift n-fixnum-tag-bits))))))
 
 (define-vop (data-vector-ref-c-with-offset/simple-array-complex-double-float)
   (:note "inline array access")
@@ -571,7 +580,7 @@
   (:results (value :scs (complex-double-reg)))
   (:result-types complex-double-float)
   (:generator 6
-    (inst movapd value (make-ea-for-float-ref object index offset 16 :scale 2))))
+    (inst movapd value (make-ea-for-float-ref object index offset 16))))
 
 (define-vop (data-vector-set-with-offset/simple-array-complex-double-float)
   (:note "inline array store")
@@ -588,7 +597,9 @@
   (:results (result :scs (complex-double-reg)))
   (:result-types complex-double-float)
   (:generator 20
-    (inst movapd (make-ea-for-float-ref object index offset 16 :scale 2) value)
+    (inst movapd (make-ea-for-float-ref object index offset 16
+                                        :scale (ash 2 (- word-shift n-fixnum-tag-bits)))
+          value)
     (move result value)))
 
 (define-vop (data-vector-set-c-with-offset/simple-array-complex-double-float)
@@ -605,7 +616,7 @@
   (:results (result :scs (complex-double-reg)))
   (:result-types complex-double-float)
   (:generator 19
-    (inst movapd (make-ea-for-float-ref object index offset 16 :scale 2) value)
+    (inst movapd (make-ea-for-float-ref object index offset 16) value)
     (move result value)))
 
 
