@@ -1,5 +1,9 @@
 initial function start
 in no-arg-test
+rkat2: foo is right
+rkat2: bar is right
+rkat2: baz is right
+rkat2: quux is right
 %PRIMITIVE HALT called; the party is over.
 
 
