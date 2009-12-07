@@ -151,9 +151,11 @@
   ;; Calculate NARGS (as a fixnum)
   (move ecx esi)
   (inst sub ecx rsp-tn)
+  #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+  (inst shr ecx (- word-shift n-fixnum-tag-bits))
 
   ;; Check for all the args fitting the registers.
-  (inst cmp ecx (fixnumize 3))
+  (inst cmp ecx (fixnumize register-arg-count))
   (inst jmp :le REGISTER-ARGS)
 
   ;; Save the OLD-FP and RETURN-PC because the blit is going to trash

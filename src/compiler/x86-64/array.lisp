@@ -30,7 +30,8 @@
   (:node-var node)
   (:generator 13
     (inst lea bytes
-          (make-ea :qword :base rank
+          (make-ea :qword
+                   :base rank :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                    :disp (+ (* (1+ array-dimensions-offset) n-word-bytes)
                             lowtag-mask)))
     (inst and bytes (lognot lowtag-mask))
@@ -38,7 +39,7 @@
                               :disp (fixnumize (1- array-dimensions-offset))))
     (inst shl header n-widetag-bits)
     (inst or  header type)
-    (inst shr header (1- n-lowtag-bits))
+    (inst shr header n-fixnum-tag-bits)
     (pseudo-atomic
      (allocation result bytes node)
      (inst lea result (make-ea :qword :base result :disp other-pointer-lowtag))

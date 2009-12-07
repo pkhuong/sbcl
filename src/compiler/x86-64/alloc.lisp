@@ -81,7 +81,7 @@
   (:generator 100
     (inst lea result (make-ea :byte :index words
                               :scale (ash 1 (- word-shift n-fixnum-tag-bits))
-                              :disp (+ (1- (ash 1 n-lowtag-bits))
+                              :disp (+ lowtag-mask
                                        (* vector-data-offset n-word-bytes))))
     (inst and result (lognot lowtag-mask))
     (pseudo-atomic
@@ -107,7 +107,7 @@
   (:generator 100
     (inst lea result (make-ea :byte :index words
                               :scale (ash 1 (- word-shift n-fixnum-tag-bits))
-                              :disp (+ (1- (ash 1 n-lowtag-bits))
+                              :disp (+ lowtag-mask
                                        (* vector-data-offset n-word-bytes))))
     (inst and result (lognot lowtag-mask))
     ;; FIXME: It would be good to check for stack overflow here.
@@ -208,9 +208,10 @@
           (make-ea :qword :disp (* (1+ words) n-word-bytes) :index extra
                    :scale (ash 1 (- word-shift n-fixnum-tag-bits))))
     (inst mov header bytes)
-    (inst shl header (- n-widetag-bits 3)) ; w+1 to length field
+    (inst shl header (- n-widetag-bits word-shift)) ; w+1 to length field
     (inst lea header                    ; (w-1 << 8) | type
-          (make-ea :qword :base header :disp (+ (ash -2 n-widetag-bits) type)))
+          (make-ea :qword :base header
+                   :disp (+ (ash -2 n-widetag-bits) type)))
     (inst and bytes (lognot lowtag-mask))
     (pseudo-atomic
      (allocation result bytes node)
