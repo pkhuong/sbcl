@@ -134,7 +134,15 @@
 
       (any-reg
        (move src context)
+       #!+#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
        (inst sub src skip)
+       #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+       (progn
+         ;; FIXME: This can't be efficient, but LEA (my first choice)
+         ;; doesn't do subtraction.
+         (inst shl skip (- word-shift n-fixnum-tag-bits))
+         (inst sub src skip)
+         (inst shr skip (- word-shift n-fixnum-tag-bits)))
        (move count num)
        (inst sub count skip)))
 
