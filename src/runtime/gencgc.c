@@ -1051,7 +1051,7 @@ unsigned gc_alloc_large_offset_stride = 64;
 
 static unsigned get_gc_alloc_large_offset()
 {
-    return (gc_alloc_large_offset++*gc_alloc_large_offset_stride)%PAGE_SIZE;
+    return (gc_alloc_large_offset++*gc_alloc_large_offset_stride)%PAGE_BYTES;
 }
 
 /* Allocate a possibly large object. */
@@ -1436,7 +1436,7 @@ copy_large_object(lispobj object, long nwords)
 
         gc_assert(page_table[first_page].region_start_offset == 0);
 
-        nwords += ((lispobj)native_pointer(object)%PAGE_SIZE)/N_WORD_BYTES;
+        nwords += ((lispobj)native_pointer(object)%PAGE_BYTES)/N_WORD_BYTES;
         next_page = first_page;
         remaining_bytes = nwords*N_WORD_BYTES;
         while (remaining_bytes > PAGE_BYTES) {
@@ -1583,7 +1583,7 @@ copy_large_unboxed_object(lispobj object, long nwords)
 
         gc_assert(page_table[first_page].region_start_offset == 0);
 
-        nwords += ((lispobj)native_pointer(object)%PAGE_SIZE)/N_WORD_BYTES;
+        nwords += ((lispobj)native_pointer(object)%PAGE_BYTES)/N_WORD_BYTES;
         next_page = first_page;
         remaining_bytes = nwords*N_WORD_BYTES;
         while (remaining_bytes > PAGE_BYTES) {
@@ -2650,7 +2650,7 @@ maybe_adjust_large_object(lispobj *where)
 
     /* Find its current size. */
     nwords = (sizetab[widetag_of(where[0])])(where);
-    nwords += ((lispobj)where%PAGE_SIZE)/N_WORD_BYTES;
+    nwords += ((lispobj)where%PAGE_BYTES)/N_WORD_BYTES;
 
     first_page = find_page_index((void *)where);
     gc_assert(first_page >= 0);
