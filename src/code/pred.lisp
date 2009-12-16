@@ -122,7 +122,7 @@
   (def-type-predicate-wrapper realp)
   (def-type-predicate-wrapper short-float-p)
   (def-type-predicate-wrapper single-float-p)
-  #!+x86-64 (def-type-predicate-wrapper sse-pack-p)
+  #!+sb-sse-intrinsics (def-type-predicate-wrapper sse-pack-p)
   (def-type-predicate-wrapper %instancep)
   (def-type-predicate-wrapper symbolp)
   (def-type-predicate-wrapper system-area-pointer-p)

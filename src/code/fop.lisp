@@ -338,6 +338,12 @@
     #!+long-float
     (define-float-fop fop-long-float 52 long-float)))
 
+#!+sb-sse-intrinsics
+(define-fop (fop-sse-pack 88)
+  (prepare-for-fast-read-byte *fasl-input-stream*
+    (prog1 (%make-sse-pack (fast-read-u-integer 8)
+                           (fast-read-u-integer 8))
+      (done-with-fast-read-byte))))
 
 ;;;; loading lists
 

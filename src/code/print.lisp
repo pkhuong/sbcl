@@ -461,6 +461,7 @@
      (output-code-component object stream))
     (fdefn
      (output-fdefn object stream))
+    #!+sb-sse-intrinsics
     (sse-pack
      (output-sse-pack object stream))
     (t
@@ -1675,10 +1676,14 @@
     (write-string "FDEFINITION object for " stream)
     (output-object (fdefn-name fdefn) stream)))
 
+#!+sb-sse-intrinsics
 (defun output-sse-pack (pack stream)
   (declare (type sse-pack pack))
-  (cond #+nil(*read-eval*
-         (format stream "#.(~S #X~8,'0X)" 'int-sap (sap-int sap)))
+  (cond (*read-eval*
+         (format stream "#.(~S #X~16,'0X #X~16,'0X)"
+                 '%make-sse-pack
+                 (%sse-pack-low  pack)
+                 (%sse-pack-high pack)))
         (t
          (print-unreadable-object (pack stream)
            (format stream "SSE pack: #X~16,'0X:#X~16,'0X"

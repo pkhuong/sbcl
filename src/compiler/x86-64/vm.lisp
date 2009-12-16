@@ -243,6 +243,8 @@
   (fp-complex-single-immediate immediate-constant)
   (fp-complex-double-immediate immediate-constant)
 
+  (sse-pack-immediate immediate-constant)
+
   (immediate immediate-constant)
 
   ;;
@@ -262,6 +264,7 @@
   (double-stack stack)
   (complex-single-stack stack)  ; complex-single-floats
   (complex-double-stack stack :element-size 2)  ; complex-double-floats
+  #!+sb-sse-intrinsics
   (sse-stack stack :element-size 2)
 
   ;;
@@ -374,9 +377,10 @@
                       :save-p t
                       :alternate-scs (complex-double-stack))
 
+  #!+sb-sse-intrinsics
   (sse-reg float-registers
            :locations #.*float-regs*
-           :constant-scs ()
+           :constant-scs (sse-pack-immediate)
            :save-p t
            :alternate-scs (sse-stack))
 
@@ -473,16 +477,21 @@
     (double-float
        (sc-number-or-lose
         (if (eql value 0d0) 'fp-double-zero 'fp-double-immediate)))
+    #-sb-xc-host
     ((complex single-float)
        (sc-number-or-lose
         (if (eql value #c(0f0 0f0))
             'fp-complex-single-zero
             'fp-complex-single-immediate)))
+    #-sb-xc-host
     ((complex double-float)
        (sc-number-or-lose
         (if (eql value #c(0d0 0d0))
             'fp-complex-double-zero
-            'fp-complex-double-immediate)))))
+            'fp-complex-double-immediate)))
+    #-sb-xc-host
+    (sse-pack
+       (sc-number-or-lose 'sse-pack-immediate))))
 
 
 ;;;; miscellaneous function call parameters

@@ -1078,7 +1078,7 @@
       :inherits (complex number)
       :codes (#.sb!vm:complex-long-float-widetag)
       :prototype-form (complex 42l0 42l0))
-     #!+x86-64
+     #!+sb-sse-intrinsics
      (sse-pack
       :translation sse-pack
       :codes (#.sb!vm:sse-pack-widetag)

@@ -3398,46 +3398,51 @@ used for a COMPLEX component.~:@>"
                                       (specifier-type element-type)))))
 
 ;;;; SSE-PACK types
+#!+sb-sse-intrinsics
+(progn
+  (!define-type-class sse-pack)
 
-(!define-type-class sse-pack)
+  (!def-type-translator sse-pack (&optional (element-type-spec '*))
+     (make-sse-pack-type (single-value-specifier-type element-type-spec)))
 
-(!def-type-translator sse-pack (&optional (element-type-spec '*))
-  (make-sse-pack-type (single-value-specifier-type element-type-spec)))
+  ;; FIXME: This seems wrong... We'd probably want to make the fact that the
+  ;; only interesting types to put in there are T, INTEGER and FLOAT and
+  ;; exploit that...
+  (!define-type-method (sse-pack :negate) (type)
+     (let ((eltype (sse-pack-type-element-type type)))
+       (if (eq eltype *universal-type*)
+           (make-negation-type :type type)
+           (type-union2 (make-negation-type :type (specifier-type 'sse-pack))
+                        (make-sse-pack-type (type-negation eltype))))))
 
-(!define-type-method (sse-pack :negate) (type)
-  (let ((eltype (sse-pack-type-element-type type)))
-    (if (eq eltype *universal-type*)
-        (make-negation-type :type type)
-        (type-union2 (make-negation-type :type (specifier-type 'sse-pack))
-                     (make-sse-pack-type (type-negation eltype))))))
+  (!define-type-method (sse-pack :unparse) (type)
+     (let ((eltype (type-specifier (sse-pack-type-element-type type))))
+       (if (member eltype '(t *))
+           'sse-pack
+           `(sse-pack ,eltype))))
 
-(!define-type-method (sse-pack :unparse) (type)
-  (let ((eltype (type-specifier (sse-pack-type-element-type type))))
-    (if (member eltype '(t *))
-        'sse-pack
-        `(sse-pack ,eltype))))
+  (!define-type-method (sse-pack :simple-=) (type1 type2)
+     (declare (type sse-pack-type type1 type2))
+     (type= (sse-pack-type-element-type type1)
+            (sse-pack-type-element-type type2)))
 
-(!define-type-method (sse-pack :simple-=) (type1 type2)
-  (declare (type sse-pack-type type1 type2))
-  (type= (sse-pack-type-element-type type1)
-         (sse-pack-type-element-type type2)))
+  (!define-type-method (sse-pack :simple-subtypep) (type1 type2)
+     (declare (type sse-pack-type type1 type2))
+     (csubtypep (sse-pack-type-element-type type1)
+                (sse-pack-type-element-type type2)))
 
-(!define-type-method (sse-pack :simple-subtypep) (type1 type2)
-  (declare (type sse-pack-type type1 type2))
-  (csubtypep (sse-pack-type-element-type type1)
-             (sse-pack-type-element-type type2)))
+  (!define-type-method (sse-pack :simple-union2) (type1 type2)
+     (declare (type sse-pack-type type1 type2))
+     (make-sse-pack-type (type-union2 (sse-pack-type-element-type type1)
+                                      (sse-pack-type-element-type type2))))
 
-(!define-type-method (sse-pack :simple-union2) (type1 type2)
-  (declare (type sse-pack-type type1 type2))
-  (make-sse-pack-type (type-union2 (sse-pack-type-element-type type1)
-                                   (sse-pack-type-element-type type2))))
+  (!define-type-method (sse-pack :simple-intersection2) (type1 type2)
+     (declare (type sse-pack-type type1 type2))
+     (make-sse-pack-type
+      (type-intersection2 (sse-pack-type-element-type type1)
+                          (sse-pack-type-element-type type2))))
 
-(!define-type-method (sse-pack :simple-intersection2) (type1 type2)
-  (declare (type sse-pack-type type1 type2))
-  (make-sse-pack-type (type-intersection2 (sse-pack-type-element-type type1)
-                                          (sse-pack-type-element-type type2))))
-
-(!define-superclasses sse-pack ((sse-pack)) !cold-init-forms)
+  (!define-superclasses sse-pack ((sse-pack)) !cold-init-forms))
 
 ;;;; utilities shared between cross-compiler and target system
 

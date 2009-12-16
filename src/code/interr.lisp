@@ -330,7 +330,7 @@
          :datum object
          :expected-type '(complex long-float)))
 
-#!+x86-64
+#!+sb-sse-intrinsics
 (deferr object-not-sse-pack-error (object)
   (error 'type-error
          :datum object

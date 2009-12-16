@@ -551,6 +551,7 @@
     ()))
 
 ;;; A SSE-PACK-TYPE is used to represent a SSE-PACK type.
+#!+sb-sse-intrinsics
 (defstruct (sse-pack-type
              (:include ctype (class-info (type-class-or-lose 'sse-pack)))
              (:constructor
@@ -558,6 +559,8 @@
              (:copier nil))
   (element-type (missing-arg) :type ctype :read-only t)
   (supertype    (missing-arg) :type (member float t) :read-only t))
+
+#!+sb-sse-intrinsics
 (defun make-sse-pack-type (element-type)
   (aver (neq element-type *wild-type*))
   (if (eq element-type *empty-type*)

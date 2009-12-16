@@ -414,6 +414,12 @@
                   (float (dump-float x file))
                   (integer (dump-integer x file)))
                 (equal-save-object x file)))
+             (sse-pack
+              (unless (equal-check-table x file)
+                (dump-fop 'fop-sse-pack file)
+                (dump-integer-as-n-bytes (%sse-pack-low  x) 8 file)
+                (dump-integer-as-n-bytes (%sse-pack-high x) 8 file))
+              (equal-save-object x file))
              (t
               ;; This probably never happens, since bad things tend to
               ;; be detected during IR1 conversion.

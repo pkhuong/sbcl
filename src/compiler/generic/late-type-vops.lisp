@@ -39,12 +39,62 @@
 (!define-type-vops ratiop check-ratio ratio object-not-ratio-error
   (ratio-widetag))
 
-(!define-type-vops sse-pack-p nil nil nil
-  (sse-pack-widetag))
-(!define-type-vops nil check-sse-pack int-sse-pack   object-not-sse-pack-error
-  (sse-pack-widetag))
-(!define-type-vops nil check-sse-pack float-sse-pack object-not-sse-pack-error
-  (sse-pack-widetag))
+#!+sb-sse-intrinsics
+(progn
+  (!define-type-vops sse-pack-p nil nil nil
+     (sse-pack-widetag))
+
+  (define-vop (check-sse-pack check-type)
+    (:args (value :target result
+                  :scs (any-reg descriptor-reg sse-reg sse-stack)))
+    (:results (result :scs (any-reg descriptor-reg sse-reg)))
+    (:temporary (:sc unsigned-reg :offset eax-offset :to (:result 0)) eax)
+    (:ignore eax)
+    (:vop-var vop)
+    (:node-var node)
+    (:save-p :compute-only)
+    (:generator 50
+       (sc-case value
+         ((sse-reg sse-stack)
+          (sc-case result
+            ((sse-reg)
+             (move result value))
+            ((any-reg descriptor-reg)
+             (with-fixed-allocation (result
+                                     sse-pack-widetag
+                                     sse-pack-size
+                                     node)
+               (let ((ea (make-ea-for-object-slot
+                          result sse-pack-lo-value-slot other-pointer-lowtag)))
+                 (if (float-sse-pack-p value)
+                     (inst movaps ea value)
+                     (inst movdqa ea value)))))))
+         ((any-reg descriptor-reg)
+          (let ((leaf (sb!c::tn-leaf value)))
+            (unless (and (sb!c::lvar-p leaf)
+                         (csubtypep (sb!c::lvar-type leaf)
+                                    (specifier-type 'sse-pack)))
+              (test-type
+               value
+               (generate-error-code vop 'object-not-sse-pack-error value)
+               t (sse-pack-widetag))))
+          (sc-case result
+            ((sse-reg)
+             (let ((ea (make-ea-for-object-slot
+                        value sse-pack-lo-value-slot other-pointer-lowtag)))
+               (if (float-sse-pack-p result)
+                   (inst movaps result ea)
+                   (inst movdqa result ea))))
+            ((any-reg descriptor-reg)
+             (move result value)))))))
+  (primitive-type-vop check-sse-pack (:check) int-sse-pack float-sse-pack)
+
+  #+nil
+  (!define-type-vops nil check-sse-pack int-sse-pack   object-not-sse-pack-error
+     (sse-pack-widetag))
+  #+nil
+  (!define-type-vops nil check-sse-pack float-sse-pack object-not-sse-pack-error
+     (sse-pack-widetag)))
 
 (!define-type-vops complexp check-complex complex object-not-complex-error
   (complex-widetag complex-single-float-widetag complex-double-float-widetag

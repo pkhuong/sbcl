@@ -36,7 +36,7 @@
          character-set-type
          built-in-classoid
          cons-type
-         sse-pack-type)
+         #!+sb-sse-intrinsics sse-pack-type)
      (values (%typep obj type) t))
     (classoid
      (if (if (csubtypep type (specifier-type 'function))

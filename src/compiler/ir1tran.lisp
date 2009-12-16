@@ -291,7 +291,9 @@
                         symbol
                         number
                         character
-                        string)))
+                        string
+                        #-sb-xc-host
+                        sb!kernel:sse-pack)))
              (grovel (value)
                ;; Unless VALUE is an object which which obviously
                ;; can't contain other objects

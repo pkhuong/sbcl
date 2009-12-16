@@ -193,7 +193,7 @@
 (defknown make-value-cell (t) t
   (flushable movable))
 
-#!+x86-64
+#!+sb-sse-intrinsics
 (progn
   (defknown sse-pack-p (t) boolean (foldable flushable))
   (defknown %make-sse-pack ((unsigned-byte 64) (unsigned-byte 64))

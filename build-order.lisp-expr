@@ -551,6 +551,8 @@
 
  ("src/compiler/target/move")
  ("src/compiler/target/float")
+ #!+sb-sse-intrinsics
+ ("src/compiler/target/sse-intrinsics")
  ("src/compiler/target/sap")
  ("src/compiler/target/system")
  ("src/compiler/target/char")

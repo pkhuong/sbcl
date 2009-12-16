@@ -121,6 +121,7 @@
      (and (consp object)
           (%%typep (car object) (cons-type-car-type type) strict)
           (%%typep (cdr object) (cons-type-cdr-type type) strict)))
+    #!+sb-sse-intrinsics
     (sse-pack-type
      (sse-pack-p object))
     (character-set-type

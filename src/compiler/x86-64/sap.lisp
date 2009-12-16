@@ -345,13 +345,9 @@
   (:results (sap :scs (sap-reg)))
   (:result-types system-area-pointer)
   (:generator 2
-    (if (location= sap vector)
-        (inst add
-              sap
-              (- (* vector-data-offset n-word-bytes) other-pointer-lowtag))
-        (inst lea sap
-              (make-ea :qword
-                       :base vector
-                       :disp (- (* vector-data-offset n-word-bytes) other-pointer-lowtag))))))
+    (move sap vector)
+    (inst add
+          sap
+          (- (* vector-data-offset n-word-bytes) other-pointer-lowtag))))
 
 

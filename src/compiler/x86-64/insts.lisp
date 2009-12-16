@@ -3556,10 +3556,17 @@
     (typecase first
       (single-float (setf constant (list :single-float first)))
       (double-float (setf constant (list :double-float first)))
+      #-sb-xc-host
       ((complex single-float)
          (setf constant (list :complex-single-float first)))
+      #-sb-xc-host
       ((complex double-float)
-         (setf constant (list :complex-double-float first)))))
+         (setf constant (list :complex-double-float first)))
+      #-sb-xc-host
+      (sse-pack
+         (setf constant (list :sse (logior (%sse-pack-low first)
+                                           (ash (%sse-pack-high first)
+                                                64)))))))
   (destructuring-bind (type value) constant
     (ecase type
       ((:byte :word :dword :qword)
