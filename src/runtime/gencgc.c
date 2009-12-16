@@ -29,6 +29,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <string.h>
+#include <stddef.h>
 #include "sbcl.h"
 #include "runtime.h"
 #include "os.h"
@@ -1035,6 +1036,24 @@ gc_alloc_update_page_tables(int page_type_flag, struct alloc_region *alloc_regio
 
 static inline void *gc_quick_alloc(long nbytes);
 
+/* These two variables are exposed, but only for careful users.
+ * Thus, we prefer to crash hard instead of fixing errors.
+ */
+extern unsigned gc_alloc_large_offset;
+unsigned gc_alloc_large_offset = 0;
+
+/* Must be a multiple of (1+ lowtag-mask).
+ * If it's less than (* n-word-bytes vector-data-offset), this
+ * disables the offsetting.
+ */
+extern unsigned gc_alloc_large_offset_stride;
+unsigned gc_alloc_large_offset_stride = 64;
+
+static unsigned get_gc_alloc_large_offset()
+{
+    return (gc_alloc_large_offset++*gc_alloc_large_offset_stride)%PAGE_SIZE;
+}
+
 /* Allocate a possibly large object. */
 void *
 gc_alloc_large(long nbytes, int page_type_flag, struct alloc_region *alloc_region)
@@ -1047,9 +1066,20 @@ gc_alloc_large(long nbytes, int page_type_flag, struct alloc_region *alloc_regio
     unsigned long bytes_used;
     page_index_t next_page;
     int ret;
+    unsigned offset;
+    const unsigned vector_data_offset = offsetof(struct vector, data);
+    /* in byte */
 
     ret = thread_mutex_lock(&free_pages_lock);
     gc_assert(ret == 0);
+    gc_assert(!(gc_alloc_large_offset_stride & LOWTAG_MASK));
+
+    if (vector_data_offset > gc_alloc_large_offset_stride)
+        offset = 0;
+    else
+        offset = get_gc_alloc_large_offset() + gc_alloc_large_offset_stride;
+
+    nbytes += offset;
 
     first_page = generation_alloc_start_page(gc_alloc_generation, page_type_flag, 1);
     if (first_page <= alloc_region->last_page) {
@@ -1143,6 +1173,9 @@ gc_alloc_large(long nbytes, int page_type_flag, struct alloc_region *alloc_regio
 #endif
 
     zero_dirty_pages(first_page, last_page);
+
+    if (offset)
+        return (page_address(first_page)+offset-vector_data_offset);
 
     return page_address(first_page);
 }
@@ -1403,6 +1436,7 @@ copy_large_object(lispobj object, long nwords)
 
         gc_assert(page_table[first_page].region_start_offset == 0);
 
+        nwords += ((lispobj)native_pointer(object)%PAGE_SIZE)/N_WORD_BYTES;
         next_page = first_page;
         remaining_bytes = nwords*N_WORD_BYTES;
         while (remaining_bytes > PAGE_BYTES) {
@@ -1549,6 +1583,7 @@ copy_large_unboxed_object(lispobj object, long nwords)
 
         gc_assert(page_table[first_page].region_start_offset == 0);
 
+        nwords += ((lispobj)native_pointer(object)%PAGE_SIZE)/N_WORD_BYTES;
         next_page = first_page;
         remaining_bytes = nwords*N_WORD_BYTES;
         while (remaining_bytes > PAGE_BYTES) {
@@ -2615,6 +2650,7 @@ maybe_adjust_large_object(lispobj *where)
 
     /* Find its current size. */
     nwords = (sizetab[widetag_of(where[0])])(where);
+    nwords += ((lispobj)where%PAGE_SIZE)/N_WORD_BYTES;
 
     first_page = find_page_index((void *)where);
     gc_assert(first_page >= 0);
@@ -2770,7 +2806,7 @@ preserve_pointer(void *addr)
     /* Adjust any large objects before promotion as they won't be
      * copied after promotion. */
     if (page_table[first_page].large_object) {
-        maybe_adjust_large_object(page_address(first_page));
+        maybe_adjust_large_object(native_pointer((lispobj)addr));
         /* If a large object has shrunk then addr may now point to a
          * free area in which case it's ignored here. Note it gets
          * through the valid pointer test above because the tail looks
