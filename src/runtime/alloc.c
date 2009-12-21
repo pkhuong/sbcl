@@ -198,8 +198,8 @@ alloc_code_object (unsigned boxed, unsigned unboxed) {
      * Converting it to a fixnum makes it measured in bytes. It's also
      * rounded up to double word along the way. */
     boxed = (boxed + 1 +
-	     (offsetof(struct code, trace_table_offset) >>
-	      WORD_SHIFT)) << WORD_SHIFT;
+             (offsetof(struct code, trace_table_offset) >>
+              WORD_SHIFT)) << WORD_SHIFT;
     boxed &= ~LOWTAG_MASK;
 
     /* Unboxed is in bytes, round it up to double word boundary. Now
