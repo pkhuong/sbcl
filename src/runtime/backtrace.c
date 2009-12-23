@@ -586,4 +586,42 @@ backtrace(int nframes)
   backtrace_from_fp(fp, nframes);
 }
 
+void
+backtrace_from_context(os_context_t *context, int nframes)
+{
+#if defined(LISP_FEATURE_X86)
+    void *fp = *os_context_register_addr(context, reg_EBP);
+    void *pc = *os_context_pc_addr(context);
+#elif defined(LISP_FEATURE_X86_64)
+    void *fp = *os_context_register_addr(context, reg_RBP);
+    void *pc = *os_context_pc_addr(context);
+#else
+#  error "How did we get here?"
+#endif
+
+    printf("interrupted in ");
+    lispobj *code = (lispobj *) component_ptr_from_pc((lispobj *) pc);
+    if (code) {
+	struct compiled_debug_fun *df = debug_function_from_pc(code, pc);
+	if (df)
+	    print_entry_name(df->name);
+	else
+	    print_entry_points(code);
+    } else {
+#ifdef LISP_FEATURE_OS_PROVIDES_DLADDR
+        Dl_info info;
+        if (dladdr(ra, &info)) {
+            printf("foreign function %s, pc = 0x%lx",
+                   info.dli_sname,
+                   (unsigned long) pc);
+        } else
+#endif
+        printf("foreign pc = 0x%lx",
+               (unsigned long) pc);
+    }
+    putchar('\n');
+
+    backtrace_from_fp(fp, nframes);
+}
+
 #endif
