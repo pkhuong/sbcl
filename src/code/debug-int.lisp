@@ -1975,14 +1975,15 @@ register."
        ;; FIXME: There is no fundamental reason not to use the above
        ;; function on other platforms as well, but I didn't have
        ;; others available while doing this. --NS 2007-06-21
+       ;; Well, aside from it being a gencgc.c function. --AB 2009-12-07
        #!-(or x86 x86-64)
        (and (logbitp 0 val)
             (or (< sb!vm:read-only-space-start val
-                   (* sb!vm:*read-only-space-free-pointer*
-                      sb!vm:n-word-bytes))
+                   (ash sb!vm:*read-only-space-free-pointer*
+                        sb!vm:n-fixnum-tag-bits))
                 (< sb!vm:static-space-start val
-                   (* sb!vm:*static-space-free-pointer*
-                      sb!vm:n-word-bytes))
+                   (ash sb!vm:*static-space-free-pointer*
+                        sb!vm:n-fixnum-tag-bits))
                 (< (current-dynamic-space-start) val
                    (sap-int (dynamic-space-free-pointer))))))
       (values (%make-lisp-obj val) t)
