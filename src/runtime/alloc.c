@@ -216,7 +216,7 @@ alloc_code_object (unsigned boxed, unsigned unboxed) {
         lose("alloc_code_object called with GC enabled.");
     boxed = boxed << (N_WIDETAG_BITS - WORD_SHIFT);
     code->header = boxed | CODE_HEADER_WIDETAG;
-    code->code_size = unboxed;
+    code->code_size = unboxed >> (WORD_SHIFT - N_FIXNUM_TAG_BITS);
     code->entry_points = NIL;
     code->debug_info = NIL;
     return make_lispobj(code, OTHER_POINTER_LOWTAG);

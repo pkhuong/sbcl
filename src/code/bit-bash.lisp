@@ -90,14 +90,14 @@
            (type index offset)
            (values sb!vm:word)
            (optimize (speed 3) (safety 0) #-sb-xc-host (inhibit-warnings 3)))
-  (sap-ref-word sap (the index (ash offset sb!vm:n-fixnum-tag-bits))))
+  (sap-ref-word sap (the index (ash offset sb!vm:word-shift))))
 (defun %set-word-sap-ref (sap offset value)
   (declare (type system-area-pointer sap)
            (type index offset)
            (type sb!vm:word value)
            (values sb!vm:word)
            (optimize (speed 3) (safety 0) (inhibit-warnings 3)))
-  (setf (sap-ref-word sap (the index (ash offset sb!vm:n-fixnum-tag-bits)))
+  (setf (sap-ref-word sap (the index (ash offset sb!vm:word-shift)))
         value))
 
 
