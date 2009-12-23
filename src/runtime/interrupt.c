@@ -1850,7 +1850,8 @@ lisp_memory_fault_error(os_context_t *context, os_vm_address_t addr)
     */
     current_memory_fault_address = addr;
     /* To allow debugging memory faults in signal handlers and such. */
-    corruption_warning_and_maybe_lose("Memory fault at %x (pc=%p, sp=%p)",
+    fake_foreign_function_call(context);
+    corruption_warning_and_maybe_lose("Memory fault at %p (pc=%p, sp=%p)",
                                       addr,
                                       *os_context_pc_addr(context),
 #ifdef ARCH_HAS_STACK_POINTER
@@ -1859,6 +1860,7 @@ lisp_memory_fault_error(os_context_t *context, os_vm_address_t addr)
                                       0
 #endif
                                       );
+    undo_fake_foreign_function_call(context);
     unblock_signals_in_context_and_maybe_warn(context);
 #ifdef LISP_FEATURE_C_STACK_IS_CONTROL_STACK
     arrange_return_to_lisp_function(context,
