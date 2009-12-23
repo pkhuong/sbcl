@@ -65,6 +65,7 @@ static cmd print_context_cmd;
 static cmd backtrace_cmd, purify_cmd, catchers_cmd;
 static cmd grab_sigs_cmd;
 static cmd kill_cmd;
+static cmd backtrace_context_cmd;
 
 static struct cmd {
     char *cmd, *help;
@@ -73,6 +74,9 @@ static struct cmd {
     {"help", "Display this help information.", help_cmd},
     {"?", "(an alias for help)", help_cmd},
     {"backtrace", "Backtrace up to N frames.", backtrace_cmd},
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+    {"cback", "Backtrace from interrupt context number I for up to N frames.", backtrace_context_cmd},
+#endif
     {"catchers", "Print a list of all the active catchers.", catchers_cmd},
     {"context", "Print interrupt context number I.", print_context_cmd},
     {"dump", "Dump memory starting at ADDRESS for COUNT words.", dump_cmd},
@@ -354,6 +358,11 @@ print_context(os_context_t *context)
 #endif
     printf("PC:\t\t  0x%08lx\n",
            (unsigned long)(*os_context_pc_addr(context)));
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+    printf("interrupted in ");
+    print_backtrace_frame(*os_context_pc_addr(context),
+                          *os_context_register_addr(context, reg_FP));
+#endif
 }
 
 static void
@@ -402,6 +411,46 @@ backtrace_cmd(char **ptr)
     printf("Backtrace:\n");
     backtrace(n);
 }
+
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+static void
+backtrace_context_cmd(char **ptr)
+{
+    void backtrace_from_context(os_context_t *context, int nframes);
+    int i;
+    int n;
+    int free_ici;
+    struct thread *thread=arch_os_get_current_thread();
+
+    free_ici = fixnum_value(SymbolValue(FREE_INTERRUPT_CONTEXT_INDEX,thread));
+
+    if (!free_ici) {
+        printf("There are no interrupt contexts!\n");
+        return;
+    }
+
+    if (more_p(ptr))
+        i = parse_number(ptr);
+    else
+        i = free_ici - 1;
+
+    if (more_p(ptr))
+        n = parse_number(ptr);
+    else
+        n = 100;
+
+    if ((i >= 0) && (i < free_ici)) {
+        printf("There are %d interrupt contexts.\n", free_ici);
+    } else {
+        printf("There aren't that many/few contexts.\n");
+        printf("There are %d interrupt contexts.\n", free_ici);
+        return;
+    }
+
+    printf("Backtrace from context %d:\n", i);
+    backtrace_from_context(thread->interrupt_contexts[i], n);
+}
+#endif
 
 static void
 catchers_cmd(char **ptr)
