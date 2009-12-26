@@ -53,12 +53,16 @@
                                         (static-fun-offset
                                          ',(symbolicate "TWO-ARG-" fun))))))))
 
+  #.`
   (define-generic-arith-routine (+ 10)
     (move res x)
     (inst add res y)
     (inst jmp :no OKAY)
-    (inst rcr res 1)                  ; carry has correct sign
-    (inst sar res 2)                  ; remove type bits
+    ;; Unbox the overflowed result, recovering the correct sign from
+    ;; the carry flag, then re-box as a bignum.
+    (inst rcr res 1)
+    ,@(when (> n-fixnum-tag-bits 1)   ; don't shift by 0
+            '(inst sar res (1- n-fixnum-tag-bits)))
 
     (move rcx res)
 
@@ -67,13 +71,17 @@
 
     OKAY)
 
+  #.`
   (define-generic-arith-routine (- 10)
     (move res x)
     (inst sub res y)
     (inst jmp :no OKAY)
+    ;; Unbox the overflowed result, recovering the correct sign from
+    ;; the carry flag, then re-box as a bignum.
     (inst cmc)                        ; carry has correct sign now
     (inst rcr res 1)
-    (inst sar res 2)                  ; remove type bits
+    ,@(when (> n-fixnum-tag-bits 1)   ; don't shift by 0
+            '(inst sar res (1- n-fixnum-tag-bits)))
 
     (move rcx res)
 
