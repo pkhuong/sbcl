@@ -523,6 +523,33 @@ describe_thread_state(void)
     printf("Pending handler = %p\n", data->pending_handler);
 }
 
+void print_backtrace_frame(void *pc, void *fp)
+{
+    struct code *code = (struct code *) component_ptr_from_pc((lispobj *) pc);
+    if (code) {
+        struct compiled_debug_fun *df = debug_function_from_pc(code, pc);
+        if (df) {
+            print_entry_name(df->name);
+        } else {
+            print_entry_points(code);
+        }
+    } else {
+#ifdef LISP_FEATURE_OS_PROVIDES_DLADDR
+        Dl_info info;
+        if (dladdr(pc, &info)) {
+            printf("foreign function %s, fp = 0x%lx, pc = 0x%lx",
+                   info.dli_sname,
+                   (unsigned long) fp,
+                   (unsigned long) pc);
+        } else
+#endif
+        printf("foreign fp = 0x%lx, pc = 0x%lx",
+               (unsigned long) fp,
+               (unsigned long) pc);
+    }
+    putchar('\n');
+}
+
 /* This function has been split from backtrace() to enable Lisp
  * backtraces from gdb with call backtrace_from_fp(...). Useful for
  * example when debugging threading deadlocks.
@@ -533,7 +560,6 @@ backtrace_from_fp(void *fp, int nframes)
   int i;
 
   for (i = 0; i < nframes; ++i) {
-    lispobj *p;
     void *ra;
     void *next_fp;
 
@@ -541,31 +567,8 @@ backtrace_from_fp(void *fp, int nframes)
       break;
 
     printf("%4d: ", i);
+    print_backtrace_frame(ra, next_fp);
 
-    p = (lispobj *) component_ptr_from_pc((lispobj *) ra);
-    if (p) {
-      struct code *cp = (struct code *) p;
-      struct compiled_debug_fun *df = debug_function_from_pc(cp, ra);
-      if (df)
-        print_entry_name(df->name);
-      else
-        print_entry_points(cp);
-    } else {
-#ifdef LISP_FEATURE_OS_PROVIDES_DLADDR
-        Dl_info info;
-        if (dladdr(ra, &info)) {
-            printf("Foreign function %s, fp = 0x%lx, ra = 0x%lx",
-                   info.dli_sname,
-                   (unsigned long) next_fp,
-                   (unsigned long) ra);
-        } else
-#endif
-        printf("Foreign fp = 0x%lx, ra = 0x%lx",
-               (unsigned long) next_fp,
-               (unsigned long) ra);
-    }
-
-    putchar('\n');
     fp = next_fp;
   }
 }
@@ -589,37 +592,11 @@ backtrace(int nframes)
 void
 backtrace_from_context(os_context_t *context, int nframes)
 {
-#if defined(LISP_FEATURE_X86)
-    void *fp = *os_context_register_addr(context, reg_EBP);
-    void *pc = *os_context_pc_addr(context);
-#elif defined(LISP_FEATURE_X86_64)
-    void *fp = *os_context_register_addr(context, reg_RBP);
-    void *pc = *os_context_pc_addr(context);
-#else
-#  error "How did we get here?"
-#endif
+    void *fp = *(void **)os_context_register_addr(context, reg_FP);
+    void *pc = *(void **)os_context_pc_addr(context);
 
     printf("interrupted in ");
-    lispobj *code = (lispobj *) component_ptr_from_pc((lispobj *) pc);
-    if (code) {
-	struct compiled_debug_fun *df = debug_function_from_pc(code, pc);
-	if (df)
-	    print_entry_name(df->name);
-	else
-	    print_entry_points(code);
-    } else {
-#ifdef LISP_FEATURE_OS_PROVIDES_DLADDR
-        Dl_info info;
-        if (dladdr(ra, &info)) {
-            printf("foreign function %s, pc = 0x%lx",
-                   info.dli_sname,
-                   (unsigned long) pc);
-        } else
-#endif
-        printf("foreign pc = 0x%lx",
-               (unsigned long) pc);
-    }
-    putchar('\n');
+    print_backtrace_frame(pc, fp);
 
     backtrace_from_fp(fp, nframes);
 }

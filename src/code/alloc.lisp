@@ -34,7 +34,7 @@
        (when (> static-space-end new-pointer)
          (store-word widetag
                      vector 0 other-pointer-lowtag)
-         (store-word (ash length word-shift)
+         (store-word (fixnumize length)
                      vector vector-length-slot other-pointer-lowtag)
          (store-word 0 new-pointer)
          (setf *static-space-free-pointer*

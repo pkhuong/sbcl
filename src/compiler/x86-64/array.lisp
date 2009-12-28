@@ -31,7 +31,7 @@
   (:generator 13
     (inst lea bytes
           (make-ea :qword
-                   :base rank :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                   :index rank :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                    :disp (+ (* (1+ array-dimensions-offset) n-word-bytes)
                             lowtag-mask)))
     (inst and bytes (lognot lowtag-mask))
@@ -344,24 +344,28 @@
                             complex-offset)
                          other-pointer-lowtag))))))
 
-(define-vop (data-vector-ref-with-offset/simple-array-single-float)
-  (:note "inline array access")
-  (:translate data-vector-ref-with-offset)
-  (:policy :fast-safe)
-  (:args (object :scs (descriptor-reg))
-         (index :scs (any-reg)))
-  (:info offset)
-  (:arg-types simple-array-single-float positive-fixnum
-              (:constant (constant-displacement other-pointer-lowtag
-                                                4 vector-data-offset)))
-  (:temporary (:sc unsigned-reg) dword-index)
-  (:results (value :scs (single-reg)))
-  (:result-types single-float)
-  (:generator 5
-   (move dword-index index)
-   #!+#.(cl:if (cl:<= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
-   (inst shr dword-index (1+ (- sb!vm:n-fixnum-tag-bits sb!vm:word-shift)))
-   (inst movss value (make-ea-for-float-ref object dword-index offset 4))))
+#.
+(let ((use-temp (<= word-shift n-fixnum-tag-bits)))
+  `(define-vop (data-vector-ref-with-offset/simple-array-single-float)
+     (:note "inline array access")
+     (:translate data-vector-ref-with-offset)
+     (:policy :fast-safe)
+     (:args (object :scs (descriptor-reg))
+            (index :scs (any-reg)))
+     (:info offset)
+     (:arg-types simple-array-single-float positive-fixnum
+                 (:constant (constant-displacement other-pointer-lowtag
+                                                   4 vector-data-offset)))
+     ,@(when use-temp '(:temporary (:sc unsigned-reg) dword-index))
+     (:results (value :scs (single-reg)))
+     (:result-types single-float)
+     (:generator 5
+      ,@(if use-temp
+            '((move dword-index index)
+              (inst shr dword-index (1+ (- n-fixnum-tag-bits word-shift)))
+              (inst movss value (make-ea-for-float-ref object dword-index offset 4)))
+            '((inst movss value (make-ea-for-float-ref object index offset 4
+                                 :scale (ash 4 (- n-fixnum-tag-bits)))))))))
 
 (define-vop (data-vector-ref-c-with-offset/simple-array-single-float)
   (:note "inline array access")
@@ -377,27 +381,31 @@
   (:generator 4
    (inst movss value (make-ea-for-float-ref object index offset 4))))
 
-(define-vop (data-vector-set-with-offset/simple-array-single-float)
-  (:note "inline array store")
-  (:translate data-vector-set-with-offset)
-  (:policy :fast-safe)
-  (:args (object :scs (descriptor-reg))
-         (index :scs (any-reg))
-         (value :scs (single-reg) :target result))
-  (:info offset)
-  (:arg-types simple-array-single-float positive-fixnum
-              (:constant (constant-displacement other-pointer-lowtag
-                                                4 vector-data-offset))
-               single-float)
-  (:temporary (:sc unsigned-reg) dword-index)
-  (:results (result :scs (single-reg)))
-  (:result-types single-float)
-  (:generator 5
-   (move dword-index index)
-   #!+#.(cl:if (cl:<= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
-   (inst shr dword-index (1+ (- sb!vm:n-fixnum-tag-bits sb!vm:word-shift)))
-   (inst movss (make-ea-for-float-ref object dword-index offset 4) value)
-   (move result value)))
+#.
+(let ((use-temp (<= word-shift n-fixnum-tag-bits)))
+  `(define-vop (data-vector-set-with-offset/simple-array-single-float)
+     (:note "inline array store")
+     (:translate data-vector-set-with-offset)
+     (:policy :fast-safe)
+     (:args (object :scs (descriptor-reg))
+            (index :scs (any-reg))
+            (value :scs (single-reg) :target result))
+     (:info offset)
+     (:arg-types simple-array-single-float positive-fixnum
+                 (:constant (constant-displacement other-pointer-lowtag
+                                                   4 vector-data-offset))
+                  single-float)
+     ,@(when use-temp '(:temporary (:sc unsigned-reg) dword-index))
+     (:results (result :scs (single-reg)))
+     (:result-types single-float)
+     (:generator 5
+      ,@(if use-temp
+            '((move dword-index index)
+              (inst shr dword-index (1+ (- n-fixnum-tag-bits word-shift)))
+              (inst movss (make-ea-for-float-ref object dword-index offset 4) value))
+            '((inst movss (make-ea-for-float-ref object index offset 4
+                           :scale (ash 4 (- n-fixnum-tag-bits))) value)))
+      (move result value))))
 
 (define-vop (data-vector-set-c-with-offset/simple-array-single-float)
   (:note "inline array store")
