@@ -386,14 +386,15 @@ create_thread_struct(lispobj initial_function) {
             SetSymbolValue
                 (FREE_TLS_INDEX,
                  /* FIXME: should be MAX_INTERRUPTS -1 ? */
-                 make_fixnum(MAX_INTERRUPTS+
-                             sizeof(struct thread)/sizeof(lispobj)),
+                 (MAX_INTERRUPTS
+                  + (sizeof(struct thread)/sizeof(lispobj)))
+                 << WORD_SHIFT,
                  0);
             SetSymbolValue(TLS_INDEX_LOCK,make_fixnum(0),0);
         }
 #define STATIC_TLS_INIT(sym,field) \
   ((struct symbol *)(sym-OTHER_POINTER_LOWTAG))->tls_index= \
-  make_fixnum(THREAD_SLOT_OFFSET_WORDS(field))
+  (THREAD_SLOT_OFFSET_WORDS(field) << WORD_SHIFT)
 
         STATIC_TLS_INIT(BINDING_STACK_START,binding_stack_start);
         STATIC_TLS_INIT(BINDING_STACK_POINTER,binding_stack_pointer);
