@@ -338,6 +338,8 @@ purify_cmd(char **ptr)
     purify(NIL, NIL);
 }
 
+void print_backtrace_frame(void *pc, void *fp);
+
 static void
 print_context(os_context_t *context)
 {
@@ -450,7 +452,7 @@ backtrace_context_cmd(char **ptr)
     printf("Backtrace from context %d:\n", i);
     backtrace_from_context(thread->interrupt_contexts[i], n);
 }
-#endif
+#else
 
 static void
 backtrace_context_cmd(char **ptr)
@@ -464,14 +466,14 @@ backtrace_context_cmd(char **ptr)
     free_ici = fixnum_value(SymbolValue(FREE_INTERRUPT_CONTEXT_INDEX,thread));
 
     if (!free_ici) {
-	printf("There are no interrupt contexts!\n");
-	return;
+        printf("There are no interrupt contexts!\n");
+        return;
     }
 
     if (more_p(ptr))
-	i = parse_number(ptr);
+        i = parse_number(ptr);
     else
-	i = free_ici - 1;
+        i = free_ici - 1;
 
     if (more_p(ptr))
         n = parse_number(ptr);
@@ -479,16 +481,17 @@ backtrace_context_cmd(char **ptr)
         n = 100;
 
     if ((i >= 0) && (i < free_ici)) {
-	printf("There are %d interrupt contexts.\n", free_ici);
+        printf("There are %d interrupt contexts.\n", free_ici);
     } else {
-	printf("There aren't that many/few contexts.\n");
-	printf("There are %d interrupt contexts.\n", free_ici);
-	return;
+        printf("There aren't that many/few contexts.\n");
+        printf("There are %d interrupt contexts.\n", free_ici);
+        return;
     }
 
     printf("Backtrace from context %d:\n", i);
     backtrace_from_context(thread->interrupt_contexts[i], n);
 }
+#endif
 
 static void
 catchers_cmd(char **ptr)
