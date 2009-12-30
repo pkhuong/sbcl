@@ -771,10 +771,7 @@ scav_unboxed(lispobj *where, lispobj object)
     return length;
 }
 
-#ifndef LISP_FEATURE_GENCGC
-static
-#endif
-lispobj
+static lispobj
 trans_unboxed(lispobj object)
 {
     lispobj header;
