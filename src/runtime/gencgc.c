@@ -352,6 +352,346 @@ static pthread_mutex_t free_pages_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t allocation_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
+#include <assert.h>
+
+struct foreign_allocation {
+    struct foreign_allocation * prev;
+    struct foreign_allocation * next;
+    lispobj * start;
+    lispobj * end;
+    int state;
+    /* 0 : maybe live (in limbo)
+     * 1 : live
+     * 2 : always live
+     */
+    generation_index_t earliest_ref;
+    /* oldest generation to refer to that page */
+};
+
+#ifdef LISP_FEATURE_SB_THREAD
+pthread_mutex_t foreign_allocation_lock = PTHREAD_MUTEX_INITIALIZER;
+#endif
+
+extern struct foreign_allocation * always_live_allocation;
+struct foreign_allocation * always_live_allocations = 0;
+
+// to sweep
+extern struct foreign_allocation * dead_allocations;
+struct foreign_allocation * dead_allocations = 0;
+
+// subject to mark/sweep (sorted in ascending addresses during GC)
+extern unsigned long live_allocation_count;
+unsigned long live_allocation_count = 0;
+extern unsigned long live_allocation_size;
+unsigned long live_allocation_size = 0;
+extern struct foreign_allocation ** live_allocation_vec;
+struct foreign_allocation ** live_allocations_vec = 0;
+
+// grey
+struct foreign_allocation * newly_live_allocations = 0;
+// black
+struct foreign_allocation * live_allocations = 0;
+
+struct foreign_ref {
+    lispobj * ptr;
+    generation_index_t gen;
+};
+
+unsigned long foreign_pointer_count = 0;
+unsigned long foreign_pointer_size = 0;
+foreign_ref * foreign_pointer_vector = 0;
+
+void process_foreign_pointers ();
+
+void enqueue_foreign_pointer (lispobj * ptr, lispobj * src))
+{
+    generation_index_t gen = 0;
+    if (!maybe_live_allocations) return;
+    if (-1 != find_page_index(ptr)) return;
+    if (ptr < maybe_live_allocations->start) return;
+    if (ptr >= maybe_live_allocations->prev->end) return;
+
+    if (src) {
+        page_index_t page;
+        page = find_page_index(src);
+        if (-1 != page)
+            gen = page_table[page].gen;
+    }
+
+    if (foreign_pointer_count >= foreign_pointer_size)
+        process_foreign_pointers();
+
+    foreign_pointer_vector[foreign_pointer_count].ptr = ptr;
+    foreign_pointer_vector[foreign_pointer_count].gen = gen;
+    foreign_pointer_count++;
+}
+
+int cmp_foreign_pointers (const void * a, const void * b)
+{
+    const struct foreign_ref * x = a;
+    const struct foreign_ref * y = b;
+
+    if (a < b)
+        return -1;
+    if (a == b)
+        return 0;
+    return 1;
+}
+
+void sort_foreign_pointers ()
+{
+    qsort(foreign_pointer_vector,
+          foreign_pointer_count, sizeof(foreign_ref),
+          cmp_foreign_pointers);
+}
+
+void enqueue_allocation (struct foreign_allocation ** queue,
+                         struct foreign_allocation * allocation)
+{
+    assert(!allocation->prev);
+    assert(!allocation->next);
+
+    if (!*queue) {
+        allocation->prev = allocation->next = allocation;
+        *queue = allocation;
+        return;
+    }
+
+    allocation->next = (*queue)->next;
+    allocation->next->prev = allocation;
+
+    (*queue)->next = allocation;
+    allocation->prev = *queue;
+}
+
+void dequeue_allocation (struct foreign_allocation ** queue,
+                         struct foreign_allocation * allocation)
+{
+    if (allocation->prev == allocation) {
+        assert(allocation->next == allocation);
+        *queue = 0;
+    } else {
+        allocation->next->prev = allocation->prev;
+        allocation->prev->next = allocation->next;
+    }
+
+    allocation->next = allocation->prev = 0;
+}
+
+void splice_allocations (struct foreign_allocation ** dest,
+                         struct foreign_allocation * queue)
+{
+    if (!queue) return;
+
+    if (!*dest) {
+        *dest = queue;
+        return;
+    }
+
+    struct foreign_allocation
+        * first_queue = queue,
+        * last_queue  = queue->prev,
+        * first_dest  = *dest,
+        * last_dest   = (*dest)->prev;
+
+    last_dest->next    = first_queue;
+    first_queue->prev  = last_dest;
+
+    last_queue->next   = first_dest;
+    first_dest->prev   = last_queue;
+}
+
+struct foreign_allocation * pop_allocation (struct foreign_allocation ** queue)
+{
+    if (!*queue)
+        return 0;
+
+    struct foreign_allocation * ret = *queue;
+    dequeue_allocation (queue, ret);
+    return ret;
+}
+
+void register_always_live_allocation (struct foreign_allocation * allocation)
+{
+    allocation->state = 2;
+    allocation->earliest_ref = 0;
+
+    enqueue_allocation(&always_live_allocations, allocation);
+}
+
+void retire_always_live_allocation (struct foreign_allocation * allocation)
+{
+    assert(2 == allocation->state);
+
+    dequeue_allocation(&always_live_allocations, allocation);
+}
+
+void register_gced_allocation (struct foreign_allocation * allocation)
+{
+    allocation->state = 1;
+    allocation->earliest_ref = 0;
+    enqueue_allocation(&live_allocations, allocation);
+}
+
+void retire_gced_allocation (struct foreign_allocation * allocation)
+{
+    assert(2 != allocation->state);
+
+    if (1 == allocation->state)
+        dequeue_allocation(&live_allocations, allocation);
+}
+
+void scavenge_foreign_allocations (struct foreign_allocation * allocations)
+{
+    struct foreign_allocation * ptr;
+    if (!allocations) return;
+
+    ptr = allocations;
+    do {
+        if (0 != ptr->state) {
+            printf("scavenge %lx %lx %lx\n", ptr, ptr->start, ptr->end);
+            scavenge(ptr->start, ptr->end - ptr->start);
+        }
+        ptr = ptr->next;
+    } while (ptr != allocations);
+}
+
+int cmp_foreign_allocation_ptr (const void * a, const void * b)
+{
+    const struct foreign_allocation * x = a;
+    const struct foreign_allocation * y = b;
+
+    if (x->start < y->start)
+        return -1;
+
+    if (x->start == y->start)
+        return 0;
+
+    return 1;
+}
+
+void sort_gced_allocations ()
+{
+    struct foreign_allocation * ptr, * next;
+    unsigned count = 0, size = 1024, i;
+    struct foreign_allocation ** vec;
+    assert(!maybe_live_allocations);
+    if (!live_allocations)
+        return;
+    /* Blit the list to a vector */
+    vec = successful_malloc(size*sizeof(struct foreign_allocation *));
+
+    ptr = live_allocations;
+    do {
+        if (ptr->earliest_ref > from_space) // it's live anyway
+            continue;
+        if (count >= size) {
+            vec = realloc(vec, sizeof(struct foreign_allocation *) * size * 2);
+            assert(vec);
+            size *= 2;
+        }
+        ptr->earliest_ref = 0;
+        ptr->state = 0;
+        vec[count++] = ptr;
+        next = ptr->next;
+        dequeue_allocation(live_allocations, ptr);
+        enqueue_allocation(maybe_live_allocations, ptr);
+    } while (ptr != live_allocations);
+
+    /* sort the vector */
+    qsort(vec,
+          count, sizeof(struct foreign_allocation *),
+          cmp_foreign_allocation_ptr);
+
+    assert(count);
+    /* And blit the sorted vector back to the list */
+    for (i = 0; i < count-1; i++) {
+        vec[i]->next = vec[i+1];
+        vec[i+1]->prev = vec[i];
+    }
+
+    vec[count-1]->next = vec[0];
+    vec[0]->prev = vec[count-1];
+
+    maybe_live_allocations = vec[0];
+
+    free(vec);
+}
+
+static int
+looks_like_valid_lisp_pointer_p(lispobj *pointer, lispobj *start_addr);
+
+void process_foreign_pointers ()
+{
+    struct foreign_allocation * alloc;
+    unsigned i;
+    lispobj * search_ptr;
+    foreign_ref foreign;
+
+    if (!maybe_live_allocations)
+        goto done;
+    if (!foreign_pointer_count)
+        goto done;
+
+    printf("in process foreign pointers %lu %lx\n",
+           foreign_pointer_count, maybe_live_allocations);
+
+    sort_foreign_pointers();
+
+    alloc = maybe_live_allocations;
+    search_ptr = alloc->start;
+    i = 0;
+    foreign = foreign_pointer_vector[0];
+#define NEXT_ALLOC                                              \
+    do {                                                        \
+        alloc = alloc->next;                                    \
+        search_ptr = alloc->start;                              \
+        if (alloc == maybe_live_allocations) goto done;         \
+        assert(alloc->prev->start < search_ptr);                \
+    } while (0)
+
+#define NEXT_FOREIGN                                    \
+    do {                                                \
+        if (++i >= foreign_pointer_count) goto done;    \
+        foreign = foreign_pointer_vector[i];            \
+        assert(foreign_pointer_vector[i] <= foreign);   \
+    } while (0)
+
+    while (1) {
+        while (!((alloc->start <= foreign.ptr)
+                 && (foreign.ptr < alloc->end))) {
+            printf("looking at alloc 1: %lx; ptr: %lx\n",
+                   alloc, foreign.ptr);
+            while (!(foreign.ptr < alloc->end))
+                NEXT_ALLOC;
+
+            while (!(foreign.otr >= alloc->start))
+                NEXT_FOREIGN;
+        }
+
+        printf("looking at alloc 2: %lx; ptr: %lx\n", alloc, foreign.ref);
+
+        lispobj * enclosing
+            = gc_search_space(search_ptr, alloc->end-search_ptr, foreign.ref);
+        if (enclosing) {
+            search_ptr = enclosing;
+            if (looks_like_valid_lisp_pointer_p(foreign.ref, enclosing)) {
+                alloc->state = 1;
+                if (alloc->earliest_ref < foreign.gen)
+                    alloc->earliest_ref = foreign.gen;
+                search_ptr = alloc->start;
+            }
+        }
+
+        NEXT_FOREIGN;
+    }
+
+#undef NEXT_FOREIGN
+#undef NEXT_ALLOC
+    done:
+    foreign_pointer_count = 0;
+}
+
 
 /*
  * miscellaneous heap functions
@@ -2713,9 +3053,14 @@ preserve_pointer(void *addr)
     page_index_t i;
     unsigned int region_allocation;
 
+    /* points to foreign heap... */
+    if (addr_page_index == -1) {
+        enqueue_foreign_pointer(addr, 0);
+        return;
+    }
+
     /* quick check 1: Address is quite likely to have been invalid. */
-    if ((addr_page_index == -1)
-        || page_free_p(addr_page_index)
+    if (page_free_p(addr_page_index)
         || (page_table[addr_page_index].bytes_used == 0)
         || (page_table[addr_page_index].gen != from_space)
         /* Skip if already marked dont_move. */
@@ -3044,6 +3389,7 @@ scavenge_newspace_generation_one_scan(generation_index_t generation)
     FSHOW((stderr,
            "/starting one full scan of newspace generation %d\n",
            generation));
+
     for (i = 0; i < last_free_page; i++) {
         /* Note that this skips over open regions when it encounters them. */
         if (page_boxed_p(i)
@@ -3102,6 +3448,16 @@ scavenge_newspace_generation_one_scan(generation_index_t generation)
            generation));
 }
 
+void mark_foreign_alloc ()
+{
+    process_foreign_pointers();
+    if (newly_live_allocations) {
+        scavenge_foreign_allocations(newly_live_allocations);
+        splice_allocations(&live_allocations, newly_live_allocations);
+        newly_live_allocations = 0;
+    }
+}
+
 /* Do a complete scavenge of the newspace generation. */
 static void
 scavenge_newspace_generation(generation_index_t generation)
@@ -3139,6 +3495,7 @@ scavenge_newspace_generation(generation_index_t generation)
      * http://www.haible.de/bruno/papers/cs/weak/WeakDatastructures-writeup.html
      * see "Implementation 2". */
     scav_weak_hash_tables();
+    mark_foreign_alloc();
 
     /* Flush the current regions updating the tables. */
     gc_alloc_update_all_page_tables();
@@ -3150,7 +3507,8 @@ scavenge_newspace_generation(generation_index_t generation)
              "The first scan is finished; current_new_areas_index=%d.\n",
              current_new_areas_index));*/
 
-    while (current_new_areas_index > 0) {
+    while ((current_new_areas_index > 0)
+           || (foreign_pointer_count > 0)) {
         /* Move the current to the previous new areas */
         previous_new_areas = current_new_areas;
         previous_new_areas_index = current_new_areas_index;
@@ -3182,19 +3540,17 @@ scavenge_newspace_generation(generation_index_t generation)
             /* Don't need to record new areas that get scavenged
              * anyway during scavenge_newspace_generation_one_scan. */
             record_new_objects = 1;
-
             scavenge_newspace_generation_one_scan(generation);
 
             /* Record all new areas now. */
             record_new_objects = 2;
 
             scav_weak_hash_tables();
-
+            mark_foreign_alloc();
             /* Flush the current regions updating the tables. */
             gc_alloc_update_all_page_tables();
 
         } else {
-
             /* Work through previous_new_areas. */
             for (i = 0; i < previous_new_areas_index; i++) {
                 page_index_t page = (*previous_new_areas)[i].page;
@@ -3205,7 +3561,7 @@ scavenge_newspace_generation(generation_index_t generation)
             }
 
             scav_weak_hash_tables();
-
+            mark_foreign_alloc();
             /* Flush the current regions updating the tables. */
             gc_alloc_update_all_page_tables();
         }
@@ -4007,6 +4363,9 @@ garbage_collect_generation(generation_index_t generation, int raise)
     unmark_lutexes(generation);
 #endif
 
+    /* Prepare for mark/sweep of GCed foreign alloc regions. */
+    sort_gced_allocations();
+
     /* When a generation is not being raised it is transported to a
      * temporary generation (NUM_GENERATIONS), and lowered when
      * done. Set up this new generation. There should be no pages
@@ -4174,6 +4533,10 @@ garbage_collect_generation(generation_index_t generation, int raise)
      * objects may be moved in - it is handled separately below. */
     scavenge_generations(generation+1, PSEUDO_STATIC_GENERATION);
 
+    /* Scavenge the manually managed and known live foreign alloc regions. */
+    scavenge_foreign_allocations(always_live_allocations);
+    scavenge_foreign_allocations(live_allocations);
+
     /* Finally scavenge the new_space generation. Keep going until no
      * more objects are moved into the new generation */
     scavenge_newspace_generation(new_space);
@@ -4339,6 +4702,13 @@ collect_garbage(generation_index_t last_gen)
         last_gen = 0;
     }
 
+    assert(!maybe_live_allocations);
+    newly_live_allocations = 0;
+    foreign_pointer_count = 0;
+    foreign_pointer_size = 1024*1024;
+    foreign_pointer_vector = realloc(foreign_pointer_vector,
+                                     1024*1024*sizeof(lispobj *));
+
     /* Flush the alloc regions updating the tables. */
     gc_alloc_update_all_page_tables();
 
@@ -4450,6 +4820,12 @@ collect_garbage(generation_index_t last_gen)
         remap_free_pages(0, high_water_mark);
         high_water_mark = 0;
     }
+
+    /* Everything that's not definitely live is dead */
+    splice_allocations(&dead_allocations, maybe_live_allocations);
+    maybe_live_allocations = 0;
+
+    gc_assert(0 == foreign_pointer_count);
 
     gc_active_p = 0;
 

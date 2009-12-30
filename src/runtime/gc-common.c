@@ -133,6 +133,10 @@ copy_code_object(lispobj object, long nwords)
 
 static long scav_lose(lispobj *where, lispobj object); /* forward decl */
 
+#ifdef LISP_FEATURE_GENCGC
+void enqueue_foreign_pointer (lispobj * ptr, lispobj * src);
+#endif
+
 /* FIXME: Most calls end up going to some trouble to compute an
  * 'n_words' value for this function. The system might be a little
  * simpler if this function used an 'end' parameter instead. */
@@ -171,6 +175,9 @@ scavenge(lispobj *start, long n_words)
                 /* It points somewhere other than oldspace. Leave it
                  * alone. */
                 n_words_scavenged = 1;
+                #ifdef LISP_FEATURE_GENCGC
+                enqueue_foreign_pointer((lispobj*)object, object_ptr);
+                #endif
             }
         }
 #if !defined(LISP_FEATURE_X86) && !defined(LISP_FEATURE_X86_64)
