@@ -46,7 +46,6 @@
  * that buffer is processed from time to time.
  */
 
-#include <stdio.h>
 #include <stdlib.h>
 #include "sbcl.h"
 #include "runtime.h"
@@ -58,7 +57,6 @@ int looks_like_valid_lisp_pointer_p(lispobj *pointer, lispobj *start_addr);
 #ifdef LISP_FEATURE_SB_THREAD
 pthread_mutex_t foreign_allocation_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
-
 
 struct foreign_allocation * always_live_allocations = 0;
 // to sweep
@@ -230,9 +228,6 @@ void process_foreign_pointers ()
     if (!foreign_pointer_count)
         goto done;
 
-    printf("in process foreign pointers %lu %p\n",
-           foreign_pointer_count, maybe_live_allocations);
-
     sort_foreign_pointers();
 
     alloc = maybe_live_allocations;
@@ -256,16 +251,12 @@ void process_foreign_pointers ()
         int live_p = 0;
         while (!((alloc->start <= foreign.ptr)
                  && (foreign.ptr < alloc->end))) {
-            printf("looking at alloc 1: %p; ptr: %p\n",
-                   alloc, foreign.ptr);
             while (!(foreign.ptr < alloc->end))
                 NEXT_ALLOC;
 
             while (!(foreign.ptr >= alloc->start))
                 NEXT_FOREIGN;
         }
-
-        printf("looking at alloc 2: %p; ptr: %p\n", alloc, foreign.ptr);
 
         if (alloc->type & 1) { // any pointer counts!
             // SAP's low bit is cleared, so either it's a preserved pointer
@@ -408,18 +399,13 @@ void scavenge_foreign_allocations (struct foreign_allocation * allocations)
     struct foreign_allocation * ptr;
     if (!allocations) return;
 
-    printf("in scavenge foreign...\n");
-
     ptr = allocations;
     do {
         if (!(ptr->type & 8)) continue;
-        printf("scavenge %p %p %p\n", ptr, ptr->start, ptr->end);
         scavenge(ptr->start, ptr->end - ptr->start);
         gc_assert(!from_space_p(*ptr->start));
         ptr = ptr->next;
     } while ((ptr = ptr->next) != allocations);
-
-    printf("done scavenge foreign\n");
 }
 
 /* execute once all the roots have been scavenged */
@@ -434,15 +420,11 @@ void scavenge_teenaged_alloc ()
 
     if (!maybe_live_allocations) return;
 
-    printf("scavenge teenaged...\n");
     ptr = maybe_live_allocations;
     do {
-        if ((1 == ptr->state) && (ptr->type & 8)) {
-            printf("scavenge %p %p %p\n", ptr, ptr->start, ptr->end);
+        if ((1 == ptr->state) && (ptr->type & 8))
             scavenge(ptr->start, ptr->end-ptr->start);
-        }
     } while ((ptr = ptr->next) != maybe_live_allocations);
-    printf("done with teenagers\n");
 }
 
 void mark_foreign_alloc ()
@@ -451,11 +433,9 @@ void mark_foreign_alloc ()
     while (foreign_pointer_count || newly_live_allocations) {
         process_foreign_pointers();
         if (newly_live_allocations) {
-            printf("in mark foreign alloc...\n");
             scavenge_foreign_allocations(newly_live_allocations);
             splice_allocations(&live_allocations, newly_live_allocations);
             newly_live_allocations = 0;
-            printf("done marking\n");
         }
     }
 }
@@ -469,8 +449,6 @@ void sweep_allocations ()
 
     if (!maybe_live_allocations) return;
 
-    printf("in sweep allocations...\n");
-
     do {
         if (0 == ptr->state) {
             struct foreign_allocation * next = ptr->next;
@@ -483,6 +461,4 @@ void sweep_allocations ()
             ptr = ptr->next;
         }
     } while (ptr != maybe_live_allocations);
-
-    printf("sweep allocations done\n");
 }

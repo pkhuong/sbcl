@@ -3211,6 +3211,7 @@ scavenge_newspace_generation(generation_index_t generation)
             gc_alloc_update_all_page_tables();
 
         } else {
+
             /* Work through previous_new_areas. */
             for (i = 0; i < previous_new_areas_index; i++) {
                 page_index_t page = (*previous_new_areas)[i].page;
@@ -4188,10 +4189,8 @@ garbage_collect_generation(generation_index_t generation, int raise)
     scavenge( (lispobj *) STATIC_SPACE_START, static_space_size);
 
     /* Scavenge the manually managed and known live foreign alloc regions. */
-    printf("scavenging known live...\n");
     scavenge_foreign_allocations(always_live_allocations);
     scavenge_foreign_allocations(live_allocations);
-    printf("done scavenging known live\n");
 
     /* Done scavenging roots... scavenge teenagers */
     scavenge_teenaged_alloc();

@@ -216,7 +216,6 @@
                                                (,fn obj1 obj2)))))
                                     stuff))))
             (foo
-             #!-x86-64
              (single-float eql)
              (double-float eql)
              #!+long-float
