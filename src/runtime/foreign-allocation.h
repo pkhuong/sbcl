@@ -58,6 +58,7 @@ extern void (*enqueue_lisp_pointer)(lispobj *);
 void enqueue_random_pointer (lispobj * ptr);
 void enqueue_sap_pointer (void * ptr);
 
+// should that be public?
 void process_foreign_pointers ();
 
 void prepare_foreign_allocations_for_gc (int full_gc_p);

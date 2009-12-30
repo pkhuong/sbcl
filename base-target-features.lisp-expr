@@ -304,6 +304,9 @@
  ;; foreign code that uses a 32-bit off_t.
  ; :largefile
 
+ ;; GC can be made aware of regions of the foreign heap.
+ ; :sb-foreign-allocation
+
  ;;
  ;; miscellaneous notes on other things which could have special significance
  ;; in the *FEATURES* list

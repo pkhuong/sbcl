@@ -23,6 +23,9 @@ CPPFLAGS += -no-cpp-precomp
 
 ifdef LISP_FEATURE_GENCGC
   GC_SRC = gencgc.c
+ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
+    GC_SRC += foreign-allocation.c
+endif
 else
   GC_SRC = cheneygc.c
 endif

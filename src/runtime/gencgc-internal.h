@@ -113,6 +113,9 @@ void gc_set_region_empty(struct alloc_region *region);
 /*
  * predicates
  */
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+int looks_like_valid_lisp_pointer_p(lispobj *pointer, lispobj *start_addr);
+#endif
 
 static inline boolean
 space_matches_p(lispobj obj, generation_index_t space)

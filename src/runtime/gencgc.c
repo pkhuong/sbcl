@@ -56,7 +56,9 @@
 #include "pthread-lutex.h"
 #endif
 
+#ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
 #include "foreign-allocation.h"
+#endif
 
 /* forward declarations */
 page_index_t  gc_find_freeish_pages(long *restart_page_ptr, long nbytes,
@@ -2717,8 +2719,10 @@ preserve_pointer(void *addr)
 
     /* points to foreign heap... */
     if (addr_page_index == -1) {
+#ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
         if (scanning_roots_p)
             enqueue_random_pointer(addr);
+#endif
         return;
     }
 
@@ -3052,7 +3056,6 @@ scavenge_newspace_generation_one_scan(generation_index_t generation)
     FSHOW((stderr,
            "/starting one full scan of newspace generation %d\n",
            generation));
-
     for (i = 0; i < last_free_page; i++) {
         /* Note that this skips over open regions when it encounters them. */
         if (page_boxed_p(i)
@@ -3152,8 +3155,10 @@ scavenge_newspace_generation(generation_index_t generation)
      * works better when batched, only process them if we might otherwise stop
      * GCing.
      */
+#ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
     if (!new_areas_index)
             mark_foreign_alloc();
+#endif
 
     /* Flush the current regions updating the tables. */
     gc_alloc_update_all_page_tables();
@@ -3204,8 +3209,10 @@ scavenge_newspace_generation(generation_index_t generation)
             record_new_objects = 2;
 
             scav_weak_hash_tables();
+#ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
             if (!new_areas_index)
                     mark_foreign_alloc();
+#endif
 
             /* Flush the current regions updating the tables. */
             gc_alloc_update_all_page_tables();
@@ -3222,8 +3229,10 @@ scavenge_newspace_generation(generation_index_t generation)
             }
 
             scav_weak_hash_tables();
+#ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
             if (!new_areas_index)
                     mark_foreign_alloc();
+#endif
 
             /* Flush the current regions updating the tables. */
             gc_alloc_update_all_page_tables();
@@ -4188,12 +4197,14 @@ garbage_collect_generation(generation_index_t generation, int raise)
     }
     scavenge( (lispobj *) STATIC_SPACE_START, static_space_size);
 
+#ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
     /* Scavenge the manually managed and known live foreign alloc regions. */
     scavenge_foreign_allocations(always_live_allocations);
     scavenge_foreign_allocations(live_allocations);
 
     /* Done scavenging roots... scavenge teenagers */
     scavenge_teenaged_alloc();
+#endif
 
     /* All generations but the generation being GCed need to be
      * scavenged. The new_space generation needs special handling as
@@ -4365,7 +4376,9 @@ collect_garbage(generation_index_t last_gen)
         last_gen = 0;
     }
 
+#ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
     prepare_foreign_allocations_for_gc(HIGHEST_NORMAL_GENERATION+1 == last_gen);
+#endif
 
     /* Flush the alloc regions updating the tables. */
     gc_alloc_update_all_page_tables();
@@ -4479,7 +4492,9 @@ collect_garbage(generation_index_t last_gen)
         high_water_mark = 0;
     }
 
+#ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
     sweep_allocations();
+#endif
 
     gc_active_p = 0;
 

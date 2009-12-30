@@ -51,8 +51,7 @@
 #include "runtime.h"
 #include "gc-internal.h"
 #include "genesis/sap.h"
-/* defined in gencgc.c */
-int looks_like_valid_lisp_pointer_p(lispobj *pointer, lispobj *start_addr);
+#include "gencgc-internal.h"
 #include "foreign-allocation.h"
 
 #ifdef LISP_FEATURE_SB_THREAD
@@ -187,6 +186,8 @@ unsigned long foreign_pointer_count = 0;
 unsigned long foreign_pointer_size = 0;
 struct foreign_ref * foreign_pointer_vector = 0;
 
+void (*enqueue_lisp_pointer)(lispobj *) = 0;
+
 void enqueue_random_pointer (lispobj * ptr)
 {
     if (!maybe_live_allocations) return;
@@ -199,8 +200,6 @@ void enqueue_random_pointer (lispobj * ptr)
     foreign_pointer_vector[foreign_pointer_count].ptr = ptr;
     foreign_pointer_count++;
 }
-
-void (*enqueue_lisp_pointer)(lispobj *) = 0;
 
 void enqueue_sap_pointer (void * ptr)
 {
@@ -218,6 +217,7 @@ void enqueue_sap_pointer (void * ptr)
 }
 
 lispobj (*default_trans_sap)(lispobj obj) = 0;
+
 static lispobj
 trans_sap(lispobj object)
 {
@@ -250,7 +250,9 @@ void process_foreign_pointers ()
 {
     struct foreign_allocation * alloc;
     unsigned i;
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
     lispobj * search_ptr;
+#endif
     struct foreign_ref foreign;
 
     if (!maybe_live_allocations)
@@ -264,12 +266,21 @@ void process_foreign_pointers ()
     search_ptr = alloc->start;
     i = 0;
     foreign = foreign_pointer_vector[0];
+
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
 #define NEXT_ALLOC                                              \
     do {                                                        \
         alloc = alloc->next;                                    \
         search_ptr = alloc->start;                              \
         if (alloc == maybe_live_allocations) goto done;         \
     } while (0)
+#else
+#define NEXT_ALLOC                                              \
+    do {                                                        \
+        alloc = alloc->next;                                    \
+        if (alloc == maybe_live_allocations) goto done;         \
+    } while (0)
+#endif
 
 #define NEXT_FOREIGN                                    \
     do {                                                \
@@ -318,6 +329,7 @@ void process_foreign_pointers ()
         /* Lisp-like heap: */
         if (!(is_lisp_pointer((lispobj)foreign.ptr)||scanning_roots_p))
             goto next;
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
         lispobj * enclosing
             = gc_search_space(search_ptr, alloc->end-search_ptr, foreign.ptr);
         if (!enclosing)
@@ -326,7 +338,9 @@ void process_foreign_pointers ()
 
         if (!looks_like_valid_lisp_pointer_p(foreign.ptr, enclosing))
             goto next;
+#endif
 
+        live_p = 1;
         next:
         if (live_p) {
             if (scanning_roots_p) {
@@ -504,3 +518,4 @@ void sweep_allocations ()
         }
     } while (ptr != maybe_live_allocations);
 }
+

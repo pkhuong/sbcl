@@ -16,7 +16,10 @@ ARCH_SRC = x86-64-arch.c
 OS_SRC = sunos-os.c x86-64-sunos-os.c os-common.c
 OS_LIBS= -ldl -lsocket -lnsl -lrt
 
-GC_SRC= gencgc.c
+GC_SRC = gencgc.c
+ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
+  GC_SRC += foreign-allocation.c
+endif
 
 # Nothing to do for after-grovel-headers.
 .PHONY: after-grovel-headers

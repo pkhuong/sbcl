@@ -44,7 +44,7 @@
 #include "genesis/hash-table.h"
 #include "gc-internal.h"
 
-#ifdef LISP_FEATURE_GENCGC
+#ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
 #include "foreign-allocation.h"
 #endif
 
@@ -175,10 +175,10 @@ scavenge(lispobj *start, long n_words)
                 /* It points somewhere other than oldspace. Leave it
                  * alone. */
                 n_words_scavenged = 1;
-                #ifdef LISP_FEATURE_GENCGC
+#ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
                 if (enqueue_lisp_pointer)
                         enqueue_lisp_pointer((lispobj*)object);
-                #endif
+#endif
             }
         }
 #if !defined(LISP_FEATURE_X86) && !defined(LISP_FEATURE_X86_64)

@@ -25,6 +25,9 @@ ARCH_SRC = x86-arch.c
 CPPFLAGS += -no-cpp-precomp
 
 GC_SRC = gencgc.c
+ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
+  GC_SRC += foreign-allocation.c
+endif
 
 .PHONY: after-grovel-headers
 

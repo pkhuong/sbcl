@@ -19,6 +19,9 @@ OS_SRC = bsd-os.c undefineds.c ppc-bsd-os.c
 OS_LIBS = # -ldl
 
 GC_SRC = gencgc.c
+ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
+  GC_SRC += foreign-allocation.c
+endif
 
 # Nothing to do for after-grovel-headers.
 .PHONY: after-grovel-headers

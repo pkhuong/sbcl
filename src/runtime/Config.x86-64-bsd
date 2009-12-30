@@ -19,6 +19,9 @@ OS_LIBS = # -ldl
 CFLAGS += -fno-omit-frame-pointer
 
 GC_SRC = gencgc.c
+ifdef LISP_FEATURE_SB_FOREIGN_ALLOCATION
+  GC_SRC += foreign-allocation.c
+endif
 
 # Nothing to do for after-grovel-headers.
 .PHONY: after-grovel-headers
