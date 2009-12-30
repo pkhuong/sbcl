@@ -44,6 +44,10 @@
 #include "genesis/hash-table.h"
 #include "gc-internal.h"
 
+#ifdef LISP_FEATURE_GENCGC
+#include "foreign-allocation.h"
+#endif
+
 #ifdef LISP_FEATURE_SPARC
 #define LONG_FLOAT_SIZE 4
 #else
@@ -132,10 +136,6 @@ copy_code_object(lispobj object, long nwords)
 }
 
 static long scav_lose(lispobj *where, lispobj object); /* forward decl */
-
-#ifdef LISP_FEATURE_GENCGC
-void enqueue_foreign_pointer (lispobj * ptr);
-#endif
 
 /* FIXME: Most calls end up going to some trouble to compute an
  * 'n_words' value for this function. The system might be a little
