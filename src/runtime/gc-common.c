@@ -134,7 +134,7 @@ copy_code_object(lispobj object, long nwords)
 static long scav_lose(lispobj *where, lispobj object); /* forward decl */
 
 #ifdef LISP_FEATURE_GENCGC
-void enqueue_foreign_pointer (lispobj * ptr, lispobj * src);
+void enqueue_foreign_pointer (lispobj * ptr);
 #endif
 
 /* FIXME: Most calls end up going to some trouble to compute an
@@ -176,7 +176,7 @@ scavenge(lispobj *start, long n_words)
                  * alone. */
                 n_words_scavenged = 1;
                 #ifdef LISP_FEATURE_GENCGC
-                enqueue_foreign_pointer((lispobj*)object, object_ptr);
+                enqueue_foreign_pointer((lispobj*)object);
                 #endif
             }
         }

@@ -352,7 +352,53 @@ static pthread_mutex_t free_pages_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t allocation_lock = PTHREAD_MUTEX_INITIALIZER;
 #endif
 
-#include <assert.h>
+/* Support for either scavenged or mark/sweep and scavenged regions
+ * in the foreign heap.
+ *
+ * Scavenged-only regions are easy: they are treated as additional
+ * roots and otherwise managed manually.
+ *
+ * Otherwise, a weak generational mark/sweep model is used:
+ * GCed regions are either dead, adult or teenaged.
+ *
+ * Dead regions are only waiting to be deallocated; their contents
+ * are completely ignored and may contain wild pointers. Outside GCs,
+ * these regions are in the dead_allocations list.
+ *
+ * Adult regions may be pointed to by random places in the heap;
+ * they can only be GCed on full collections. These regions are in
+ * the live_allocations list.
+ *
+ * Teenaged regions are only pointed to by roots; they are GCed
+ * at every collection (until they pass majority). These regions are
+ * in the maybe_live_allocations list.
+ *
+ * A region is only in limbo during GC. Once the GC is done, any
+ * region still in limbo is dead. During GC, they are only found in
+ * maybe_live_allocations.
+ *
+ * The first step of any GC is to scavenge (scan in our case) the roots.
+ * Teenaged regions are demoted in limbo. When scanning roots, regions
+ * in limbo become teenagers. When we're done scanning roots, these reborn
+ * regions are scavenged, but remain on the white list: they could still
+ * pass majority.
+ *
+ * When scanning the general heap, teenaged or in-limbo regions become
+ * adults. Since teenaged regions have already been scavenged, only 
+ * those in limbo are put on a to-scavenge list (newly_live_regions).
+ *
+ * While scavenging the new_space, we also scavenge newly_live_regions,
+ * before splicing it into live_regions.
+ *
+ * When we're done GCing, any region in maybe_live that's still in limbo
+ * is dead, while teenaged regions remain there.
+ *
+ * On full GCs, everything is a rejuvenated as in limbo.
+ *
+ * In the actual implementation, pointers into foreign allocations aren't
+ * followed immediately.  Instead, they are accumulated in a buffer, and
+ * that buffer is processed from time to time.
+ */
 
 struct foreign_allocation {
     struct foreign_allocation * prev;
@@ -360,12 +406,11 @@ struct foreign_allocation {
     lispobj * start;
     lispobj * end;
     int state;
-    /* 0 : maybe live (in limbo)
-     * 1 : live
-     * 2 : always live
+    /* 0 : dead or in limbo
+     * 1 : teenager (live, but only from direct roots)
+     * 2 : adult (live, from heap)
+     * -1 : always live
      */
-    generation_index_t earliest_ref;
-    /* oldest generation to refer to that page */
 };
 
 #ifdef LISP_FEATURE_SB_THREAD
@@ -379,50 +424,39 @@ struct foreign_allocation * always_live_allocations = 0;
 extern struct foreign_allocation * dead_allocations;
 struct foreign_allocation * dead_allocations = 0;
 
-// subject to mark/sweep (sorted in ascending addresses during GC)
-extern unsigned long live_allocation_count;
-unsigned long live_allocation_count = 0;
-extern unsigned long live_allocation_size;
-unsigned long live_allocation_size = 0;
-extern struct foreign_allocation ** live_allocation_vec;
-struct foreign_allocation ** live_allocations_vec = 0;
+// white: if partial GC, filled with limbo and teens
+//         if full GC, filled with everything.
+extern struct foreign_allocation * maybe_live_allocations;
+struct foreign_allocation * maybe_live_allocations = 0;
 
 // grey
 struct foreign_allocation * newly_live_allocations = 0;
 // black
+extern struct foreign_allocation * live_allocations;
 struct foreign_allocation * live_allocations = 0;
 
 struct foreign_ref {
     lispobj * ptr;
-    generation_index_t gen;
 };
+
+int scanning_roots_p = 0;
 
 unsigned long foreign_pointer_count = 0;
 unsigned long foreign_pointer_size = 0;
-foreign_ref * foreign_pointer_vector = 0;
+struct foreign_ref * foreign_pointer_vector = 0;
 
 void process_foreign_pointers ();
 
-void enqueue_foreign_pointer (lispobj * ptr, lispobj * src))
+void enqueue_foreign_pointer (lispobj * ptr)
 {
-    generation_index_t gen = 0;
     if (!maybe_live_allocations) return;
-    if (-1 != find_page_index(ptr)) return;
     if (ptr < maybe_live_allocations->start) return;
     if (ptr >= maybe_live_allocations->prev->end) return;
-
-    if (src) {
-        page_index_t page;
-        page = find_page_index(src);
-        if (-1 != page)
-            gen = page_table[page].gen;
-    }
 
     if (foreign_pointer_count >= foreign_pointer_size)
         process_foreign_pointers();
 
     foreign_pointer_vector[foreign_pointer_count].ptr = ptr;
-    foreign_pointer_vector[foreign_pointer_count].gen = gen;
     foreign_pointer_count++;
 }
 
@@ -431,9 +465,9 @@ int cmp_foreign_pointers (const void * a, const void * b)
     const struct foreign_ref * x = a;
     const struct foreign_ref * y = b;
 
-    if (a < b)
+    if (x->ptr < y->ptr)
         return -1;
-    if (a == b)
+    if (x->ptr == y->ptr)
         return 0;
     return 1;
 }
@@ -441,15 +475,15 @@ int cmp_foreign_pointers (const void * a, const void * b)
 void sort_foreign_pointers ()
 {
     qsort(foreign_pointer_vector,
-          foreign_pointer_count, sizeof(foreign_ref),
+          foreign_pointer_count, sizeof(struct foreign_ref),
           cmp_foreign_pointers);
 }
 
 void enqueue_allocation (struct foreign_allocation ** queue,
                          struct foreign_allocation * allocation)
 {
-    assert(!allocation->prev);
-    assert(!allocation->next);
+    gc_assert(!allocation->prev);
+    gc_assert(!allocation->next);
 
     if (!*queue) {
         allocation->prev = allocation->next = allocation;
@@ -468,7 +502,7 @@ void dequeue_allocation (struct foreign_allocation ** queue,
                          struct foreign_allocation * allocation)
 {
     if (allocation->prev == allocation) {
-        assert(allocation->next == allocation);
+        gc_assert(allocation->next == allocation);
         *queue = 0;
     } else {
         allocation->next->prev = allocation->prev;
@@ -513,15 +547,14 @@ struct foreign_allocation * pop_allocation (struct foreign_allocation ** queue)
 
 void register_always_live_allocation (struct foreign_allocation * allocation)
 {
-    allocation->state = 2;
-    allocation->earliest_ref = 0;
+    allocation->state = -1;
 
     enqueue_allocation(&always_live_allocations, allocation);
 }
 
 void retire_always_live_allocation (struct foreign_allocation * allocation)
 {
-    assert(2 == allocation->state);
+    gc_assert(-1 == allocation->state);
 
     dequeue_allocation(&always_live_allocations, allocation);
 }
@@ -529,16 +562,24 @@ void retire_always_live_allocation (struct foreign_allocation * allocation)
 void register_gced_allocation (struct foreign_allocation * allocation)
 {
     allocation->state = 1;
-    allocation->earliest_ref = 0;
-    enqueue_allocation(&live_allocations, allocation);
+    enqueue_allocation(&maybe_live_allocations, allocation);
 }
 
 void retire_gced_allocation (struct foreign_allocation * allocation)
 {
-    assert(2 != allocation->state);
+    struct foreign_allocation ** queue;
 
-    if (1 == allocation->state)
-        dequeue_allocation(&live_allocations, allocation);
+    switch (allocation->state) {
+    case 0: queue = &dead_allocations;
+    case 1: queue = &maybe_live_allocations;
+    case 2: queue = &live_allocations;
+    default:
+        lose("Bad allocation state (%i) for GCed allocation %p",
+             allocation->state, allocation);
+        return;
+    }
+
+    dequeue_allocation(queue, allocation);
 }
 
 void scavenge_foreign_allocations (struct foreign_allocation * allocations)
@@ -546,14 +587,17 @@ void scavenge_foreign_allocations (struct foreign_allocation * allocations)
     struct foreign_allocation * ptr;
     if (!allocations) return;
 
+    printf("in scavenge foreign...\n");
+
     ptr = allocations;
     do {
-        if (0 != ptr->state) {
-            printf("scavenge %lx %lx %lx\n", ptr, ptr->start, ptr->end);
-            scavenge(ptr->start, ptr->end - ptr->start);
-        }
+        printf("scavenge %lx %lx %lx\n", ptr, ptr->start, ptr->end);
+        scavenge(ptr->start, ptr->end - ptr->start);
+        gc_assert(!from_space_p(*ptr->start));
         ptr = ptr->next;
-    } while (ptr != allocations);
+    } while ((ptr = ptr->next) != allocations);
+
+    printf("done scavenge foreign\n");
 }
 
 int cmp_foreign_allocation_ptr (const void * a, const void * b)
@@ -572,38 +616,32 @@ int cmp_foreign_allocation_ptr (const void * a, const void * b)
 
 void sort_gced_allocations ()
 {
-    struct foreign_allocation * ptr, * next;
+    struct foreign_allocation * ptr;
     unsigned count = 0, size = 1024, i;
     struct foreign_allocation ** vec;
-    assert(!maybe_live_allocations);
-    if (!live_allocations)
+    if (!maybe_live_allocations)
         return;
     /* Blit the list to a vector */
     vec = successful_malloc(size*sizeof(struct foreign_allocation *));
 
-    ptr = live_allocations;
+    ptr = maybe_live_allocations;
     do {
-        if (ptr->earliest_ref > from_space) // it's live anyway
-            continue;
         if (count >= size) {
             vec = realloc(vec, sizeof(struct foreign_allocation *) * size * 2);
-            assert(vec);
+            gc_assert(vec);
             size *= 2;
         }
-        ptr->earliest_ref = 0;
+
         ptr->state = 0;
         vec[count++] = ptr;
-        next = ptr->next;
-        dequeue_allocation(live_allocations, ptr);
-        enqueue_allocation(maybe_live_allocations, ptr);
-    } while (ptr != live_allocations);
+    } while ((ptr = ptr->next) != maybe_live_allocations);
 
     /* sort the vector */
     qsort(vec,
           count, sizeof(struct foreign_allocation *),
           cmp_foreign_allocation_ptr);
 
-    assert(count);
+    gc_assert(count);
     /* And blit the sorted vector back to the list */
     for (i = 0; i < count-1; i++) {
         vec[i]->next = vec[i+1];
@@ -626,7 +664,7 @@ void process_foreign_pointers ()
     struct foreign_allocation * alloc;
     unsigned i;
     lispobj * search_ptr;
-    foreign_ref foreign;
+    struct foreign_ref foreign;
 
     if (!maybe_live_allocations)
         goto done;
@@ -647,17 +685,15 @@ void process_foreign_pointers ()
         alloc = alloc->next;                                    \
         search_ptr = alloc->start;                              \
         if (alloc == maybe_live_allocations) goto done;         \
-        assert(alloc->prev->start < search_ptr);                \
     } while (0)
 
 #define NEXT_FOREIGN                                    \
     do {                                                \
         if (++i >= foreign_pointer_count) goto done;    \
         foreign = foreign_pointer_vector[i];            \
-        assert(foreign_pointer_vector[i] <= foreign);   \
     } while (0)
 
-    while (1) {
+    while (maybe_live_allocations) {
         while (!((alloc->start <= foreign.ptr)
                  && (foreign.ptr < alloc->end))) {
             printf("looking at alloc 1: %lx; ptr: %lx\n",
@@ -665,24 +701,36 @@ void process_foreign_pointers ()
             while (!(foreign.ptr < alloc->end))
                 NEXT_ALLOC;
 
-            while (!(foreign.otr >= alloc->start))
+            while (!(foreign.ptr >= alloc->start))
                 NEXT_FOREIGN;
         }
 
-        printf("looking at alloc 2: %lx; ptr: %lx\n", alloc, foreign.ref);
+        printf("looking at alloc 2: %lx; ptr: %lx\n", alloc, foreign.ptr);
 
         lispobj * enclosing
-            = gc_search_space(search_ptr, alloc->end-search_ptr, foreign.ref);
-        if (enclosing) {
-            search_ptr = enclosing;
-            if (looks_like_valid_lisp_pointer_p(foreign.ref, enclosing)) {
-                alloc->state = 1;
-                if (alloc->earliest_ref < foreign.gen)
-                    alloc->earliest_ref = foreign.gen;
-                search_ptr = alloc->start;
-            }
+            = gc_search_space(search_ptr, alloc->end-search_ptr, foreign.ptr);
+        if (!enclosing)
+            goto next;
+        search_ptr = enclosing;
+
+        if (!looks_like_valid_lisp_pointer_p(foreign.ptr, enclosing))
+            goto next;
+
+        if (scanning_roots_p) {
+            alloc->state = 1;
+        } else {
+            struct foreign_allocation * next = alloc->next;
+            dequeue_allocation(&maybe_live_allocations, alloc);
+            enqueue_allocation((1 == alloc->state)
+                               ? &live_allocations
+                               : &newly_live_allocations, 
+                               alloc);
+            alloc->state = 2;
+            alloc = next;
+            search_ptr = alloc->start;
         }
 
+        next:
         NEXT_FOREIGN;
     }
 
@@ -690,6 +738,30 @@ void process_foreign_pointers ()
 #undef NEXT_ALLOC
     done:
     foreign_pointer_count = 0;
+}
+
+void sweep_allocations ()
+{
+    struct foreign_allocation * ptr = maybe_live_allocations;
+
+    if (!maybe_live_allocations) return;
+
+    printf("in sweep allocations...\n");
+
+    do {
+        if (0 == ptr->state) {
+            struct foreign_allocation * next = ptr->next;
+            dequeue_allocation(&maybe_live_allocations, ptr);
+            enqueue_allocation(&dead_allocations, ptr);
+            if (!maybe_live_allocations) break;
+            ptr = next;
+        } else {
+            gc_assert(1 == ptr->state);
+            ptr = ptr->next;
+        }
+    } while (ptr != maybe_live_allocations);
+
+    printf("sweep allocations done\n");
 }
 
 
@@ -3055,7 +3127,8 @@ preserve_pointer(void *addr)
 
     /* points to foreign heap... */
     if (addr_page_index == -1) {
-        enqueue_foreign_pointer(addr, 0);
+        if (scanning_roots_p)
+            enqueue_foreign_pointer(addr);
         return;
     }
 
@@ -3448,13 +3521,41 @@ scavenge_newspace_generation_one_scan(generation_index_t generation)
            generation));
 }
 
+/* execute once all the roots have been scavenged */
+void scavenge_teenaged_alloc ()
+{
+    struct foreign_allocation * ptr;
+    process_foreign_pointers();
+    
+    if (!scanning_roots_p) return;
+
+    scanning_roots_p = 0;
+
+    if (!maybe_live_allocations) return;
+
+    printf("scavenge teenaged...\n");
+    ptr = maybe_live_allocations;
+    do {
+        if (1 == ptr->state) {
+            printf("scavenge %lx %lx %lx\n", ptr, ptr->start, ptr->end);
+            scavenge(ptr->start, ptr->end-ptr->start);
+        }
+    } while ((ptr = ptr->next) != maybe_live_allocations);
+    printf("done with teenagers\n");
+}
+
 void mark_foreign_alloc ()
 {
-    process_foreign_pointers();
-    if (newly_live_allocations) {
-        scavenge_foreign_allocations(newly_live_allocations);
-        splice_allocations(&live_allocations, newly_live_allocations);
-        newly_live_allocations = 0;
+    gc_assert(!scanning_roots_p);
+    while (foreign_pointer_count || newly_live_allocations) {
+        process_foreign_pointers();
+        if (newly_live_allocations) {
+            printf("in mark foreign alloc...\n");
+            scavenge_foreign_allocations(newly_live_allocations);
+            splice_allocations(&live_allocations, newly_live_allocations);
+            newly_live_allocations = 0;
+            printf("done marking\n");
+        }
     }
 }
 
@@ -3507,8 +3608,7 @@ scavenge_newspace_generation(generation_index_t generation)
              "The first scan is finished; current_new_areas_index=%d.\n",
              current_new_areas_index));*/
 
-    while ((current_new_areas_index > 0)
-           || (foreign_pointer_count > 0)) {
+    while (current_new_areas_index > 0) {
         /* Move the current to the previous new areas */
         previous_new_areas = current_new_areas;
         previous_new_areas_index = current_new_areas_index;
@@ -3540,6 +3640,7 @@ scavenge_newspace_generation(generation_index_t generation)
             /* Don't need to record new areas that get scavenged
              * anyway during scavenge_newspace_generation_one_scan. */
             record_new_objects = 1;
+
             scavenge_newspace_generation_one_scan(generation);
 
             /* Record all new areas now. */
@@ -3547,6 +3648,7 @@ scavenge_newspace_generation(generation_index_t generation)
 
             scav_weak_hash_tables();
             mark_foreign_alloc();
+
             /* Flush the current regions updating the tables. */
             gc_alloc_update_all_page_tables();
 
@@ -3562,6 +3664,7 @@ scavenge_newspace_generation(generation_index_t generation)
 
             scav_weak_hash_tables();
             mark_foreign_alloc();
+
             /* Flush the current regions updating the tables. */
             gc_alloc_update_all_page_tables();
         }
@@ -4363,9 +4466,6 @@ garbage_collect_generation(generation_index_t generation, int raise)
     unmark_lutexes(generation);
 #endif
 
-    /* Prepare for mark/sweep of GCed foreign alloc regions. */
-    sort_gced_allocations();
-
     /* When a generation is not being raised it is transported to a
      * temporary generation (NUM_GENERATIONS), and lowered when
      * done. Set up this new generation. There should be no pages
@@ -4528,14 +4628,19 @@ garbage_collect_generation(generation_index_t generation, int raise)
     }
     scavenge( (lispobj *) STATIC_SPACE_START, static_space_size);
 
+    /* Scavenge the manually managed and known live foreign alloc regions. */
+    printf("scavenging known live...\n");
+    scavenge_foreign_allocations(always_live_allocations);
+    scavenge_foreign_allocations(live_allocations);
+    printf("done scavenging known live\n");
+    
+    /* Done scavenging roots... scavenge teenagers */
+    scavenge_teenaged_alloc();
+
     /* All generations but the generation being GCed need to be
      * scavenged. The new_space generation needs special handling as
      * objects may be moved in - it is handled separately below. */
     scavenge_generations(generation+1, PSEUDO_STATIC_GENERATION);
-
-    /* Scavenge the manually managed and known live foreign alloc regions. */
-    scavenge_foreign_allocations(always_live_allocations);
-    scavenge_foreign_allocations(live_allocations);
 
     /* Finally scavenge the new_space generation. Keep going until no
      * more objects are moved into the new generation */
@@ -4702,12 +4807,20 @@ collect_garbage(generation_index_t last_gen)
         last_gen = 0;
     }
 
-    assert(!maybe_live_allocations);
+    /* Prepare for mark/sweep of GCed foreign alloc regions. */
     newly_live_allocations = 0;
     foreign_pointer_count = 0;
     foreign_pointer_size = 1024*1024;
     foreign_pointer_vector = realloc(foreign_pointer_vector,
                                      1024*1024*sizeof(lispobj *));
+    scanning_roots_p = 1;
+
+    if (HIGHEST_NORMAL_GENERATION+1 == last_gen) {
+        splice_allocations(&maybe_live_allocations, live_allocations);
+        live_allocations = 0;
+    }
+
+    sort_gced_allocations();
 
     /* Flush the alloc regions updating the tables. */
     gc_alloc_update_all_page_tables();
@@ -4821,11 +4934,9 @@ collect_garbage(generation_index_t last_gen)
         high_water_mark = 0;
     }
 
-    /* Everything that's not definitely live is dead */
-    splice_allocations(&dead_allocations, maybe_live_allocations);
-    maybe_live_allocations = 0;
-
+    gc_assert(0 == newly_live_allocations);
     gc_assert(0 == foreign_pointer_count);
+    sweep_allocations();
 
     gc_active_p = 0;
 
