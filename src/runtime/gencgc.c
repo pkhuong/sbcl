@@ -384,7 +384,7 @@ static pthread_mutex_t allocation_lock = PTHREAD_MUTEX_INITIALIZER;
  * pass majority.
  *
  * When scanning the general heap, teenaged or in-limbo regions become
- * adults. Since teenaged regions have already been scavenged, only 
+ * adults. Since teenaged regions have already been scavenged, only
  * those in limbo are put on a to-scavenge list (newly_live_regions).
  *
  * While scavenging the new_space, we also scavenge newly_live_regions,
@@ -405,6 +405,14 @@ struct foreign_allocation {
     struct foreign_allocation * next;
     lispobj * start;
     lispobj * end;
+    /* bitmask:
+     * bit  |  meaning
+     *  0   |   any SAP/raw pointer counts
+     *  1   |   lisp heap-like
+     *  2   |   SAP/raw pointers to head count
+     *  3   |   scavenged region
+     */
+    int type;
     int state;
     /* 0 : dead or in limbo
      * 1 : teenager (live, but only from direct roots)
@@ -571,8 +579,11 @@ void retire_gced_allocation (struct foreign_allocation * allocation)
 
     switch (allocation->state) {
     case 0: queue = &dead_allocations;
+        break;
     case 1: queue = &maybe_live_allocations;
+        break;
     case 2: queue = &live_allocations;
+        break;
     default:
         lose("Bad allocation state (%i) for GCed allocation %p",
              allocation->state, allocation);
@@ -591,7 +602,8 @@ void scavenge_foreign_allocations (struct foreign_allocation * allocations)
 
     ptr = allocations;
     do {
-        printf("scavenge %lx %lx %lx\n", ptr, ptr->start, ptr->end);
+        if (!(ptr->type & 8)) continue;
+        printf("scavenge %p %p %p\n", ptr, ptr->start, ptr->end);
         scavenge(ptr->start, ptr->end - ptr->start);
         gc_assert(!from_space_p(*ptr->start));
         ptr = ptr->next;
@@ -671,7 +683,7 @@ void process_foreign_pointers ()
     if (!foreign_pointer_count)
         goto done;
 
-    printf("in process foreign pointers %lu %lx\n",
+    printf("in process foreign pointers %lu %p\n",
            foreign_pointer_count, maybe_live_allocations);
 
     sort_foreign_pointers();
@@ -694,9 +706,10 @@ void process_foreign_pointers ()
     } while (0)
 
     while (maybe_live_allocations) {
+        int live_p = 0;
         while (!((alloc->start <= foreign.ptr)
                  && (foreign.ptr < alloc->end))) {
-            printf("looking at alloc 1: %lx; ptr: %lx\n",
+            printf("looking at alloc 1: %p; ptr: %p\n",
                    alloc, foreign.ptr);
             while (!(foreign.ptr < alloc->end))
                 NEXT_ALLOC;
@@ -705,8 +718,38 @@ void process_foreign_pointers ()
                 NEXT_FOREIGN;
         }
 
-        printf("looking at alloc 2: %lx; ptr: %lx\n", alloc, foreign.ptr);
+        printf("looking at alloc 2: %p; ptr: %p\n", alloc, foreign.ptr);
 
+        if (alloc->type & 1) { // any pointer counts!
+            // SAP's low bit is cleared, so either it's a preserved pointer
+            // (and we're scanning roots), or it's not a lisp pointer.
+            if (scanning_roots_p || !is_lisp_pointer((lispobj)foreign.ptr)) {
+                live_p = 1;
+                goto next;
+            }
+        }
+
+        if (alloc->type & 4) { // pointer to head counts
+            if (scanning_roots_p) { // we're scanning roots, it's preserved
+                if (alloc->start == foreign.ptr) {
+                    live_p = 1;
+                    goto next;
+                }
+            } else if (!is_lisp_pointer((lispobj)foreign.ptr)) {
+                // otherwise low bit cleared on SAP addresses
+                lispobj start = (lispobj)alloc->start & (~1UL);
+                if (start == (lispobj)foreign.ptr) {
+                    live_p = 1;
+                    goto next;
+                }
+            }
+        }
+
+        if (!(alloc->type & 2)) goto next;
+
+        /* Lisp-like heap: */
+        if (!(is_lisp_pointer((lispobj)foreign.ptr)||scanning_roots_p))
+            goto next;
         lispobj * enclosing
             = gc_search_space(search_ptr, alloc->end-search_ptr, foreign.ptr);
         if (!enclosing)
@@ -716,21 +759,22 @@ void process_foreign_pointers ()
         if (!looks_like_valid_lisp_pointer_p(foreign.ptr, enclosing))
             goto next;
 
-        if (scanning_roots_p) {
-            alloc->state = 1;
-        } else {
-            struct foreign_allocation * next = alloc->next;
-            dequeue_allocation(&maybe_live_allocations, alloc);
-            enqueue_allocation((1 == alloc->state)
-                               ? &live_allocations
-                               : &newly_live_allocations, 
-                               alloc);
-            alloc->state = 2;
-            alloc = next;
-            search_ptr = alloc->start;
-        }
-
         next:
+        if (live_p) {
+            if (scanning_roots_p) {
+                alloc->state = 1;
+            } else {
+                struct foreign_allocation * next = alloc->next;
+                dequeue_allocation(&maybe_live_allocations, alloc);
+                enqueue_allocation((1 == alloc->state)
+                                   ? &live_allocations
+                                   : &newly_live_allocations,
+                                   alloc);
+                alloc->state = 2;
+                alloc = next;
+                search_ptr = alloc->start;
+            }
+        }
         NEXT_FOREIGN;
     }
 
@@ -3526,7 +3570,7 @@ void scavenge_teenaged_alloc ()
 {
     struct foreign_allocation * ptr;
     process_foreign_pointers();
-    
+
     if (!scanning_roots_p) return;
 
     scanning_roots_p = 0;
@@ -3536,8 +3580,8 @@ void scavenge_teenaged_alloc ()
     printf("scavenge teenaged...\n");
     ptr = maybe_live_allocations;
     do {
-        if (1 == ptr->state) {
-            printf("scavenge %lx %lx %lx\n", ptr, ptr->start, ptr->end);
+        if ((1 == ptr->state) && (ptr->type & 8)) {
+            printf("scavenge %p %p %p\n", ptr, ptr->start, ptr->end);
             scavenge(ptr->start, ptr->end-ptr->start);
         }
     } while ((ptr = ptr->next) != maybe_live_allocations);
@@ -3596,7 +3640,12 @@ scavenge_newspace_generation(generation_index_t generation)
      * http://www.haible.de/bruno/papers/cs/weak/WeakDatastructures-writeup.html
      * see "Implementation 2". */
     scav_weak_hash_tables();
-    mark_foreign_alloc();
+    /* Similar with marked foreign allocations.  However, since the algorithm
+     * works better when batched, only process them if we might otherwise stop
+     * GCing.
+     */
+    if (!new_areas_index)
+            mark_foreign_alloc();
 
     /* Flush the current regions updating the tables. */
     gc_alloc_update_all_page_tables();
@@ -3647,7 +3696,8 @@ scavenge_newspace_generation(generation_index_t generation)
             record_new_objects = 2;
 
             scav_weak_hash_tables();
-            mark_foreign_alloc();
+            if (!new_areas_index)
+                    mark_foreign_alloc();
 
             /* Flush the current regions updating the tables. */
             gc_alloc_update_all_page_tables();
@@ -3663,7 +3713,8 @@ scavenge_newspace_generation(generation_index_t generation)
             }
 
             scav_weak_hash_tables();
-            mark_foreign_alloc();
+            if (!new_areas_index)
+                    mark_foreign_alloc();
 
             /* Flush the current regions updating the tables. */
             gc_alloc_update_all_page_tables();
@@ -4633,7 +4684,7 @@ garbage_collect_generation(generation_index_t generation, int raise)
     scavenge_foreign_allocations(always_live_allocations);
     scavenge_foreign_allocations(live_allocations);
     printf("done scavenging known live\n");
-    
+
     /* Done scavenging roots... scavenge teenagers */
     scavenge_teenaged_alloc();
 
