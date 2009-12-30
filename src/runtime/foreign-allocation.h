@@ -2,7 +2,7 @@
 #define __FOREIGN_ALLOCATION_H__
 #include "runtime.h"
 
-/* Foreign allocation region descriptors. The interface only 
+/* Foreign allocation region descriptors. The interface only
  * manipulates pointers; feel free to "subclass".
  **/
 struct foreign_allocation {
@@ -46,15 +46,18 @@ void dequeue_allocation (struct foreign_allocation ** queue,
                          struct foreign_allocation * allocation);
 void splice_allocations (struct foreign_allocation ** dest,
                          struct foreign_allocation * queue);
-struct foreign_allocation * 
+struct foreign_allocation *
 pop_allocation (struct foreign_allocation ** queue);
 
 
 /* Interface for the GC.
  */
-extern int scanning_roots_p;
+extern unsigned scanning_roots_p;
 
-void enqueue_foreign_pointer (lispobj * ptr);
+extern void (*enqueue_lisp_pointer)(lispobj *);
+void enqueue_random_pointer (lispobj * ptr);
+void enqueue_sap_pointer (void * ptr);
+
 void process_foreign_pointers ();
 
 void prepare_foreign_allocations_for_gc (int full_gc_p);

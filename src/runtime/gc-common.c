@@ -176,7 +176,8 @@ scavenge(lispobj *start, long n_words)
                  * alone. */
                 n_words_scavenged = 1;
                 #ifdef LISP_FEATURE_GENCGC
-                enqueue_foreign_pointer((lispobj*)object);
+                if (enqueue_lisp_pointer)
+                        enqueue_lisp_pointer((lispobj*)object);
                 #endif
             }
         }
@@ -759,18 +760,6 @@ scav_fdefn(lispobj *where, lispobj object)
 }
 #endif
 
-#ifdef LISP_FEATURE_GENCGC
-static lispobj
-trans_sap(lispobj object)
-{
-    gc_assert(is_lisp_pointer(object));
-    lispobj ptr = (lispobj)((struct sap *)native_pointer(object))->pointer;
-    enqueue_foreign_pointer((lispobj*)(ptr&(~1UL)));
-
-    return copy_unboxed_object(object, 2);
-}
-#endif
-
 static long
 scav_unboxed(lispobj *where, lispobj object)
 {
@@ -782,7 +771,10 @@ scav_unboxed(lispobj *where, lispobj object)
     return length;
 }
 
-static lispobj
+#ifndef LISP_FEATURE_GENCGC
+static
+#endif
+lispobj
 trans_unboxed(lispobj object)
 {
     lispobj header;
@@ -2221,12 +2213,7 @@ gc_init_tables(void)
     transother[VALUE_CELL_HEADER_WIDETAG] = trans_boxed;
     transother[SYMBOL_HEADER_WIDETAG] = trans_boxed;
     transother[CHARACTER_WIDETAG] = trans_immediate;
-    transother[SAP_WIDETAG] = 
-#ifdef LISP_FEATURE_GENCGC
-        trans_sap;
-#else
-        trans_unboxed;
-#endif
+    transother[SAP_WIDETAG] = trans_unboxed;
     transother[UNBOUND_MARKER_WIDETAG] = trans_immediate;
     transother[NO_TLS_VALUE_MARKER_WIDETAG] = trans_immediate;
     transother[WEAK_POINTER_WIDETAG] = trans_weak_pointer;

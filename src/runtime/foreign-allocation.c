@@ -50,6 +50,7 @@
 #include "sbcl.h"
 #include "runtime.h"
 #include "gc-internal.h"
+#include "genesis/sap.h"
 /* defined in gencgc.c */
 int looks_like_valid_lisp_pointer_p(lispobj *pointer, lispobj *start_addr);
 #include "foreign-allocation.h"
@@ -69,7 +70,9 @@ struct foreign_allocation * newly_live_allocations = 0;
 // black
 struct foreign_allocation * live_allocations = 0;
 
-int scanning_roots_p = 0;
+// mask of all the type of objects found in maybe_live
+int all_type_masks = 0;
+unsigned scanning_roots_p = 0;
 
 void enqueue_allocation (struct foreign_allocation ** queue,
                          struct foreign_allocation * allocation)
@@ -184,7 +187,7 @@ unsigned long foreign_pointer_count = 0;
 unsigned long foreign_pointer_size = 0;
 struct foreign_ref * foreign_pointer_vector = 0;
 
-void enqueue_foreign_pointer (lispobj * ptr)
+void enqueue_random_pointer (lispobj * ptr)
 {
     if (!maybe_live_allocations) return;
     if (ptr < maybe_live_allocations->start) return;
@@ -195,6 +198,33 @@ void enqueue_foreign_pointer (lispobj * ptr)
 
     foreign_pointer_vector[foreign_pointer_count].ptr = ptr;
     foreign_pointer_count++;
+}
+
+void (*enqueue_lisp_pointer)(lispobj *) = 0;
+
+void enqueue_sap_pointer (void * ptr)
+{
+    gc_assert(!scanning_roots_p);
+    if (!maybe_live_allocations) return;
+    if ((lispobj*) ptr < maybe_live_allocations->start) return;
+    if ((lispobj*) ptr >= maybe_live_allocations->prev->end) return;
+
+    if (foreign_pointer_count >= foreign_pointer_size)
+        process_foreign_pointers();
+
+    foreign_pointer_vector[foreign_pointer_count].ptr
+        = (lispobj*) (((lispobj)ptr) & (~1UL));
+    foreign_pointer_count++;
+}
+
+lispobj (*default_trans_sap)(lispobj obj) = 0;
+static lispobj
+trans_sap(lispobj object)
+{
+    gc_assert(is_lisp_pointer(object));
+    enqueue_sap_pointer(((struct sap *)native_pointer(object))->pointer);
+
+    return copy_unboxed_object(object, 2);
 }
 
 static int cmp_foreign_pointers (const void * a, const void * b)
@@ -341,6 +371,7 @@ static void sort_gced_allocations ()
     struct foreign_allocation * ptr;
     unsigned count = 0, size = 1024, i;
     struct foreign_allocation ** vec;
+    all_type_masks = 0;
     if (!maybe_live_allocations)
         return;
     /* Blit the list to a vector */
@@ -356,6 +387,7 @@ static void sort_gced_allocations ()
 
         ptr->state = 0;
         vec[count++] = ptr;
+        all_type_masks |= ptr->type;
     } while ((ptr = ptr->next) != maybe_live_allocations);
 
     /* sort the vector */
@@ -380,6 +412,7 @@ static void sort_gced_allocations ()
 
 void prepare_foreign_allocations_for_gc (int full_gc_p)
 {
+    default_trans_sap = transother[SAP_WIDETAG];
     newly_live_allocations = 0;
     foreign_pointer_count = 0;
     foreign_pointer_size = 1024*1024;
@@ -392,6 +425,13 @@ void prepare_foreign_allocations_for_gc (int full_gc_p)
     }
 
     sort_gced_allocations();
+    if (all_type_masks&(1|4))
+        transother[SAP_WIDETAG] = trans_sap;
+
+    enqueue_lisp_pointer
+        = (all_type_masks&2)
+        ? enqueue_random_pointer
+        : 0;
 }
 
 void scavenge_foreign_allocations (struct foreign_allocation * allocations)
@@ -444,6 +484,8 @@ void sweep_allocations ()
 {
     struct foreign_allocation * ptr = maybe_live_allocations;
 
+    transother[SAP_WIDETAG] = default_trans_sap;
+    enqueue_lisp_pointer = 0;
     gc_assert(0 == newly_live_allocations);
     gc_assert(0 == foreign_pointer_count);
 

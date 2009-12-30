@@ -2718,7 +2718,7 @@ preserve_pointer(void *addr)
     /* points to foreign heap... */
     if (addr_page_index == -1) {
         if (scanning_roots_p)
-            enqueue_foreign_pointer(addr);
+            enqueue_random_pointer(addr);
         return;
     }
 
