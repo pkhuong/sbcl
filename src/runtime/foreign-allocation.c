@@ -47,6 +47,7 @@
  */
 
 #include <stdlib.h>
+#include <stdint.h>
 #include "sbcl.h"
 #include "runtime.h"
 #include "gc-internal.h"
@@ -64,6 +65,18 @@ struct foreign_allocation * dead_allocations = 0;
 // white: if partial GC, filled with limbo and teens
 //         if full GC, filled with everything.
 struct foreign_allocation * maybe_live_allocations = 0;
+
+// same list available as a vector for bsearch.
+typedef struct {
+    lispobj * key;
+    union { struct foreign_allocation * alloc; unsigned long next; } val;
+} search_item_t;
+
+size_t limbo_vec_count = 0;
+size_t limbo_vec_size  = 0;
+search_item_t * limbo_vec = 0;
+size_t limbo_vec_deleted = 0;
+
 // grey
 struct foreign_allocation * newly_live_allocations = 0;
 // black
@@ -92,6 +105,7 @@ void enqueue_allocation (struct foreign_allocation ** queue,
     allocation->prev = *queue;
 }
 
+
 void dequeue_allocation (struct foreign_allocation ** queue,
                          struct foreign_allocation * allocation)
 {
@@ -105,6 +119,8 @@ void dequeue_allocation (struct foreign_allocation ** queue,
 
     allocation->next = allocation->prev = 0;
 }
+
+
 
 void splice_allocations (struct foreign_allocation ** dest,
                          struct foreign_allocation * queue)
@@ -179,12 +195,13 @@ void retire_gced_allocation (struct foreign_allocation * allocation)
     dequeue_allocation(queue, allocation);
 }
 
-struct foreign_ref {
+typedef struct {
     lispobj * ptr;
-};
+}foreign_ref_t;
+
 unsigned long foreign_pointer_count = 0;
 unsigned long foreign_pointer_size = 0;
-struct foreign_ref * foreign_pointer_vector = 0;
+foreign_ref_t * foreign_pointer_vector = 0;
 
 void (*enqueue_lisp_pointer)(lispobj *) = 0;
 
@@ -229,8 +246,8 @@ trans_sap(lispobj object)
 
 static int cmp_foreign_pointers (const void * a, const void * b)
 {
-    const struct foreign_ref * x = a;
-    const struct foreign_ref * y = b;
+    const foreign_ref_t * x = a;
+    const foreign_ref_t * y = b;
 
     if (x->ptr < y->ptr)
         return -1;
@@ -242,186 +259,305 @@ static int cmp_foreign_pointers (const void * a, const void * b)
 static void sort_foreign_pointers ()
 {
     qsort(foreign_pointer_vector,
-          foreign_pointer_count, sizeof(struct foreign_ref),
+          foreign_pointer_count, sizeof(foreign_ref_t),
           cmp_foreign_pointers);
+}
+
+static inline
+void maybe_repack_limbo_vec ()
+{
+    unsigned long alloc, i;
+    if (limbo_vec_deleted < limbo_vec_count/2) return;
+
+    for (alloc = 0, i = 0; i < limbo_vec_count; i++)
+        if (!(limbo_vec[i].val.next&1))
+            limbo_vec[alloc++] = limbo_vec[i];
+
+    limbo_vec_deleted = 0;
+    limbo_vec_count = alloc;
+}
+
+static inline
+int find_live_region (unsigned long * index_ptr, long delta)
+{
+#define RET(OUT, VALUE) do { *index_ptr = (OUT); return (VALUE); } while (0)
+    unsigned long index = *index_ptr + delta, prev = index;
+
+    if (index >= limbo_vec_count) RET(limbo_vec_count-1, 1);
+    if (!(limbo_vec[index].val.next&1)) RET(index, 0); // it's alive!
+
+    while (index < limbo_vec_count) {
+        unsigned long next = limbo_vec[prev ].val.next
+                           = limbo_vec[index].val.next;
+        if (!(next&1)) RET(index, 0);
+        prev = index;
+        index = next >> 1;
+    }
+
+    RET(limbo_vec_count-1, 1);
+#undef RET
+}
+
+// find first alloc s.t. alloc->end > ptr
+static
+int find_region_for_pointer (lispobj * ptr, unsigned long * index_ptr)
+{
+#define NEXT(DELTA) do {                                                \
+        if (find_live_region(index_ptr, (DELTA))) return 1;             \
+        if (limbo_vec[*index_ptr].val.alloc->end > ptr) return 0;       \
+    } while (0)
+    unsigned long incr, low, high;
+
+    NEXT(0);
+    NEXT(1);
+
+    incr = 2;
+    low = high = *index_ptr;
+    // find range s.t. low.start <= ptr < high.start
+    while (limbo_vec[high].key < ptr) {
+        low   = high;
+        high += incr;
+        incr *= 2;
+
+        if (!(high < limbo_vec_count)) {
+            *index_ptr = limbo_vec_count-1;
+            if (find_live_region(index_ptr, 0)) return 1;
+            high = *index_ptr;
+            if (limbo_vec[high].val.alloc->end <= ptr) return 1;
+            break;
+        }
+    }
+    // tighten range: low is last alloc s.t. low.start <= ptr.
+    //  --> first alloc s.t. end > ptr is low or next one.
+    while ((high-low) > 1) {
+        unsigned long mid = low + (high-low)/2;
+        lispobj   * pivot = limbo_vec[mid].key;
+        if (pivot <= ptr) low  = mid;
+        else              high = mid;
+    }
+
+    *index_ptr = low;
+
+    NEXT(0);
+    return find_live_region(index_ptr, 1);
+#undef NEXT
+}
+
+// first pointer s.t. ptr >= alloc.start
+static
+int find_pointer_for_region(struct foreign_allocation * alloc,
+                            unsigned long * index_ptr,
+                            long delta)
+{
+#define RET(OUT, VALUE) do { *index_ptr = (OUT); return (VALUE); } while (0)
+    unsigned long low = *index_ptr + delta, high;
+    lispobj * start = alloc->start;
+
+    if (low >= foreign_pointer_count) RET(foreign_pointer_count-1, 1);
+    if (foreign_pointer_vector[low].ptr >= start) return 0;
+    if (++low >= foreign_pointer_count) RET(foreign_pointer_count-1, 1);
+    if (foreign_pointer_vector[low].ptr >= start) RET(low, 0);
+
+    {
+        unsigned long incr = 2;
+        high = low;
+
+        // range s.t. low.ptr < start <= high.ptr
+        while (foreign_pointer_vector[high].ptr < start) {
+            low = high;
+            high += incr;
+            incr *= 2;
+
+            if (high >= foreign_pointer_count) {
+                high = foreign_pointer_count-1;
+                if (foreign_pointer_vector[high].ptr < start) RET(high, 1);
+                break;
+            }
+        }
+    }
+
+    // tighten s.t. low.ptr < start <= high.ptr
+    while ((high-low) > 1) {
+        unsigned long mid = low + (high-low)/2;
+        lispobj * ptr     = foreign_pointer_vector[mid].ptr;
+
+        if (ptr < start) low = mid;
+        else             high = mid;
+    }
+
+    RET(high, 0);
+#undef RET
+}
+
+static inline
+int process_pointer_alloc_pair_p (foreign_ref_t foreign, struct foreign_allocation * alloc)
+{
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+    lispobj * enclosing;
+#endif
+    if (alloc->type & 1) { // any pointer counts!
+        // SAP's low bit is cleared, so either it's a preserved pointer
+        // (and we're scanning roots), or it's not a lisp pointer.
+        if (scanning_roots_p || !is_lisp_pointer((lispobj)foreign.ptr))
+            return 1;
+    }
+
+    if (alloc->type & 4) { // pointer to head counts
+        if (scanning_roots_p) { // we're scanning roots, it's preserved
+            if (alloc->start == foreign.ptr) return 1;
+        } else if (!is_lisp_pointer((lispobj)foreign.ptr)) {
+            // otherwise low bit cleared on SAP addresses
+            if (((lispobj)alloc->start & (~1UL)) == (lispobj)foreign.ptr)
+                return 1;
+        }
+    }
+
+    if (!(alloc->type & 2)) return 0;
+
+    /* Lisp-like heap: */
+    if (!(is_lisp_pointer((lispobj)foreign.ptr)||scanning_roots_p)) return 0;
+
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+    if (!(enclosing
+          = gc_search_space(alloc->start, alloc->end - alloc->start, foreign.ptr)))
+        return 0;
+
+    if (!looks_like_valid_lisp_pointer_p(foreign.ptr, enclosing)) return 0;
+#endif
+
+    return 1;
 }
 
 void process_foreign_pointers ()
 {
-    struct foreign_allocation * alloc;
-    unsigned i;
-#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
-    lispobj * search_ptr;
-#endif
-    struct foreign_ref foreign;
+    unsigned long foreign_index;
+    unsigned long alloc_index;
 
-    if (!maybe_live_allocations)
-        goto done;
-    if (!foreign_pointer_count)
-        goto done;
+    if (!(maybe_live_allocations && foreign_pointer_count)) goto done;
 
     sort_foreign_pointers();
+    maybe_repack_limbo_vec();
+    foreign_index = 0;
+    alloc_index = 0;
 
-    alloc = maybe_live_allocations;
-    search_ptr = alloc->start;
-    i = 0;
-    foreign = foreign_pointer_vector[0];
+    if (!find_live_region(&alloc_index, 0)) goto done;
 
-#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
-#define NEXT_ALLOC                                              \
-    do {                                                        \
-        alloc = alloc->next;                                    \
-        search_ptr = alloc->start;                              \
-        if (alloc == maybe_live_allocations) goto done;         \
-    } while (0)
-#else
-#define NEXT_ALLOC                                              \
-    do {                                                        \
-        alloc = alloc->next;                                    \
-        if (alloc == maybe_live_allocations) goto done;         \
-    } while (0)
-#endif
+    while (1) {
+        foreign_ref_t foreign = foreign_pointer_vector[foreign_index];
+        struct foreign_allocation * alloc = limbo_vec[alloc_index].val.alloc;
 
-#define NEXT_FOREIGN                                    \
-    do {                                                \
-        if (++i >= foreign_pointer_count) goto done;    \
-        foreign = foreign_pointer_vector[i];            \
-    } while (0)
+        while (!(alloc->start <= foreign.ptr && foreign.ptr < alloc->end)) {
+            if (!(foreign.ptr < alloc->end)) {
+                if (find_region_for_pointer(foreign.ptr, &alloc_index))
+                    goto done;
+                alloc = limbo_vec[alloc_index].val.alloc;
+                if (scanning_roots_p && (1 == alloc->state))
+                    do {
+                        if (find_live_region(&alloc_index, 1)) goto done;
+                        alloc = limbo_vec[alloc_index].val.alloc;
+                    } while (1 == alloc->state);
+            }
 
-    while (maybe_live_allocations) {
-        int live_p = 0;
-        while (!((alloc->start <= foreign.ptr)
-                 && (foreign.ptr < alloc->end))) {
-            while (!(foreign.ptr < alloc->end))
-                NEXT_ALLOC;
-
-            while (!(foreign.ptr >= alloc->start))
-                NEXT_FOREIGN;
-        }
-
-        if (alloc->type & 1) { // any pointer counts!
-            // SAP's low bit is cleared, so either it's a preserved pointer
-            // (and we're scanning roots), or it's not a lisp pointer.
-            if (scanning_roots_p || !is_lisp_pointer((lispobj)foreign.ptr)) {
-                live_p = 1;
-                goto next;
+            if (!(alloc->start <= foreign.ptr)) {
+                if (find_pointer_for_region(alloc, &foreign_index, 0)) goto done;
+                foreign = foreign_pointer_vector[foreign_index];
             }
         }
 
-        if (alloc->type & 4) { // pointer to head counts
-            if (scanning_roots_p) { // we're scanning roots, it's preserved
-                if (alloc->start == foreign.ptr) {
-                    live_p = 1;
-                    goto next;
-                }
-            } else if (!is_lisp_pointer((lispobj)foreign.ptr)) {
-                // otherwise low bit cleared on SAP addresses
-                lispobj start = (lispobj)alloc->start & (~1UL);
-                if (start == (lispobj)foreign.ptr) {
-                    live_p = 1;
-                    goto next;
-                }
-            }
-        }
-
-        if (!(alloc->type & 2)) goto next;
-
-        /* Lisp-like heap: */
-        if (!(is_lisp_pointer((lispobj)foreign.ptr)||scanning_roots_p))
-            goto next;
-#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
-        lispobj * enclosing
-            = gc_search_space(search_ptr, alloc->end-search_ptr, foreign.ptr);
-        if (!enclosing)
-            goto next;
-        search_ptr = enclosing;
-
-        if (!looks_like_valid_lisp_pointer_p(foreign.ptr, enclosing))
-            goto next;
-#endif
-
-        live_p = 1;
-        next:
-        if (live_p) {
+        if (process_pointer_alloc_pair_p(foreign, alloc)) {
             if (scanning_roots_p) {
                 alloc->state = 1;
             } else {
-                struct foreign_allocation * next = alloc->next;
                 dequeue_allocation(&maybe_live_allocations, alloc);
-                enqueue_allocation((1 == alloc->state)
-                                   ? &live_allocations
-                                   : &newly_live_allocations,
+                enqueue_allocation((1 == alloc->state) ? &live_allocations
+                                                       : &newly_live_allocations,
                                    alloc);
                 alloc->state = 2;
-                alloc = next;
-                search_ptr = alloc->start;
+                limbo_vec_deleted++;
+                limbo_vec[alloc_index].val.next = ((alloc_index+1)<<1)|1;
             }
+
+            if (find_live_region(&alloc_index, 1)) goto done;
         }
-        NEXT_FOREIGN;
+
+        if (find_pointer_for_region(alloc, &foreign_index, 1)) goto done;
     }
 
-#undef NEXT_FOREIGN
-#undef NEXT_ALLOC
     done:
     foreign_pointer_count = 0;
 }
 
-static int cmp_foreign_allocation_ptr (const void * a, const void * b)
+static int cmp_search_item (const void * a, const void * b)
 {
-    const struct foreign_allocation * x = a;
-    const struct foreign_allocation * y = b;
+    const search_item_t * x = a;
+    const search_item_t * y = b;
 
-    if (x->start < y->start)
+    if (x->key < y->key)
         return -1;
 
-    if (x->start == y->start)
+    if (x->key == y->key)
         return 0;
 
     return 1;
 }
 
+// only the vector needs to be sorted!
 static void sort_gced_allocations ()
 {
     struct foreign_allocation * ptr;
-    unsigned count = 0, size = 1024, i;
-    struct foreign_allocation ** vec;
     all_type_masks = 0;
     if (!maybe_live_allocations)
         return;
     /* Blit the list to a vector */
-    vec = successful_malloc(size*sizeof(struct foreign_allocation *));
+    limbo_vec_count   = 0;
+    limbo_vec_deleted = 0;
+    if (!limbo_vec_size) {
+        limbo_vec = realloc(limbo_vec, 1024*sizeof(search_item_t));
+        gc_assert(limbo_vec);
+        limbo_vec_size = 1024;
+    }
 
     ptr = maybe_live_allocations;
     do {
-        if (count >= size) {
-            vec = realloc(vec, sizeof(struct foreign_allocation *) * size * 2);
-            gc_assert(vec);
-            size *= 2;
+        if (limbo_vec_count >= limbo_vec_size) {
+            limbo_vec
+                = realloc(limbo_vec,
+                          sizeof(search_item_t)
+                          * limbo_vec_size * 2);
+            gc_assert(limbo_vec);
+            limbo_vec_size *= 2;
         }
 
         ptr->state = 0;
-        vec[count++] = ptr;
+        limbo_vec[limbo_vec_count].key = ptr->start;
+        limbo_vec[limbo_vec_count].val.alloc = ptr;
         all_type_masks |= ptr->type;
+        limbo_vec_count++;
     } while ((ptr = ptr->next) != maybe_live_allocations);
 
+    gc_assert(limbo_vec_count);
+
     /* sort the vector */
-    qsort(vec,
-          count, sizeof(struct foreign_allocation *),
-          cmp_foreign_allocation_ptr);
+    qsort(limbo_vec, limbo_vec_count, sizeof(search_item_t), cmp_search_item);
 
-    gc_assert(count);
-    /* And blit the sorted vector back to the list */
-    for (i = 0; i < count-1; i++) {
-        vec[i]->next = vec[i+1];
-        vec[i+1]->prev = vec[i];
+    if (limbo_vec_count) {
+        unsigned long nlpo2 = limbo_vec_count;
+        nlpo2 |= nlpo2 >> 1;
+        nlpo2 |= nlpo2 >> 2;
+        nlpo2 |= nlpo2 >> 4;
+        nlpo2 |= nlpo2 >> 8;
+        nlpo2 |= nlpo2 >> 16;
+        if (sizeof(unsigned long) > 4)
+            nlpo2 |= nlpo2 >> 32;
+
+        limbo_vec_size = nlpo2+1;
+        limbo_vec = realloc(limbo_vec, sizeof(search_item_t) * nlpo2);
+        gc_assert(limbo_vec);
+    } else {
+        limbo_vec_size = 0;
+        free(limbo_vec);
+        limbo_vec = 0;
     }
-
-    vec[count-1]->next = vec[0];
-    vec[0]->prev = vec[count-1];
-
-    maybe_live_allocations = vec[0];
-
-    free(vec);
 }
 
 void prepare_foreign_allocations_for_gc (int full_gc_p)
@@ -518,4 +654,3 @@ void sweep_allocations ()
         }
     } while (ptr != maybe_live_allocations);
 }
-

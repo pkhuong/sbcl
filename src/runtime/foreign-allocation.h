@@ -6,6 +6,7 @@
  * manipulates pointers; feel free to "subclass".
  **/
 struct foreign_allocation {
+    /* for linked list purposes */
     struct foreign_allocation * prev;
     struct foreign_allocation * next;
     lispobj * start;
