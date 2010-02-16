@@ -936,6 +936,96 @@
 
 (format t "waitqueue wakeup tests done~%")
 
+;;; Make sure that a deadline handler is not invoked twice in a row in
+;;; CONDITION-WAIT. See LP #512914 for a detailed explanation.
+;;;
+#-sb-lutex    ; See KLUDGE above: no deadlines for condition-wait+lutexes.
+(with-test (:name (:condition-wait :deadlines :LP-512914))
+  (let ((n 2) ; was empirically enough to trigger the bug
+        (mutex (sb-thread:make-mutex))
+        (waitq (sb-thread:make-waitqueue))
+        (threads nil)
+        (deadline-handler-run-twice? nil))
+    (dotimes (i n)
+      (let ((child
+             (sb-thread:make-thread
+              #'(lambda ()
+                  (handler-bind
+                      ((sb-sys:deadline-timeout
+                        (let ((already? nil))
+                          #'(lambda (c)
+                              (when already?
+                                (setq deadline-handler-run-twice? t))
+                              (setq already? t)
+                              (sleep 0.2)
+                              (sb-thread:condition-broadcast waitq)
+                              (sb-sys:defer-deadline 10.0 c)))))
+                    (sb-sys:with-deadline (:seconds 0.1)
+                      (sb-thread:with-mutex (mutex)
+                        (sb-thread:condition-wait waitq mutex))))))))
+        (push child threads)))
+    (mapc #'sb-thread:join-thread threads)
+    (assert (not deadline-handler-run-twice?))))
+
+(with-test (:name (:condition-wait :signal-deadline-with-interrupts-enabled))
+  (let ((mutex (sb-thread:make-mutex))
+        (waitq (sb-thread:make-waitqueue))
+        (A-holds? :unknown)
+        (B-holds? :unknown)
+        (A-interrupts-enabled? :unknown)
+        (B-interrupts-enabled? :unknown)
+        (A)
+        (B))
+    ;; W.L.O.G., we assume that A is executed first...
+    (setq A (sb-thread:make-thread
+             #'(lambda ()
+                 (handler-bind
+                     ((sb-sys:deadline-timeout
+                       #'(lambda (c)
+                           ;; We came here through the call to DECODE-TIMEOUT
+                           ;; in CONDITION-WAIT; hence both here are supposed
+                           ;; to evaluate to T.
+                           (setq A-holds? (sb-thread:holding-mutex-p mutex))
+                           (setq A-interrupts-enabled?
+                                 sb-sys:*interrupts-enabled*)
+                           (sleep 0.2)
+                           (sb-thread:condition-broadcast waitq)
+                           (sb-sys:defer-deadline 10.0 c))))
+                   (sb-sys:with-deadline (:seconds 0.1)
+                     (sb-thread:with-mutex (mutex)
+                       (sb-thread:condition-wait waitq mutex)))))))
+    (setq B (sb-thread:make-thread
+             #'(lambda ()
+                 (thread-yield)
+                 (handler-bind
+                     ((sb-sys:deadline-timeout
+                       #'(lambda (c)
+                           ;; We came here through the call to GET-MUTEX
+                           ;; in CONDITION-WAIT (contended case of
+                           ;; reaquiring the mutex) - so the former will
+                           ;; be NIL, but interrupts should still be enabled.
+                           (setq B-holds? (sb-thread:holding-mutex-p mutex))
+                           (setq B-interrupts-enabled?
+                                 sb-sys:*interrupts-enabled*)
+                           (sleep 0.2)
+                           (sb-thread:condition-broadcast waitq)
+                           (sb-sys:defer-deadline 10.0 c))))
+                   (sb-sys:with-deadline (:seconds 0.1)
+                     (sb-thread:with-mutex (mutex)
+                       (sb-thread:condition-wait waitq mutex)))))))
+    (sb-thread:join-thread A)
+    (sb-thread:join-thread B)
+    (let ((A-result (list A-holds? A-interrupts-enabled?))
+          (B-result (list B-holds? B-interrupts-enabled?)))
+      ;; We also check some subtle behaviour w.r.t. whether a deadline
+      ;; handler in CONDITION-WAIT got the mutex, or not. This is most
+      ;; probably very internal behaviour (so user should not depend
+      ;; on it) -- I added the testing here just to manifest current
+      ;; behaviour.
+      (cond ((equal A-result '(t t)) (assert (equal B-result '(nil t))))
+            ((equal B-result '(t t)) (assert (equal A-result '(nil t))))
+            (t (error "Failure: fall through."))))))
+
 (with-test (:name (:mutex :finalization))
   (let ((a nil))
     (dotimes (i 500000)

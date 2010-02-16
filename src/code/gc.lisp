@@ -36,11 +36,11 @@
           (current-dynamic-space-start))))
 
 (defun static-space-usage ()
-  (- (* sb!vm:*static-space-free-pointer* sb!vm:n-word-bytes)
+  (- (ash sb!vm:*static-space-free-pointer* sb!vm:n-fixnum-tag-bits)
      sb!vm:static-space-start))
 
 (defun read-only-space-usage ()
-  (- (* sb!vm::*read-only-space-free-pointer* sb!vm:n-word-bytes)
+  (- (ash sb!vm::*read-only-space-free-pointer* sb!vm:n-fixnum-tag-bits)
      sb!vm:read-only-space-start))
 
 (defun control-stack-usage ()
@@ -358,22 +358,24 @@ collection is initiated. This can be set with SETF."
                 (defun ,(symbolicate "GENERATION-" slot) (generation)
                   #!+sb-doc
                   ,doc
+                  #!+gencgc
                   (declare (generation-index generation))
                   #!-gencgc
                   (declare (ignore generation))
                   #!-gencgc
                   (error "~S is a GENCGC only function and unavailable in this build"
-                         ',name)
+                         ',slot)
                   #!+gencgc
                   (slot (deref generations generation) ',slot))
                 ,@(when setfp
                         `((defun (setf ,(symbolicate "GENERATION-" slot)) (value generation)
+                            #!+gencgc
                             (declare (generation-index generation))
                             #!-gencgc
                             (declare (ignore value generation))
                             #!-gencgc
                             (error "(SETF ~S) is a GENCGC only function and unavailable in this build"
-                                   ',name)
+                                   ',slot)
                             #!+gencgc
                             (setf (slot (deref generations generation) ',slot) value)))))))
   (def bytes-consed-between-gcs
@@ -415,6 +417,7 @@ objects allocated to the generation have seen younger objects promoted to it.
 Available on GENCGC platforms only.
 
 Experimental: interface subject to change."
+    #!+gencgc
     (declare (generation-index generation))
     #!-gencgc (declare (ignore generation))
     #!-gencgc

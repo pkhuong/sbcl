@@ -556,7 +556,8 @@ time we reacquire MUTEX and return to the caller."
         ;; continuing after a deadline or EINTR.
         (setf (waitqueue-data queue) me)
         (loop
-         (multiple-value-bind (to-sec to-usec) (decode-timeout nil)
+         (multiple-value-bind (to-sec to-usec)
+             (allow-with-interrupts (decode-timeout nil))
            (case (unwind-protect
                       (with-pinned-objects (queue me)
                         ;; RELEASE-MUTEX is purposefully as close to
@@ -574,7 +575,7 @@ time we reacquire MUTEX and return to the caller."
                         (allow-with-interrupts
                           (futex-wait (waitqueue-data-address queue)
                                       (get-lisp-obj-address me)
-                                      ;; our way if saying "no
+                                      ;; our way of saying "no
                                       ;; timeout":
                                       (or to-sec -1)
                                       (or to-usec 0))))
@@ -584,8 +585,10 @@ time we reacquire MUTEX and return to the caller."
                    ;; them before entering the debugger, but this is
                    ;; better than nothing.
                    (allow-with-interrupts (get-mutex mutex)))
-             ;; ETIMEDOUT
-             ((1) (signal-deadline))
+             ;; ETIMEDOUT; we know it was a timeout, yet we cannot
+             ;; signal a deadline unconditionally here because the
+             ;; call to GET-MUTEX may already have signaled it.
+             ((1))
              ;; EINTR
              ((2))
              ;; EWOULDBLOCK, -1 here, is the possible spurious wakeup
@@ -877,7 +880,7 @@ around and can be retrieved by JOIN-THREAD."
          (setup-sem (make-semaphore :name "Thread setup semaphore"))
          (real-function (coerce function 'function))
          (initial-function
-          (lambda ()
+          (named-lambda initial-thread-function ()
             ;; In time we'll move some of the binding presently done in C
             ;; here too.
             ;;
@@ -1081,8 +1084,8 @@ SB-EXT:QUIT - the usual cleanup forms will be evaluated"
       (loop
         (if (thread-alive-p thread)
             (let* ((epoch sb!kernel::*gc-epoch*)
-                   (offset (* sb!vm:n-word-bytes
-                              (sb!vm::symbol-tls-index symbol)))
+                   (offset (sb!kernel:get-lisp-obj-address
+                            (sb!vm::symbol-tls-index symbol)))
                    (tl-val (sap-ref-word (%thread-sap thread) offset)))
               (cond ((zerop offset)
                      (return (values nil :no-tls-value)))
@@ -1116,8 +1119,8 @@ SB-EXT:QUIT - the usual cleanup forms will be evaluated"
       ;; area...
       (with-all-threads-lock
         (if (thread-alive-p thread)
-            (let ((offset (* sb!vm:n-word-bytes
-                             (sb!vm::symbol-tls-index symbol))))
+            (let ((offset (sb!kernel:get-lisp-obj-address
+                           (sb!vm::symbol-tls-index symbol))))
               (cond ((zerop offset)
                      (values nil :no-tls-value))
                     (t

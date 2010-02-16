@@ -350,7 +350,7 @@
                         :disp (frame-byte-offset
                                (+ sp->fp-offset register-arg-count))))
          ;; Do the copy.
-         (inst shr rcx-tn word-shift)   ; make word count
+         (inst shr rcx-tn n-fixnum-tag-bits)   ; make word count
          (inst std)
          (inst rep)
          (inst movs :qword)
@@ -362,7 +362,7 @@
          ;; If none, then just blow out of here.
          (inst jmp :le restore-edi)
          (inst mov rcx-tn rax-tn)
-         (inst shr rcx-tn word-shift)   ; word count
+         (inst shr rcx-tn n-fixnum-tag-bits)   ; word count
          ;; Load RAX with NIL for fast storing.
          (inst mov rax-tn nil-value)
          ;; Do the store.
@@ -417,7 +417,15 @@
               register-arg-count)
       (inst cmp nargs (fixnumize register-arg-count))
       (inst jmp :g stack-values)
+      #!+#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
       (inst sub rsp-tn nargs)
+      #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+      (progn
+        ;; FIXME: This can't be efficient, but LEA (my first choice)
+        ;; doesn't do subtraction.
+        (inst shl nargs (- word-shift n-fixnum-tag-bits))
+        (inst sub rsp-tn nargs)
+        (inst shr nargs (- word-shift n-fixnum-tag-bits)))
       (emit-label stack-values))
     ;; dtc: this writes the registers onto the stack even if they are
     ;; not needed, only the number specified in rcx are used and have
@@ -715,6 +723,8 @@
                               ;; Compute the number of arguments.
                               (noise '(inst mov rcx new-fp))
                               (noise '(inst sub rcx rsp-tn))
+                              #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+                              (noise '(inst shr rcx (- word-shift n-fixnum-tag-bits)))
                               ;; Move the necessary args to registers,
                               ;; this moves them all even if they are
                               ;; not all needed.
@@ -779,11 +789,11 @@
                           ;; there are at least 3 slots. This hack
                           ;; just adds 3 more.
                           ,(if variable
-                               '(inst sub rsp-tn (fixnumize 3)))
+                               '(inst sub rsp-tn (* 3 n-word-bytes)))
 
                           ;; Bias the new-fp for use as an fp
                           ,(if variable
-                               '(inst sub new-fp (fixnumize sp->fp-offset)))
+                               '(inst sub new-fp (* sp->fp-offset n-word-bytes)))
 
                           ;; Save the fp
                           (storew rbp-tn new-fp
@@ -1040,7 +1050,15 @@
                    :disp (* n-word-bytes
                             (- (+ sp->fp-offset fixed)
                                (max 3 (sb-allocated-size 'stack))))))
+    #!+#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
     (inst sub rbx-tn rcx-tn)  ; Got the new stack in rbx
+    #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+    (progn
+      ;; FIXME: This can't be efficient, but LEA (my first choice)
+      ;; doesn't do subtraction.
+      (inst shl rcx-tn (- word-shift n-fixnum-tag-bits))
+      (inst sub rbx-tn rcx-tn)
+      (inst shr rcx-tn (- word-shift n-fixnum-tag-bits)))
     (inst mov rsp-tn rbx-tn)
 
     ;; Now: nargs>=1 && nargs>fixed
@@ -1062,7 +1080,15 @@
     ;; Initialize R8 to be the end of args.
     (inst lea source (make-ea :qword :base rbp-tn
                               :disp (* sp->fp-offset n-word-bytes)))
+    #!+#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
     (inst sub source rbx-tn)
+    #!-#.(cl:if (cl:= sb!vm:word-shift sb!vm:n-fixnum-tag-bits) '(and) '(or))
+    (progn
+      ;; FIXME: This can't be efficient, but LEA (my first choice)
+      ;; doesn't do subtraction.
+      (inst shl rbx-tn (- word-shift n-fixnum-tag-bits))
+      (inst sub source rbx-tn)
+      (inst shr rbx-tn (- word-shift n-fixnum-tag-bits)))
 
     ;; We need to copy from downwards up to avoid overwriting some of
     ;; the yet uncopied args. So we need to use R9 as the copy index
@@ -1075,7 +1101,7 @@
     (inst mov temp (make-ea :qword :base source :index copy-index))
     (inst mov (make-ea :qword :base rsp-tn :index copy-index) temp)
     (inst add copy-index n-word-bytes)
-    (inst sub rcx-tn n-word-bytes)
+    (inst sub rcx-tn (fixnumize 1))
     (inst jmp :nz COPY-LOOP)
 
     DO-REGS
@@ -1130,8 +1156,10 @@
             (keyword :scs (descriptor-reg any-reg)))
   (:result-types * *)
   (:generator 4
-     (inst mov value (make-ea :qword :base object :index index))
+     (inst mov value (make-ea :qword :base object :index index
+                              :scale (ash 1 (- word-shift n-fixnum-tag-bits))))
      (inst mov keyword (make-ea :qword :base object :index index
+                                :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                                 :disp n-word-bytes))))
 
 (define-vop (more-arg)
@@ -1145,7 +1173,8 @@
   (:generator 4
     (move value index)
     (inst neg value)
-    (inst mov value (make-ea :qword :base object :index value))))
+    (inst mov value (make-ea :qword :base object :index value
+                             :scale (ash 1 (- word-shift n-fixnum-tag-bits))))))
 
 ;;; Turn more arg (context, count) into a list.
 (define-vop (listify-rest-args)
@@ -1170,7 +1199,7 @@
       ;; Check to see whether there are no args, and just return NIL if so.
       (inst mov result nil-value)
       (inst jrcxz done)
-      (inst lea dst (make-ea :qword :base rcx :index rcx))
+      (inst lea dst (make-ea :qword :index rcx :scale (ash 2 (- word-shift n-fixnum-tag-bits))))
       (maybe-pseudo-atomic stack-allocate-p
        (allocation dst dst node stack-allocate-p list-pointer-lowtag)
        ;; Set decrement mode (successive args at lower addresses)
@@ -1190,7 +1219,7 @@
        (inst lods rax)
        (storew rax dst 0 list-pointer-lowtag)
        ;; Go back for more.
-       (inst sub rcx n-word-bytes)
+       (inst sub rcx (fixnumize 1))
        (inst jmp :nz loop)
        ;; NIL out the last cons.
        (storew nil-value dst 1 list-pointer-lowtag)
@@ -1222,8 +1251,9 @@
     ;; SP at this point points at the last arg pushed.
     ;; Point to the first more-arg, not above it.
     (inst lea context (make-ea :qword :base rsp-tn
-                               :index count :scale 1
-                               :disp (- (+ (fixnumize fixed) n-word-bytes))))
+                               :index count
+                               :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                               :disp (- (* (1+ fixed) n-word-bytes))))
     (unless (zerop fixed)
       (inst sub count (fixnumize fixed)))))
 

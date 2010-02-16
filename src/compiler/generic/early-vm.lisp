@@ -19,7 +19,10 @@
 ;;; pointer
 (def!constant lowtag-limit (ash 1 n-lowtag-bits))
 ;;; the number of tag bits used for a fixnum
-(def!constant n-fixnum-tag-bits (1- n-lowtag-bits))
+(def!constant n-fixnum-tag-bits
+    (if (= 32 sb!vm:n-word-bits)
+        (1- n-lowtag-bits)
+        1))
 ;;; the fixnum tag mask
 (def!constant fixnum-tag-mask (1- (ash 1 n-fixnum-tag-bits)))
 ;;; the bit width of positive fixnums
@@ -38,11 +41,11 @@
 (def!constant widetag-mask (1- (ash 1 n-widetag-bits)))
 
 (def!constant sb!xc:most-positive-fixnum
-    (1- (ash 1 (- n-word-bits n-lowtag-bits)))
+    (1- (ash 1 n-positive-fixnum-bits))
   #!+sb-doc
   "the fixnum closest in value to positive infinity")
 (def!constant sb!xc:most-negative-fixnum
-    (ash -1 (- n-word-bits n-lowtag-bits))
+    (ash -1 n-positive-fixnum-bits)
   #!+sb-doc
   "the fixnum closest in value to negative infinity")
 

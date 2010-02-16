@@ -31,6 +31,7 @@
   (:export "ALLOCATION-INFORMATION"
            "FUNCTION-ARGLIST"
            "FUNCTION-LAMBDA-LIST"
+           "FUNCTION-TYPE"
            "DEFTYPE-LAMBDA-LIST"
            "VALID-FUNCTION-NAME-P"
            "FIND-DEFINITION-SOURCE"
@@ -465,6 +466,33 @@ value."
            (sb-int:info :type :lambda-list typespec-operator))))
     (t (values nil nil))))
 
+(defun function-type (function-designator)
+  "Returns the ftype of FUNCTION-DESIGNATOR, or NIL."
+  (flet ((ftype-of (function-designator)
+           (sb-kernel:type-specifier
+            (sb-int:info :function :type function-designator))))
+    (etypecase function-designator
+      (symbol
+       (when (and (fboundp function-designator)
+                  (not (macro-function function-designator))
+                  (not (special-operator-p function-designator)))
+         (ftype-of function-designator)))
+      (cons
+       (when (and (sb-int:legal-fun-name-p function-designator)
+                  (fboundp function-designator))
+         (ftype-of function-designator)))
+      (generic-function
+       (function-type (sb-pcl:generic-function-name function-designator)))
+      (function
+       ;; Give declared type in globaldb priority over derived type
+       ;; because it contains more accurate information e.g. for
+       ;; struct-accessors.
+       (let ((type (function-type (sb-kernel:%fun-name
+                                   (sb-impl::%fun-fun function-designator)))))
+         (if type
+             type
+             (sb-impl::%fun-type function-designator)))))))
+
 (defun struct-accessor-structure-class (function)
   (let ((self (sb-vm::%simple-fun-self function)))
     (cond
@@ -784,12 +812,12 @@ Experimental: interface subject to change."
                (let* ((addr (sb-kernel:get-lisp-obj-address object))
                       (space
                        (cond ((< sb-vm:read-only-space-start addr
-                                 (* sb-vm:*read-only-space-free-pointer*
-                                    sb-vm:n-word-bytes))
+                                 (ash sb-vm:*read-only-space-free-pointer*
+                                      sb-vm:n-fixnum-tag-bits))
                               :read-only)
                              ((< sb-vm:static-space-start addr
-                                 (* sb-vm:*static-space-free-pointer*
-                                    sb-vm:n-word-bytes))
+                                 (ash sb-vm:*static-space-free-pointer*
+                                      sb-vm:n-fixnum-tag-bits))
                               :static)
                              ((< (sb-kernel:current-dynamic-space-start) addr
                                  (sb-sys:sap-int (sb-kernel:dynamic-space-free-pointer)))
