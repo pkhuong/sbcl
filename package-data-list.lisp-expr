@@ -694,6 +694,8 @@ like *STACK-TOP-HINT* and unsupported stuff like *TRACED-FUN-LIST*."
                ;; are assertions" default
                "TRULY-THE"
 
+               "TYPE-RANGE"
+
                ;; Misc. array and vector tools.
                "ARRAY-STORAGE-VECTOR"
 
@@ -1648,6 +1650,7 @@ is a good idea, but see SB-SYS re. blurring of boundaries."
                "TYPE-INTERSECTION2" "TYPE-APPROX-INTERSECTION2"
                "TYPE-SINGLE-VALUE-P" "TYPE-SPECIFIER" "TYPE-UNION"
                "TYPE/=" "TYPE=" "TYPES-EQUAL-OR-INTERSECT"
+               "TYPE-CAST-TYPE"
                "UNBOUND-SYMBOL-ERROR" "UNBOXED-ARRAY"
                "UNDEFINED-FUN-ERROR" "UNION-TYPE" "UNION-TYPE-P"
                "UNION-TYPE-TYPES" "UNKNOWN-ERROR"
@@ -1666,6 +1669,12 @@ is a good idea, but see SB-SYS re. blurring of boundaries."
                "VALUES-TYPE-REST" "VALUES-TYPE-UNION"
                "VALUES-TYPE-TYPES" "VALUES-TYPES"
                "VALUES-TYPES-EQUAL-OR-INTERSECT"
+
+               "TYPE-RANGE-TYPE"
+               "TYPE-RANGE-P" "TYPE-RANGE-LOWER" "TYPE-RANGE-UPPER"
+               "MAKE-TYPE-RANGE"
+               "TYPE-UPPER-BOUND" "TYPE-LOWER-BOUND"
+
 
                "*VECTOR-WITHOUT-COMPLEX-TYPECODE-INFOS*"
                "VECTOR-SINGLE-FLOAT-P" "VECTOR-DOUBLE-FLOAT-P"

@@ -471,6 +471,39 @@
       *universal-type*
       type))
 
+(defstruct (type-range-type
+             (:include ctype
+              (class-info (type-class-or-lose 'type-range))
+              (might-contain-other-types-p t))
+             (:constructor %make-type-range (lower upper))
+             (:copier nil)
+             (:predicate type-range-p)
+             (:conc-name "TYPE-RANGE-"))
+  (lower nil :type ctype :read-only t)
+  (upper nil :type ctype :read-only t))
+
+(defun make-type-range (lower upper)
+  (declare (type (or null ctype) lower upper))
+  (unless (and lower upper)
+    (return-from make-type-range nil))
+  (let* ((upper (type-*-to-t upper))
+         (lower (type-intersection2 (type-*-to-t lower) upper)))
+    (cond ((type= lower *empty-type*)
+           upper)
+          ((type= upper *empty-type*)
+           *empty-type*)
+          (t
+           (%make-type-range lower upper)))))
+
+(defun type-upper-bound (type)
+  (if (type-range-p type)
+      (type-range-upper type)
+      type))
+(defun type-lower-bound (type)
+  (if (type-range-p type)
+      (type-range-lower type)
+      *empty-type*))
+
 ;;; A CONS-TYPE is used to represent a CONS type.
 (defstruct (cons-type (:include ctype (class-info (type-class-or-lose 'cons)))
                       (:constructor

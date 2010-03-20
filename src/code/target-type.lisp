@@ -53,6 +53,8 @@
               #'ctypep
               obj
               (compound-type-types type)))
+    (type-range-type
+     (ctypep obj (type-range-upper type)))
     (fun-type
      (values (functionp obj) t))
     (unknown-type

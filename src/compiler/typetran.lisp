@@ -564,6 +564,8 @@
            (source-transform-union-typep object ctype))
           (intersection-type
            (source-transform-intersection-typep object ctype))
+          (type-range-type
+           (source-transform object (type-range-upper type)))
           (member-type
            `(if (member ,object ',(member-type-members ctype)) t))
           (args-type

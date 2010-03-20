@@ -2153,7 +2153,9 @@ is :ANY, the function name is not checked."
            (type ctype type)
            (type policy policy))
   (%make-cast :asserted-type type
-              :type-to-check (maybe-weaken-check type policy)
+              :type-to-check (maybe-weaken-check
+                              (type-cast-type type policy)
+                              policy)
               :value value
               :derived-type (coerce-to-values type)))
 

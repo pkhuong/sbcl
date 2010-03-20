@@ -426,7 +426,8 @@
            ((typep object 'structure-object)
             (default-structure-print object stream *current-level-in-print*))
            (t
-            (write-string "#<INSTANCE but not STRUCTURE-OBJECT>" stream))))
+            (format stream "#<~A but not ~A>"
+                    '#:instance '#:structure-object))))
     (funcallable-instance
      (cond
        ((not (and (boundp '*print-object-is-disabled-p*)
@@ -1562,11 +1563,10 @@
          (error 'print-not-readable :object x))
         (t
          (write-string "#<" stream)))
-  (write-string "SB-EXT:" stream)
-  (write-string (symbol-name (float-format-name x)) stream)
-  (write-string (if (plusp x) "-POSITIVE-" "-NEGATIVE-")
-                stream)
-  (write-string "INFINITY" stream)
+  (format stream "~A:~A-~A-~A"
+          '#:sb-ext (float-format-name x)
+          (if (plusp x) '#:positive '#:negative)
+          '#:infinity)
   (unless *read-eval*
     (write-string ">" stream)))
 
@@ -1640,7 +1640,7 @@
 (defun output-sap (sap stream)
   (declare (type system-area-pointer sap))
   (cond (*read-eval*
-         (format stream "#.(~S #X~8,'0X)" 'int-sap (sap-int sap)))
+         (format stream "#.(~S #X~16,'0X)" 'int-sap (sap-int sap)))
         (t
          (print-unreadable-object (sap stream)
            (format stream "system area pointer: #X~8,'0X" (sap-int sap))))))
@@ -1672,7 +1672,7 @@
 
 (defun output-fdefn (fdefn stream)
   (print-unreadable-object (fdefn stream)
-    (write-string "FDEFINITION object for " stream)
+    (format stream "~A object for " 'fdefinition)
     (output-object (fdefn-name fdefn) stream)))
 
 ;;;; functions
@@ -1694,8 +1694,9 @@
            (proper-name-p (and (legal-fun-name-p name) (fboundp name)
                                (eq (fdefinition name) object))))
       (print-unreadable-object (object stream :identity (not proper-name-p))
-        (format stream "~:[FUNCTION~;CLOSURE~]~@[ ~S~]"
-                (closurep object)
+        (format stream "~A~@[ ~S~]"
+                (if (closurep object)
+                    '#:closure '#:function)
                 name))))
 
 ;;;; catch-all for unknown things

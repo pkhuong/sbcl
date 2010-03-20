@@ -967,6 +967,14 @@
   (declare (type ctype type))
   (funcall (type-class-unparse (type-class-info type)) type))
 
+;;; Returns a type to check for at runtime
+(defun type-cast-type (type policy)
+  (declare (type ctype type))
+  (let ((function (type-class-cast-type (type-class-info type))))
+    (if function
+        (funcall function type policy)
+        type)))
+
 (defun-cached (type-negation :hash-function (lambda (type)
                                               (logand (type-hash-value type)
                                                       #xff))
@@ -1613,6 +1621,9 @@
 
 (!define-type-method (negation :simple-=) (type1 type2)
   (type= (negation-type-type type1) (negation-type-type type2)))
+
+(!define-type-method (negation :cast-type) (type policy)
+  (type-negation (type-cast-type (negation-type-type type) policy)))
 
 (!def-type-translator not (typespec)
   (type-negation (specifier-type typespec)))
@@ -2904,6 +2915,11 @@ used for a COMPLEX component.~:@>"
                (setf accumulator
                      (type-intersection accumulator union))))))))
 
+(!define-type-method (intersection :cast-type) (type policy)
+  (let ((new-type *universal-type*))
+    (dolist (t1 (intersection-type-types type) new-type)
+      (setf new-type (type-intersection2 new-type (type-cast-type t1 policy))))))
+
 (!def-type-translator and (&whole whole &rest type-specifiers)
   (apply #'type-intersection
          (mapcar #'specifier-type type-specifiers)))
@@ -3073,6 +3089,11 @@ used for a COMPLEX component.~:@>"
              (setf accumulator
                    (type-union accumulator
                                (type-intersection type1 t2))))))))
+
+(!define-type-method (union :cast-type) (type policy)
+  (let ((new-type *empty-type*))
+    (dolist (t1 (union-type-types type) new-type)
+      (setf new-type (type-union2 new-type (type-cast-type t1 policy))))))
 
 (!def-type-translator or (&rest type-specifiers)
   (apply #'type-union
@@ -3488,6 +3509,83 @@ used for a COMPLEX component.~:@>"
                          :complexp complexp
                          :low low
                          :high high))))
+
+(!define-type-class type-range)
+(!define-type-method (type-range :simple-subtypep) (type1 type2)
+   (multiple-value-bind (sub known)
+       (csubtypep (type-range-upper type1)
+                  (type-range-upper type2))
+     (cond (sub
+            (csubtypep (type-range-lower type2)
+                       (type-range-lower type1)))
+           (known
+            (values nil t))
+           (t
+            (multiple-value-bind (sub known)
+                (csubtypep (type-range-lower type2)
+                           (type-range-lower type1))
+              (if (and (not sub) known)
+                  (values nil t)
+                  (values nil nil)))))))
+
+(!define-type-method (type-range :complex-subtypep-arg1) (type1 type2)
+  (csubtypep (type-range-upper type1) type2))
+(!define-type-method (type-range :complex-subtypep-arg2) (type1 type2)
+  (declare (ignore type2))
+  (if (type= type1 *empty-type*)
+      (values t t)
+      (values nil t)))
+
+(!define-type-method (type-range :simple-union2) (type1 type2)
+  (make-type-range (type-intersection2 (type-range-lower type1)
+                                       (type-range-lower type2))
+                   (type-union2 (type-range-upper type1)
+                                (type-range-upper type2))))
+
+(!define-type-method (type-range :complex-union2) (type1 type2)
+  (make-type-range (type-intersection2 (type-lower-bound type1)
+                                       (type-lower-bound type2))
+                   (type-union2 (type-upper-bound type1)
+                                (type-upper-bound type2))))
+
+(!define-type-method (type-range :simple-intersection2) (type1 type2)
+   (make-type-range (type-union2 (type-range-lower type1)
+                                 (type-range-lower type2))
+                    (type-intersection2 (type-range-upper type1)
+                                        (type-range-upper type2))))
+
+(!define-type-method (type-range :complex-intersection2) (type1 type2)
+  (make-type-range (type-union2 (type-lower-bound type1)
+                                (type-lower-bound type2))
+                   (type-intersection2 (type-upper-bound type1)
+                                       (type-upper-bound type2))))
+
+(!define-type-method (type-range :simple-=) (type1 type2)
+  (and (type= (type-range-lower type1)
+              (type-range-lower type2))
+       (type= (type-range-upper type1)
+              (type-range-upper type2))))
+
+(!define-type-method (type-range :negate) (type)
+  (type-negation (type-range-upper type)))
+
+(!define-type-method (type-range :unparse) (type)
+  (let ((lower (type-range-lower type))
+        (upper (type-range-upper type)))
+    (cond ((and (type= lower *universal-type*)
+                (type= upper *universal-type*))
+           'type-range)
+          ((type= upper *universal-type*)
+           `(type-range ,(type-specifier lower)))
+          (t
+           `(type-range ,(type-specifier lower) ,(type-specifier upper))))))
+
+(!define-type-method (type-range :cast-type) (type policy)
+  (type-cast-type (type-range-upper type) policy))
+
+(!def-type-translator type-range (&optional (lower-bound 't) (upper-bound 't))
+  (make-type-range (specifier-type lower-bound)
+                   (specifier-type upper-bound)))
 
 (locally
   ;; Why SAFETY 0? To suppress the is-it-the-right-structure-type

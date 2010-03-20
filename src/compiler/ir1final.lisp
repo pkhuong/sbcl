@@ -29,9 +29,14 @@
            ((consp what)
             (compiler-notify "~@<unable to ~2I~_~A ~I~_because: ~2I~_~?~:>"
                              note (first what) (rest what)))
-           ((valid-fun-use node what
-                           :argument-test #'types-equal-or-intersect
-                           :result-test #'values-types-equal-or-intersect)
+           ((valid-fun-use
+             node what
+             :argument-test
+             (lambda (x y)
+               (when (csubtypep y (type-lower-bound x))
+                 (go next))
+               (types-equal-or-intersect x y))
+             :result-test #'values-types-equal-or-intersect)
             (collect ((messages))
               (flet ((give-grief (string &rest stuff)
                        (messages string)
@@ -49,7 +54,8 @@
            ;; doesn't want to hear about it. The things I caught when
            ;; I put ERROR "internal error: unexpected FAILURE=~S" here
            ;; didn't look like things we need to report. -- WHN 2001-02-07
-           ))))))
+           ))
+        next))))
 
 ;;; For each named function with an XEP, note the definition of that
 ;;; name, and add derived type information to the INFO environment. We

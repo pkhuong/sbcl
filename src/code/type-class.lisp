@@ -90,7 +90,8 @@
   ;; a function which returns a Common Lisp type specifier
   ;; representing this type
   (unparse #'must-supply-this :type function)
-
+  ;; a function with returns the type to check for in CAST nodes
+  (cast-type nil :type (or function null))
   #|
   Not used, and not really right. Probably we want a TYPE= alist for the
   unary operations, since there are lots of interesting unary predicates that
@@ -123,7 +124,8 @@
       (:simple-= . type-class-simple-=)
       (:complex-= . type-class-complex-=)
       (:negate . type-class-negate)
-      (:unparse . type-class-unparse))))
+      (:unparse . type-class-unparse)
+      (:cast-type . type-class-cast-type))))
 
 (declaim (ftype (function (type-class) type-class) copy-type-class-coldly))
 (eval-when (#-sb-xc :compile-toplevel :load-toplevel :execute)
