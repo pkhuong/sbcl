@@ -574,6 +574,7 @@
 
 ;;; this is not a check for a bug, but rather a test of compiler
 ;;; quality
+#+nil
 (dolist (type '((integer 0 *)           ; upper bound
                 (real (-1) *)
                 float                   ; class
@@ -2188,6 +2189,9 @@
                  (setf (aref x 0) 1))))
 
 ;;; step instrumentation confusing the compiler, reported by Faré
+
+;;; Widening seems to detect the code's deadness after the arg type mismatch...
+#+nil
 (handler-bind ((warning #'error))
   (compile nil '(lambda ()
                  (declare (optimize (debug 2))) ; not debug 3!

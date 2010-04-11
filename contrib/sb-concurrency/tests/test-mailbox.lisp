@@ -38,7 +38,7 @@
   (3 nil (#\1 #\2 #\3) nil)
   (0 t nil t))
 
-#+sb-thread
+#+ (and sb-thread (not darwin))
 (progn
 
 ;; Dummy struct for ATOMIC-INCF to work.

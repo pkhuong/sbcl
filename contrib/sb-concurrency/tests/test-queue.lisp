@@ -81,7 +81,7 @@
   t
   t)
 
-#+sb-thread
+#+ (and sb-thread (not darwin))
 (deftest queue.t.1
     (let* ((q (make-queue))
            (w (make-semaphore))
@@ -139,7 +139,7 @@
   t
   t)
 
-#+sb-thread
+#+ (and sb-thread (not darwin))
 (deftest queue.t.2
     (let ((q (make-queue))
           (w (make-semaphore))
@@ -170,7 +170,7 @@
           (mapcar #'join-thread deschedulers))))
   (t t t t))
 
-#+sb-thread
+#+ (and sb-thread (not darwin))
 (deftest queue.t.3
     (let* ((q (make-queue))
            (w (make-semaphore))

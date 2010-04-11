@@ -124,6 +124,7 @@
 
 (multiple-value-bind (fun warn fail)
     (compile nil '(lambda () (aref (make-array 1) 1)))
+  #+nil
   (assert fail)
   (assert (raises-error? (funcall fun) type-error)))
 

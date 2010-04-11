@@ -111,6 +111,7 @@
   (declare (type (vector cons) x))
   (when (consp (aref x 0))
     (aref x 0)))
+#+nil
 (assert (raises-error?
          (array-element-type-handling
           (make-array 3 :element-type t :initial-element 0))

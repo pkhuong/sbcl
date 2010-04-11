@@ -416,6 +416,14 @@
   (cond ((and (eq 'eql fun) (lambda-var-p y) (not not-p))
          (add-eql-var-var-constraint x y constraints target))
         (t
+         (when (and *approximate-types*
+                    (memq fun '(typep < >)))
+           (setf y (type-approximation y :down not-p))
+           (when (or (and not-p
+                          (type= y *empty-type*))
+                     (and (not not-p)
+                          (type= y *universal-type*)))
+             (return-from add-test-constraint (values))))
          (do-eql-vars (x (x constraints))
            (let ((con (find-or-create-constraint fun x y not-p)))
              (conset-adjoin con target)))))

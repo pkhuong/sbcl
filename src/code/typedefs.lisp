@@ -97,7 +97,10 @@
   ;; is disjoint from MEMBER-TYPE and so forth. But types which can
   ;; contain other types, like HAIRY-TYPE and INTERSECTION-TYPE, can
   ;; violate this rule.
-  (might-contain-other-types-p nil :read-only t))
+  (might-contain-other-types-p nil :read-only t)
+  ;; Lazily-computed upper and lower bounds on the type
+  (%upper-bound nil :type (or null ctype))
+  (%lower-bound nil :type (or null ctype)))
 (def!method print-object ((ctype ctype) stream)
   (print-unreadable-object (ctype stream :type t)
     (prin1 (type-specifier ctype) stream)))

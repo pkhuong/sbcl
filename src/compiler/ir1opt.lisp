@@ -275,6 +275,290 @@
     (setf (block-reoptimize (node-block use)) t)
     (reoptimize-component (node-component use) :maybe)))
 
+(defvar *approximate-types* t)
+
+(defun numeric-round-down (low &aux (car (if (consp low)
+                                             (car low)
+                                             low)))
+  (typecase car
+    (integer
+       (cond ((zerop car) low)
+             ((minusp car)
+              (let ((len (integer-length (- -1 car))))
+                (unless (> len 64)
+                  (let* ((round (ash -1 len))
+                         (round+1 (1+ round))
+                         (round+2 (+ round 2)))
+                    (cond ((<= round+2 car) round+2)
+                          ((= round+1 car) round+1)
+                          (t round))))))
+             ((plusp car)
+              (let ((len (1- (integer-length car))))
+                (if (> len 64)
+                    0
+                    (let* ((round   (ash 1 len))
+                           (round-1 (1- (ash round 1)))
+                           (round-2 (1- round-1)))
+                      (cond ((= round-2 car) round-2)
+                            ((= round-1 car) round-1)
+                            (t round))))))))
+    (null nil)
+    (t
+       (cond ((zerop car) low)
+             ((minusp car) nil)
+             ((plusp car) (- car car))))))
+
+(defun numeric-round-up (low &aux (car (if (consp low)
+                                           (car low)
+                                           low)))
+  (typecase car
+    (integer
+       (cond ((zerop car) low)
+             ((minusp car)
+              (let ((len (1- (integer-length (- car)))))
+                (if (> len 64)
+                    0
+                    (let* ((round (ash -1 len))
+                           (round+1 (1+ (ash round 1)))
+                           (round+2 (1+ round+1)))
+                      (cond ((= car round+2) round+2)
+                            ((= round+1 car) round+1)
+                            (t round))))))
+             ((plusp car)
+              (let ((len (integer-length (1- car))))
+                (unless (> len 64)
+                  (let* ((round (ash 1 len))
+                         (round-1 (1- round))
+                         (round-2 (- round 2)))
+                    (cond ((<= car round-2) round-2)
+                          ((= round-1 car) round-1)
+                          (t round))))))))
+    (null nil)
+    (t
+       (cond ((zerop car) low)
+             ((minusp car) (- car car))
+             ((plusp car) nil)))))
+
+(defun %type-round-up (type)
+  (typecase type
+    (values-type
+       (make-values-type
+        :required (mapcar #'type-round-up (values-type-required type))
+        :rest (if (eql (values-type-max-value-count type)
+                       (values-type-min-value-count type))
+                  nil
+                  *universal-type*)))
+    (hairy-type *universal-type*)
+    (negation-type
+       (let* ((type (type-round-down (negation-type-type type)))
+              (neg  (funcall (sb!kernel::type-class-negate (sb!kernel::type-class-info type))
+                             type)))
+         (if (typep neg 'negation-type)
+             *universal-type*
+             neg)))
+    (fun-type *universal-fun-type*)
+    ((or named-type classoid)
+       type)
+    (numeric-type
+       (let ((low  (numeric-type-low  type))
+             (high (numeric-type-high type)))
+         (if (eql low high)
+             type
+             (modified-numeric-type type
+                                    :low  (numeric-round-down low)
+                                    :high (numeric-round-up   high)))))
+    (character-set-type
+       (if (= 1 (length (character-set-type-pairs type)))
+           type
+           (let ((low  char-code-limit)
+                 (high 0))
+             (loop for (lo . hi) in (character-set-type-pairs type)
+                   do (setf low  (min low  lo)
+                            high (max high hi))
+                   finally
+                (return (sb!kernel::make-character-set-type
+                         :pairs `((,(numeric-round-down low) . ,(numeric-round-up high)))))))))
+    (array-type
+       (make-array-type
+        :dimensions (if (eql '* (array-type-dimensions type))
+                        '*
+                        (mapcar (constantly '*) (array-type-dimensions type)))
+        :complexp (array-type-complexp type)
+        :element-type (array-type-specialized-element-type type)
+        :specialized-element-type (array-type-specialized-element-type type)))
+    (member-type
+       (if (< (member-type-size type) 4)
+           type
+           (let ((acc *empty-type*))
+             (mapc-member-type-members (lambda (member)
+                                         (setf acc (type-union
+                                                    acc
+                                                    (if (symbolp member)
+                                                        (specifier-type 'symbol)
+                                                        (type-round-up (ctype-of member))))))
+                                       type)
+             (type-round-up acc))))
+    (union-type
+       (if (or (type= type (specifier-type 'list))
+               (type= type (specifier-type 'float))
+               (type= type (specifier-type 'real))
+               (type= type (specifier-type 'sequence))
+               (type= type (specifier-type 'bignum))
+               (type= type (specifier-type 'simple-string))
+               (type= type (specifier-type 'string))
+               (type= type (specifier-type 'complex))
+               (type= type (specifier-type 'standard-char))
+               (type= type (specifier-type '(simple-unboxed-array 1))))
+           type
+           (let ((type (apply #'type-union
+                              (mapcar #'type-round-up (union-type-types type)))))
+             (when (union-type-p type)
+               (let ((non-numerics '())
+                     (numerics     '())
+                     (interval     nil))
+                 (dolist (type (union-type-types type))
+                   (cond ((numeric-type-p type)
+                          (push type numerics)
+                          (let ((new-interval (numeric-type->interval type)))
+                            (setf interval
+                                  (if interval
+                                      (interval-approximate-union interval
+                                                                  new-interval)
+                                      new-interval))))
+                         (t
+                          (push type non-numerics))))
+                 (when numerics
+                   (setf type
+                         (apply #'type-union
+                                (apply #'type-union
+                                       (let ((low  (interval-low  interval))
+                                             (high (interval-high interval)))
+                                         (mapcar (lambda (x)
+                                                   (modified-numeric-type
+                                                    x
+                                                    :low  low
+                                                    :high high))
+                                                 numerics)))
+                                non-numerics)))))
+             (if (and (union-type-p type)
+                      (> (length (union-type-types type)) 32))
+                 *universal-type*
+                 type))))
+    (intersection-type
+       (if (or (type= type (specifier-type 'ratio))
+               (type= type (specifier-type 'keyword))
+               (type= type (specifier-type 'compiled-function)))
+           type
+           (let ((type (apply #'type-intersection
+                              (mapcar #'type-round-up (intersection-type-types type)))))
+             (if (and (intersection-type-p type)
+                      (> (length (intersection-type-types type)) 32))
+                 (apply #'type-intersection (subseq (intersection-type-types type) 0 32))
+                 type))))
+    (cons-type
+       (specifier-type 'cons))
+    (t type)))
+
+(defun type-round-up (type)
+  (or (type-%upper-bound type)
+      (setf (type-%upper-bound type) (%type-round-up type))))
+
+(defun %type-round-down (type)
+    (typecase type
+      (values-type
+       (if (eql (values-type-max-value-count type)
+                (values-type-min-value-count type))
+           (make-values-type :required (mapcar #'type-round-down (values-type-required type)))
+           *empty-type*))
+      (hairy-type *empty-type*)
+      (negation-type
+         (let* ((type (type-round-up (negation-type-type type)))
+                (neg  (funcall (sb!kernel::type-class-negate (sb!kernel::type-class-info type))
+                               type)))
+           (if (typep neg 'negation-type)
+               *empty-type*
+               neg)))
+      ((or named-type classoid)
+         type)
+      (member-type
+         (if (< (member-type-size type) 4)
+             type
+             (make-member-type :members (subseq (member-type-members type) 0 4))))
+      (character-set-type
+         (cond ((type= type (specifier-type 'character))
+                (specifier-type 'character))
+               ((csubtypep (specifier-type 'base-char) type)
+                (specifier-type 'base-char))
+               (t *empty-type*)))
+      (numeric-type
+       (let ((low  (numeric-type-low  type))
+             (high (numeric-type-high type)))
+         (if (eql low high)
+             type
+             (modified-numeric-type type
+                                    :low  (numeric-round-up   low)
+                                    :high (numeric-round-down high)))))
+      (array-type
+         (if (and (or (eql '* (array-type-dimensions type))
+                      (every (lambda (x)
+                               (eql x '*))
+                             (array-type-dimensions type)))
+                  (eql (array-type-element-type type)
+                       (array-type-specialized-element-type type)))
+             type
+             *empty-type*))
+      (union-type
+         (if (or (type= type (specifier-type 'list))
+                 (type= type (specifier-type 'float))
+                 (type= type (specifier-type 'real))
+                 (type= type (specifier-type 'sequence))
+                 (type= type (specifier-type 'bignum))
+                 (type= type (specifier-type 'simple-string))
+                 (type= type (specifier-type 'string))
+                 (type= type (specifier-type 'complex))
+                 (type= type (specifier-type 'standard-char))
+                 (type= type (specifier-type '(simple-unboxed-array 1))))
+             type
+             (let ((type (apply #'type-union
+                                (mapcar #'type-round-down (union-type-types type)))))
+               (if (and  (union-type-p type)
+                         (> (length (union-type-types type)) 32))
+                   (apply #'type-union (subseq (union-type-types type) 0 32))
+                   type))))
+      (intersection-type
+         (if (or (type= type (specifier-type 'ratio))
+                 (type= type (specifier-type 'keyword))
+                 (type= type (specifier-type 'compiled-function)))
+             type
+             (let ((type (apply #'type-intersection
+                                (mapcar #'type-round-down (intersection-type-types type)))))
+               (if (and (intersection-type-p type)
+                        (> (length (intersection-type-types type)) 32))
+                   *empty-type*
+                   type))))
+      (cons-type
+         (if (and (type= (cons-type-car-type type) *universal-type*)
+                  (type= (cons-type-cdr-type type) *universal-type*))
+             type
+             *empty-type*))
+      (t type)))
+
+(defun type-round-down (type)
+  (or (type-%lower-bound type)
+      (setf (type-%lower-bound type) (%type-round-down type))))
+
+;; hook into type-approx-intersection2 also
+(defun type-approximation (type &key (down nil))
+  (unless *approximate-types*
+    (return-from type-approximation type))
+  (let ((new-type (if down
+                       (type-round-down type)
+                       (type-round-up   type))))
+    #!+sb-show
+    (unless (type= type new-type)
+      (format t "approx: ~A~%   ~A ~A~%" type (if down "down" "up  ") new-type))
+    new-type))
+
 ;;; Annotate NODE to indicate that its result has been proven to be
 ;;; TYPEP to RTYPE. After IR1 conversion has happened, this is the
 ;;; only correct way to supply information discovered about a node's
@@ -286,7 +570,8 @@
 ;;; REOPTIMIZE-LVAR on the NODE-LVAR.
 (defun derive-node-type (node rtype)
   (declare (type valued-node node) (type ctype rtype))
-  (let ((node-type (node-derived-type node)))
+  (let ((node-type (node-derived-type node))
+        (rtype (type-approximation rtype)))
     (unless (eq node-type rtype)
       (let ((int (values-type-intersection node-type rtype))
             (lvar (node-lvar node)))

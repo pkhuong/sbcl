@@ -275,17 +275,50 @@
       (multiple-value-bind (canonical-low canonical-high)
           (case class
             (integer
-             ;; INTEGER types always have their LOW and HIGH bounds
-             ;; represented as inclusive, not exclusive values.
-             (values (if (consp low)
-                         (1+ (type-bound-number low))
-                         low)
-                     (if (consp high)
-                         (1- (type-bound-number high))
-                         high)))
+               ;; INTEGER types always have their LOW and HIGH bounds
+               ;; represented as inclusive, not exclusive values.
+               (values (cond ((consp low)
+                              (1+ (ceiling (type-bound-number low))))
+                             (low
+                              (ceiling low)))
+                       (cond ((consp high)
+                              (1- (floor (type-bound-number high))))
+                             (high
+                              (floor high)))))
+            (rational
+               (values (cond ((consp low)
+                              (list (rational (first low))))
+                             (low
+                              (rational low)))
+                       (cond ((consp high)
+                              (list (rational (first high))))
+                             (high
+                              (rational high)))))
             (t
              ;; no canonicalization necessary
-             (values low high)))
+               (macrolet
+                   ((foo ()
+                      `(case format
+                         ,@(loop for format in *float-formats*
+                                 collect `(,format
+                                            (values (and low
+                                                         (if (consp low)
+                                                             (list (coerce (car low)
+                                                                           ',format))
+                                                             (coerce low  ',format)))
+                                                    (and high
+                                                         (if (consp high)
+                                                             (list (coerce (car high)
+                                                                           ',format))
+                                                             (coerce high ',format))))))
+                         (otherwise (values low high)))))
+                 (foo))))
+        (when (and low
+                   high
+                   (if (or (consp low) (consp high)) ; if either bound is exclusive
+                       (>= (type-bound-number low) (type-bound-number high))
+                       (> low high)))
+          (return-from make-numeric-type *empty-type*))
         (when (and (eq class 'rational)
                    (integerp canonical-low)
                    (integerp canonical-high)

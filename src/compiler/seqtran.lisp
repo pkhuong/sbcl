@@ -256,6 +256,7 @@
                               (gensym))
                             seqs)))
     `(lambda (result fun ,@seqs-names)
+       (declare (type ,(type-specifier (lvar-type result)) result))
        ,(build-sequence-iterator
          seqs seqs-names
          :result '(when (array-has-fill-pointer-p result)
