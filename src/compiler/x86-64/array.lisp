@@ -477,6 +477,41 @@
    (inst movsd (make-ea-for-float-ref object index offset 8) value)
    (move result value)))
 
+(define-vop (data-vector-+-with-offset/simple-array-double-float)
+  (:note "inline array increment")
+  (:translate sb!c::data-vector-+-with-offset)
+  (:policy :fast-safe)
+  (:args (object :scs (descriptor-reg))
+         (index :scs (any-reg))
+         (value :scs (double-reg) :target result))
+  (:info offset)
+  (:arg-types simple-array-double-float positive-fixnum
+              (:constant (constant-displacement other-pointer-lowtag
+                                                8 vector-data-offset))
+              double-float)
+  (:results (result :scs (double-reg)))
+  (:result-types double-float)
+  (:generator 20
+   (move result value)
+   (inst addsd value (make-ea-for-float-ref object index offset 8))))
+
+(define-vop (data-vector-+-c-with-offset/simple-array-double-float)
+  (:note "inline array increment")
+  (:translate sb!c::data-vector-+-with-offset)
+  (:policy :fast-safe)
+  (:args (object :scs (descriptor-reg))
+         (value :scs (double-reg) :target result))
+  (:info index offset)
+  (:arg-types simple-array-double-float (:constant low-index)
+              (:constant (constant-displacement other-pointer-lowtag
+                                                8 vector-data-offset))
+              double-float)
+  (:results (result :scs (double-reg)))
+  (:result-types double-float)
+  (:generator 19
+    (move result value)
+    (inst addsd value (make-ea-for-float-ref object index offset 8))))
+
 
 ;;; complex float variants
 

@@ -240,11 +240,86 @@
                           index
                           new-value)))))
 
+;;; Recognize in-place vector arithmetic
+(defun in-place-arithmetic-p (node
+                              reffer array index offset
+                              new-value arithmetic-ops)
+  (declare (type symbol reffer)
+           (type lvar array index offset new-value))
+  (labels
+      ((lvar-eql (x y)
+         (declare (type lvar x y))
+         (let ((val
+                (if (and (constant-lvar-p x)
+                         (constant-lvar-p y))
+                    (eql (lvar-value x)
+                         (lvar-value y))
+                    (binding* ((x   (lvar-uses x))
+                               (y   (lvar-uses y))
+                               (nil (and (ref-p x)
+                                         (ref-p y))
+                                    :exit-if-null)
+                               (x   (ref-leaf x))
+                               (y   (ref-leaf y))
+                               (nil (and (lambda-var-p x)
+                                         (lambda-var-p y))
+                                    :exit-if-null))
+                      (cond ((and (null (lambda-var-sets x))
+                                  (null (lambda-var-sets y))
+                                  (eql x y)))
+                            ((and (lambda-var-constraints x)
+                                  (lambda-var-constraints y))
+                             (or (eql x y)
+                                 (find-constraint 'eql x y nil)
+                                 (find-constraint 'eql y x nil)))
+                            (t
+                             (delay-ir1-transform node :constraint)))))))
+           val))
+       (reffer-p (lvar)
+         (declare (type lvar lvar))
+         (unless (lvar-matches lvar
+                               :fun-names (list reffer)
+                               :arg-count 3)
+           (return-from reffer-p))
+         (destructuring-bind (array? index? offset?)
+             (combination-args (lvar-use lvar))
+           (and (lvar-eql array  array?)
+                (lvar-eql index  index?)
+                (lvar-eql offset offset?)))))
+    (unless (lvar-matches new-value
+                          :fun-names arithmetic-ops
+                          :arg-count 2)
+      (return-from in-place-arithmetic-p))
+    (let* ((use  (lvar-use new-value))
+           (fun  (combination-fun-source-name use)))
+      (destructuring-bind (x y) (combination-args use)
+        (cond ((reffer-p x) (values 0 fun))
+              ((reffer-p y) (values 1 fun))
+              (t (values nil nil)))))))
+
 ;;; Transform data vector access to a form that opens up optimization
 ;;; opportunities.
 #!+(or x86 x86-64)
 (define-source-transform data-vector-set (array index new-value)
   `(data-vector-set-with-offset ,array ,index 0 ,new-value))
+
+#!+(or x86 x86-64)
+(deftransform data-vector-set-with-offset ((array index offset new-value)
+                                           * * :node node)
+  "Recognize in-place arithmetic on vectors"
+  (give-up-ir1-transform))
+
+#!+(or x86 x86-64)
+(deftransform + ((x y) * * :node node)
+  "Fuse add of vector ref"
+  (cond ((lvar-matches x :fun-names '(data-vector-ref-with-offset) :arg-count 3)
+         (splice-fun-args x 'data-vector-ref-with-offset 3)
+         `(lambda (array index offset value)
+            (data-vector-+-with-offset array index offset value)))
+        ((lvar-matches y :fun-names '(data-vector-ref-with-offset) :arg-count 3)
+         (splice-fun-args y 'data-vector-ref-with-offset 3)
+         `(lambda (value array index offset)
+            (data-vector-+-with-offset array index offset value)))))
 
 #!+(or x86 x86-64)
 (deftransform data-vector-set-with-offset ((array index offset new-value))

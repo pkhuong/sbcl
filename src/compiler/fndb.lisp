@@ -1454,6 +1454,8 @@
   (unsafe explicit-check always-translatable))
 (defknown data-vector-set-with-offset (array index fixnum t) t
   (unsafe explicit-check always-translatable))
+(defknown data-vector-+-with-offset (array index fixnum t) t
+  (unsafe explicit-check always-translatable))
 (defknown hairy-data-vector-ref (array index) t
   (foldable explicit-check))
 (defknown hairy-data-vector-set (array index t) t (unsafe explicit-check))
