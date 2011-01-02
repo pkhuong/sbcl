@@ -5066,7 +5066,7 @@ gc_and_save(char *filename, boolean prepend_runtime,
         save_runtime_to_filehandle(file, runtime_bytes, runtime_size);
 
     /* The dumper doesn't know that pages need to be zeroed before use. */
-    zero_all_free_pages();
+    zero_all_free_pages(); // FIXME: last_free pointers aren't correct here!
     save_to_filehandle(file, filename, SymbolValue(RESTART_LISP_FUNCTION,0),
                        prepend_runtime, save_runtime_options);
     /* Oops. Save still managed to fail. Since we've mangled the stack

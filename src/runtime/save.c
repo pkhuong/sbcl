@@ -285,7 +285,7 @@ save_to_filehandle(FILE *file, char *filename, lispobj init_function,
     output_space(file,
                  DYNAMIC_CORE_SPACE_ID,
                  (lispobj *)DYNAMIC_SPACE_START,
-                 dynamic_space_free_pointer,
+                 dynamic_space_free_pointer, // FIXME
                  core_start_pos);
 #else
     output_space(file,
@@ -298,7 +298,7 @@ save_to_filehandle(FILE *file, char *filename, lispobj init_function,
     output_space(file,
                  DYNAMIC_CORE_SPACE_ID,
                  (lispobj *)DYNAMIC_SPACE_START,
-                 (lispobj *)SymbolValue(ALLOCATION_POINTER,0),
+                 (lispobj *)SymbolValue(ALLOCATION_POINTER,0), // FIXME
                  core_start_pos);
 #endif
 
@@ -307,7 +307,7 @@ save_to_filehandle(FILE *file, char *filename, lispobj init_function,
     write_lispobj(init_function, file);
 
 #ifdef LISP_FEATURE_GENCGC
-    {
+    {   // FIXME
         size_t size = (last_free_unboxed_page*sizeof(long)+os_vm_page_size-1)
             &~(os_vm_page_size-1);
         unsigned long *data = calloc(size, 1);
