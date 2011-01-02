@@ -139,7 +139,8 @@ new_space_p(lispobj obj)
     return space_matches_p(obj,new_space);
 }
 
-extern page_index_t last_free_page;
+extern page_index_t last_free_boxed_page;
+extern page_index_t last_free_unboxed_page;
 extern boolean gencgc_partial_pickup;
 
 #endif

@@ -308,14 +308,14 @@ save_to_filehandle(FILE *file, char *filename, lispobj init_function,
 
 #ifdef LISP_FEATURE_GENCGC
     {
-        size_t size = (last_free_page*sizeof(long)+os_vm_page_size-1)
+        size_t size = (last_free_unboxed_page*sizeof(long)+os_vm_page_size-1)
             &~(os_vm_page_size-1);
         unsigned long *data = calloc(size, 1);
         if (data) {
             unsigned long word;
             long offset;
             int i;
-            for (i = 0; i < last_free_page; i++) {
+            for (i = 0; i < last_free_unboxed_page; i++) {
                 /* Thanks to alignment requirements, the two low bits
                  * are always zero, so we can use them to store the
                  * allocation type -- region is always closed, so only
