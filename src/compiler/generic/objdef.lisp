@@ -428,6 +428,10 @@
   ;; print an approximation of the CSP as needed.
   #!+(and sb-thread)
   (control-stack-pointer :c-type "lispobj *")
+  (nonpointer-data :c-type "struct nonpointer_thread_data *" :length #!+alpha 2 #!-alpha 1)
+  #!+(and sb-safepoint x86) (selfptr :c-type "struct thread *")
+  #!+sb-safepoint (csp-around-foreign-call :c-type "lispobj *")
+  #!+sb-safepoint (pc-around-foreign-call :c-type "lispobj *")
   ;; KLUDGE: On alpha, until STEPPING we have been lucky and the 32
   ;; bit slots came in pairs. However the C compiler will align
   ;; interrupt_contexts on a double word boundary. This logic should

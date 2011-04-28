@@ -2432,7 +2432,7 @@ maybe_gc(os_context_t *context)
      * A kludgy alternative is to propagate the sigmask change to the
      * outer context.
      */
-#ifndef LISP_FEATURE_WIN32
+#if !(defined(LISP_FEATURE_WIN32) || defined(LISP_FEATURE_SB_SAFEPOINT))
     check_gc_signals_unblocked_or_lose(os_context_sigmask_addr(context));
     unblock_gc_signals(0, 0);
 #endif
@@ -2457,7 +2457,9 @@ maybe_gc(os_context_t *context)
         sigset_t *context_sigmask = os_context_sigmask_addr(context);
         if (!deferrables_blocked_p(context_sigmask)) {
             thread_sigmask(SIG_SETMASK, context_sigmask, 0);
+#ifndef LISP_FEATURE_SB_SAFEPOINT
             check_gc_signals_unblocked_or_lose(0);
+#endif
 #endif
             FSHOW((stderr, "/maybe_gc: calling POST_GC\n"));
             funcall0(StaticSymbolFunction(POST_GC));

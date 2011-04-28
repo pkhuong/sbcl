@@ -1008,9 +1008,12 @@ around and can be retrieved by JOIN-THREAD."
                                ;; signals.
                                (sb!unix::unblock-deferrable-signals)
                                (setf (thread-result thread)
-                                     (cons t
-                                           (multiple-value-list
-                                            (funcall real-function))))
+                                     (prog1
+                                         (cons t
+                                               (multiple-value-list
+                                                (funcall real-function)))
+                                       #!+sb-safepoint
+                                       (sb!kernel::gc-safepoint)))
                                ;; Try to block deferrables. An
                                ;; interrupt may unwind it, but for a
                                ;; normal exit it prevents interrupt
@@ -1146,6 +1149,50 @@ SB-EXT:QUIT - the usual cleanup forms will be evaluated"
                 (sap-ref-sap thread-sap (* sb!vm:n-word-bytes
                                            sb!vm::thread-next-slot)))))))
 
+  #!+sb-safepoint
+  ;; Simplied implementation for use with safepoints.  Written as a
+  ;; separate DEFUN for clarity.  We differ from the traditional version
+  ;; in the following points:
+  ;;   - no GC-EPOCH check (also no pinning either)
+  ;;   - we depend on the fact that the compiler does not insert a
+  ;;     safepoint between SAF-REF-WORD and %MAKE-LISP-OBJ, meaning that
+  ;;     GC is not possible, and does not need to be inhibited or
+  ;;     influenced explicitly.
+  ;;   - consequently no LOOPing, we always return a value
+  ;; I've also removed the use of MAKE-LISP-OBJ entirely, because checks
+  ;; in there seem specific to the debugger's use case, where values are
+  ;; taken from live stack frames and expected to be potentially bogus,
+  ;; whereas we are looking at symbol values atomically.
+  ;;
+  ;; Kludge: Either this simpler SB-SAFEPOINT-specific code is more
+  ;; correct/robust than the original version (i.e. not actually just an
+  ;; optimization), or SB-SAFEPOINT is otherwise buggy, since I'm
+  ;; getting hangs and crashes in test SYMBOL-VALUE-IN-THREAD.3 when
+  ;; running the original code.
+  (defun %symbol-value-in-thread (symbol thread)
+    ;; Prevent the thread from dying completely while we look for the TLS
+    ;; area...
+    (with-all-threads-lock
+      (if (thread-alive-p thread)
+          (let ((offset (* sb!vm:n-word-bytes
+                           (sb!vm::symbol-tls-index symbol))))
+            (when (zerop offset)
+              (values nil :no-tls-value))
+            (let ((struct-thread (%thread-sap thread)))
+              (locally
+                  ;; It seems prudent to inhibit safepoints here explicitly,
+                  ;; even though the code as written does not loop, and would
+                  ;; not need this declaration currently.  May the declaration
+                  ;; serve as documentation at least.
+                  (declare (optimize (sb!c:inhibit-safepoints 3)))
+                (let ((tl-val (sap-ref-word struct-thread offset)))
+                  (if (or (eql tl-val sb!vm:no-tls-value-marker-widetag)
+                          (eql tl-val sb!vm:unbound-marker-widetag))
+                      (values nil :unbound-in-thread)
+                      (values (%make-lisp-obj tl-val) :ok))))))
+          (values nil :thread-dead))))
+
+  #!-sb-safepoint
   (defun %symbol-value-in-thread (symbol thread)
     ;; Prevent the thread from dying completely while we look for the TLS
     ;; area...

@@ -35,6 +35,10 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (setf *backend-page-bytes* 32768))
 
+#!+sb-safepoint
+(def!constant thread-saved-csp-offset
+    (- (/ *backend-page-bytes* n-word-bytes)))
+
 ;;; The size in bytes of the GENCGC pages. Should be a multiple of the
 ;;; architecture code size.
 (def!constant gencgc-page-bytes *backend-page-bytes*)

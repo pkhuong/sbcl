@@ -297,6 +297,10 @@
               :disp (* 8 thread-pseudo-atomic-bits-slot))
     0))
 
+#!+sb-safepoint
+(defun emit-safepoint ()
+  (inst test al-tn (make-ea :byte :disp sb!vm::gc-safepoint-page-addr)))
+
 #!+sb-thread
 (defmacro pseudo-atomic (&rest forms)
   (with-unique-names (label)
@@ -314,7 +318,13 @@
        ;; if PAI was set, interrupts were disabled at the same time
        ;; using the process signal mask.
        (inst break pending-interrupt-trap)
-       (emit-label ,label))))
+       (emit-label ,label)
+       #!+sb-safepoint
+       ;; In this case, when allocation thinks a GC should be done, it
+       ;; does not mark PA as interrupted, but schedules a safepoint
+       ;; trap instead.  Let's take the opportunity to trigger that
+       ;; safepoint right now.
+       (emit-safepoint))))
 
 
 #!-sb-thread
