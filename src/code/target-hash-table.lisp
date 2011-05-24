@@ -371,8 +371,8 @@ Examples:
            ;; KV entries - mapped to indeces at 2i and 2i+1 -
            ;; together.
            (next-vector (make-array size+1
-                                    :element-type
-                                    '(unsigned-byte #.sb!vm:n-word-bits)))
+                                          :element-type
+                                          '(unsigned-byte #.sb!vm:n-word-bits)))
            (kv-vector (make-array (* 2 size+1)
                                   :initial-element +empty-ht-slot+))
            (table (%make-hash-table

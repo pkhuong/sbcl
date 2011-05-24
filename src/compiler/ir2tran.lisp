@@ -610,6 +610,20 @@
 ;;; drop-through, but emit an unconditional branch afterward if we
 ;;; fail. NOT-P is true if the sense of the TEMPLATE's test should be
 ;;; negated.
+(defvar *break-conditional-p* nil)
+(defun block-ref-value (block)
+  (let ((ref (block-last block)))
+    (and (ref-p (block-last block))
+         (eql ref (ctran-next (block-start block)))
+         (list ref (ref-leaf ref) (ref-lvar ref)))))
+
+(defun args-to-list (args)
+  (let ((list '()))
+    (loop while args
+          do (push args list)
+             (setf args (tn-ref-across args))
+          finally (return (nreverse list)))))
+
 (defun ir2-convert-conditional (node block template args info-args if not-p)
   (declare (type node node) (type ir2-block block)
            (type template template) (type (or tn-ref null) args)
@@ -624,6 +638,71 @@
     (when not-p
       (rotatef consequent alternative)
       (setf not-p nil))
+    (when (and *break-conditional-p*
+               (and (singleton-p (block-succ consequent))
+                            (singleton-p (block-succ alternative))
+                            (equal (block-succ consequent)
+                                   (block-succ alternative))))
+      (let ((yes (block-ref-value consequent))
+            (no  (block-ref-value alternative))
+            (succ (first (block-succ consequent))))
+        (block nil
+          (when (and yes no)
+            (break "cond: ~A ~A~% ~A ~A"
+                   (template-name template) (args-to-list args)
+                   yes no)
+            (destructuring-bind (yes-node yes-value yes-lvar) yes
+              (destructuring-bind (no-node no-value no-lvar) no
+                (let ((yes-2lvar (lvar-info yes-lvar))
+                      (no-2lvar  (lvar-info no-lvar)))
+                  (unless (and yes-2lvar
+                               no-2lvar)
+                    (return))
+                  (break "~A ~A ~A ~A~%" yes-lvar no-lvar yes-2lvar no-2lvar)
+                  (assert (and (eql :fixed (ir2-lvar-kind yes-2lvar))
+                               (eql :fixed (ir2-lvar-kind no-2lvar))
+                               (typep (ir2-lvar-locs yes-2lvar) '(cons t null))
+                               (typep (ir2-lvar-locs no-2lvar) '(cons t null))))
+                  (let* ((loc (first (ir2-lvar-locs yes-2lvar)))
+                         (ptype (tn-primitive-type loc)))
+                    (format t "ptype: ~A~%" ptype)
+                    (unless (eql loc (first (ir2-lvar-locs no-2lvar)))
+                      (return))
+                    (unless (eql :normal (tn-kind loc))
+                      (return))
+                    (let ((block (ir2-block-block block)))
+                      (setf (block-pred consequent)
+                            (remove block (block-pred consequent))
+                            (block-pred alternative)
+                            (remove block (block-pred alternative))
+                            (block-succ block) (list succ))
+                      (unless (block-pred consequent)
+                        (setf (block-delete-p consequent) t))
+                      (unless (block-pred alternative)
+                        (setf (block-delete-p alternative) t)))
+                    (let* ((yes-loc (make-normal-tn ptype))
+                           (no-loc  (make-normal-tn ptype))
+                           (yes-2lvar (make-ir2-lvar ptype))
+                           (no-2lvar (make-ir2-lvar ptype))
+                           (yes-lvar (copy-lvar yes-lvar))
+                           (no-lvar  (copy-lvar no-lvar)))
+                      (setf (ir2-lvar-locs yes-2lvar) (list yes-loc)
+                            (ir2-lvar-locs no-2lvar)  (list no-loc)
+                            (lvar-info yes-lvar)      yes-2lvar
+                            (lvar-info no-lvar)       no-2lvar
+                            (node-lvar yes-node)           yes-lvar
+                            (node-lvar no-node)            no-lvar)
+                      (ir2-convert-ref yes-node block)
+                      (ir2-convert-ref no-node block)
+                      (emit-template node block template args nil info-args)
+                      (emit-template node block (template-or-lose
+                                                 'sb-vm::move-if/t)
+                                     (reference-tn-list (list yes-loc no-loc)
+                                                        nil)
+                                     (reference-tn loc t)
+                                     (list flags))
+                      (vop branch node block (block-label succ))
+                      (return-from ir2-convert-conditional))))))))))
     (when (drop-thru-p if consequent)
       (rotatef consequent alternative)
       (setf not-p t))
@@ -1773,7 +1852,8 @@
                        2block
                        #!+sb-dyncount *dynamic-counts-tn* #!-sb-dyncount nil
                        num))))
-            (ir2-convert-block block)
+            (unless (block-delete-p block)
+              (ir2-convert-block block))
             (incf num))))))
   (values))
 

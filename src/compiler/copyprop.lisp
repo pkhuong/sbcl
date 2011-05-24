@@ -120,7 +120,8 @@
             (do ((read (tn-reads res-tn) (tn-ref-next read)))
                 ((null read))
               (let ((read-vop (tn-ref-vop read)))
-                (when (eq (vop-info-name (vop-info read-vop)) 'move)
+                (when (and #+nil read-vop
+                           (eq (vop-info-name (vop-info read-vop)) 'move))
                   (let ((y (tn-ref-tn (vop-results read-vop))))
                     (when (tn-is-copy-of y)
                       (sset-delete y gen)
@@ -136,6 +137,8 @@
 ;;; each time.
 (defun copy-flow-analysis (block)
   (declare (type cblock block))
+  (when (block-delete-p block)
+    (return-from copy-flow-analysis nil))
   (let* ((pred (block-pred block))
          (in (copy-sset (block-out (first pred)))))
     (dolist (pred-block (rest pred))

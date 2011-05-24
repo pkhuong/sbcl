@@ -191,6 +191,8 @@ run in any thread.")
 ;;; small to measure. -- JES, 2007-09-30
 (declaim (type cons *gc-epoch*))
 (defvar *gc-epoch* (cons nil nil))
+(declaim (type (simple-array cons (#. (1+ sb!vm:+highest-normal-generation+))) **gc-epoch-per-generation**))
+(defglobal **gc-epoch-per-generation** (make-array (1+ sb!vm:+highest-normal-generation+) :initial-element *gc-epoch*))
 
 (defun sub-gc (&key (gen 0))
   (cond (*gc-inhibit*
@@ -223,7 +225,10 @@ run in any thread.")
                    (gc-stop-the-world)
                    (let ((start-time (get-internal-run-time)))
                      (collect-garbage gen)
-                     (setf *gc-epoch* (cons nil nil))
+                     (let ((marker (cons nil nil)))
+                       (setf *gc-epoch* marker)
+                       (loop for i upto (min gen sb!vm:+highest-normal-generation+)
+                             do (setf (aref **gc-epoch-per-generation** i) marker)))
                      (let ((run-time (- (get-internal-run-time) start-time)))
                        ;; KLUDGE: Sometimes we see the second getrusage() call
                        ;; return a smaller value than the first, which can
