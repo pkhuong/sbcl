@@ -1267,9 +1267,9 @@
           (storage-info-for-debug-fun debug-fun))
     (add-source-tracking-hooks segment debug-fun sfcache)
     (let ((kind (sb!di:debug-fun-kind debug-fun)))
-      (flet ((add-new-hook (n)
+      (flet ((add-new-hook (n &optional (offset 0))
                (push (make-offs-hook
-                      :offset 0
+                      :offset offset
                       :fun (lambda (stream dstate)
                              (declare (ignore stream))
                              (note n dstate)))
@@ -1277,7 +1277,14 @@
         (case kind
           (:external)
           ((nil)
-           (add-new-hook "no-arg-parsing entry point"))
+           (add-new-hook "no-arg-parsing entry point")
+             (when (sb!di::compiled-debug-fun-p debug-fun)
+               (let* ((compiled-dfun (sb!di::compiled-debug-fun-compiler-debug-fun debug-fun))
+                      (start-pc (sb!c::compiled-debug-fun-start-pc compiled-dfun))
+                      (return   (sb!c::compiled-debug-fun-return-pc-and-metadata compiled-dfun)))
+                 (when (and start-pc
+                            (typep return '(cons (cons unsigned-byte) null)))
+                   (add-new-hook "ret-boxing exit point" (- (caar return) start-pc))))))
           (t
            (add-new-hook (lambda (stream)
                            (format stream "~S entry point" kind)))))))))

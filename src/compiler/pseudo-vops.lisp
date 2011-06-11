@@ -31,3 +31,10 @@
   (:vop-var vop)
   (:generator 0
     (funcall (symbol-function name) vop x y)))
+
+;;; Note the place at which a return (along with coercion moves)
+;;; begins
+(define-vop (note-return-start)
+  (:info start-lab)
+  (:generator 0
+    (emit-label start-lab)))

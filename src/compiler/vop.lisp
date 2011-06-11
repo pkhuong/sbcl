@@ -365,7 +365,8 @@
   ;; the environment is properly initialized, i.e. arguments moved
   ;; from their passing locations, etc. This is the start of the
   ;; function as far as the debugger is concerned.
-  (environment-start nil :type (or label null)))
+  (environment-start nil :type (or label null))
+  (environment-locs  nil :type list))
 (defprinter (ir2-physenv)
   closure
   old-fp
@@ -389,12 +390,15 @@
   (types () :type list)
   ;; If kind is :FIXED, then this is the list of the TNs that we
   ;; return the values in.
-  (locations () :type list))
+  (locations () :type list)
+  ;; IR2 locations
+  (labels () :type list))
 (defprinter (return-info)
   kind
   count
   types
-  locations)
+  locations
+  labels)
 
 (defstruct (ir2-nlx-info (:copier nil))
   ;; If the kind is :ENTRY (a lexical exit), then in the home

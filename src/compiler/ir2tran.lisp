@@ -1249,7 +1249,8 @@
       (vop sb!vm::bind-sentinel node block))
 
     (let ((lab (gen-label)))
-      (setf (ir2-physenv-environment-start env) lab)
+      (setf (ir2-physenv-environment-start env) lab
+            (ir2-physenv-environment-locs env) (mapcar #'leaf-info (lambda-vars fun)))
       (vop note-environment-start node block lab)))
 
   (values))
@@ -1278,6 +1279,10 @@
                (not (lambda-inline-expanded fun))
                (policy fun (>= insert-debug-catch 2)))
       (vop sb!vm::unbind-sentinel node block))
+    (let ((label (gen-label)))
+      (vop note-return-start node block label)
+      (push (cons label (ir2-lvar-locs 2lvar))
+            (return-info-labels returns)))
     (cond
      ((and (eq (return-info-kind returns) :fixed)
            (not (xep-p fun)))

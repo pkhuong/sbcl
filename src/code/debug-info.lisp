@@ -178,8 +178,12 @@
   ;; The earliest PC in this function at which the environment is properly
   ;; initialized (arguments moved from passing locations, etc.)
   (start-pc (missing-arg) :type index)
+  (closure-metadata () :type (or null simple-vector))
+  (start-pc-metadata () :type (or null simple-vector))
   ;; The start of elsewhere code for this function (if any.)
-  (elsewhere-pc (missing-arg) :type index))
+  (elsewhere-pc (missing-arg) :type index)
+  ;; Stuff
+  (return-pc-and-metadata () :type list))
 
 ;;;; minimal debug function
 

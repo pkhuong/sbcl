@@ -522,7 +522,32 @@
      :return-pc (tn-sc-offset (ir2-physenv-return-pc 2env))
      :old-fp (tn-sc-offset (ir2-physenv-old-fp 2env))
      :start-pc (label-position (ir2-physenv-environment-start 2env))
-     :elsewhere-pc (label-position (ir2-physenv-elsewhere-start 2env)))))
+     :closure-metadata (let ((locs (ir2-physenv-closure 2env)))
+                         (and locs (every (lambda (x) (tn-p (cdr x))) locs)
+                              (coerce (mapcar (lambda (x)
+                                                (let ((tn (cdr x)))
+                                                   (cons (sc-number (tn-sc tn))
+                                                         (tn-offset tn))))
+                                              locs)
+                                      'simple-vector)))
+     :start-pc-metadata (let ((locs (ir2-physenv-environment-locs 2env)))
+                          (and (every #'tn-p locs)
+                               (coerce (mapcar (lambda (tn)
+                                                 (cons (sc-number (tn-sc tn))
+                                                       (tn-offset tn)))
+                                               locs)
+                                       'simple-vector)))
+     :elsewhere-pc (label-position (ir2-physenv-elsewhere-start 2env))
+     :return-pc-and-metadata (mapcar (lambda (x)
+                                       (destructuring-bind (label . locs) x
+                                         (cons (label-position label)
+                                               (mapcar (lambda (tn)
+                                                         (cons (sc-number (tn-sc tn))
+                                                               (tn-offset tn)))
+                                                       locs))))
+                                     (return-info-labels
+                                      (tail-set-info
+                                       (lambda-tail-set fun)))))))
 
 ;;; Return a complete C-D-F structure for FUN. This involves
 ;;; determining the DEBUG-INFO level and filling in optional slots as
