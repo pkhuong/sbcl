@@ -50,6 +50,7 @@
 
 (defvar *interrupts-enabled* t)
 (defvar *interrupt-pending* nil)
+#!+sb-thruption (defvar *thruption-pending* nil)
 (defvar *allow-with-interrupts* t)
 ;;; This is to support signal handlers that want to return to the
 ;;; interrupted context without leaving anything extra on the stack. A
@@ -144,7 +145,8 @@ WITHOUT-INTERRUPTS in:
              ;; another WITHOUT-INTERRUPTS, the pending interrupt will be
              ;; handled immediately upon exit from said
              ;; WITHOUT-INTERRUPTS, so it is as if nothing has happened.
-             (when *interrupt-pending*
+             (when (or *interrupt-pending*
+                       #!+sb-thruption *thruption-pending*)
                (receive-pending-interrupt)))
            (,without-interrupts-body)))))
 

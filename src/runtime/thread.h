@@ -399,8 +399,14 @@ static inline struct thread *arch_os_get_current_thread(void)
 #ifdef LISP_FEATURE_SB_SAFEPOINT
 void thread_in_safety_transition(os_context_t *ctx);
 void thread_in_lisp_raised(os_context_t *ctx);
+void thread_interrupted(os_context_t *ctx);
 void thread_pitstop(os_context_t *ctxptr);
 extern void thread_register_gc_trigger();
+
+# ifdef LISP_FEATURE_SB_THRUPTION
+int wake_thread(os_thread_t os_thread);
+int wake_thread_posix(os_thread_t os_thread);
+# endif
 
 #define thread_qrl(th) (&(th)->nonpointer_data->qrl_lock)
 

@@ -526,6 +526,10 @@ create_thread_struct(lispobj initial_function) {
     bind_variable(GC_SAFE,NIL,th);
     bind_variable(IN_SAFEPOINT,NIL,th);
 #endif
+#ifdef LISP_FEATURE_SB_THRUPTION
+    bind_variable(THRUPTION_PENDING,NIL,th);
+    bind_variable(RESTART_CLUSTERS,NIL,th);
+#endif
 #ifndef LISP_FEATURE_C_STACK_IS_CONTROL_STACK
     access_control_stack_pointer(th)=th->control_stack_start;
 #endif
@@ -750,6 +754,16 @@ thread_yield()
     return sched_yield();
 #else
     return 0;
+#endif
+}
+
+int
+wake_thread(os_thread_t os_thread)
+{
+#if !defined(LISP_FEATURE_SB_THRUPTION)
+    return kill_safely(os_thread, SIGPIPE);
+#else
+    return wake_thread_posix(os_thread);
 #endif
 }
 

@@ -890,7 +890,7 @@ interrupt_handle_pending(os_context_t *context)
         void *original_pending_handler = data->pending_handler;
 
 #ifdef LISP_FEATURE_SB_SAFEPOINT
-        /* handles the STOP_FOR_GC_PENDING case */
+        /* handles the STOP_FOR_GC_PENDING case, plus THRUPTIONS */
         thread_pitstop(context);
 #elif defined(LISP_FEATURE_SB_THREAD)
         if (SymbolValue(STOP_FOR_GC_PENDING,thread) != NIL) {
@@ -1778,6 +1778,15 @@ undoably_install_low_level_interrupt_handler (int signal,
         sa.sa_sigaction = low_level_unblock_me_trampoline;
     else
         sa.sa_sigaction = low_level_handle_now_handler;
+
+#ifdef LISP_FEATURE_SB_THRUPTION
+    /* It's in `deferrable_sigset' so that we block&unblock it properly,
+     * but we don't actually want to defer it.  And if we put it only
+     * into blockable_sigset, we'd have to special-case it around thread
+     * creation at least. */
+    if (signal == SIGPIPE)
+        sa.sa_sigaction = low_level_handle_now_handler;
+#endif
 
     sigcopyset(&sa.sa_mask, &blockable_sigset);
     sa.sa_flags = SA_SIGINFO | SA_RESTART

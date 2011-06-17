@@ -170,6 +170,10 @@ created and old ones may exit at any time."
   (os-thread #!-alpha unsigned-long #!+alpha unsigned-int)
   (signal int))
 
+(define-alien-routine "wake_thread"
+    integer
+  (os-thread #!-alpha unsigned-long #!+alpha unsigned-int))
+
 #!+sb-thread
 (progn
   ;; FIXME it would be good to define what a thread id is or isn't
@@ -1028,6 +1032,7 @@ around and can be retrieved by JOIN-THREAD."
                           ;; interupts to be lost: SIGINT comes to
                           ;; mind.
                           (setq *interrupt-pending* nil)
+                          #!+sb-thruption (setq *thruption-pending* nil)
                           (handle-thread-exit thread))))))))
             (values))))
     ;; If the starting thread is stopped for gc before it signals the
@@ -1070,7 +1075,7 @@ return DEFAULT if given or else signal JOIN-THREAD-ERROR."
      ,@body))
 
 ;;; Called from the signal handler.
-#!-win32
+#!-(or sb-thruption win32)
 (defun run-interruption ()
   (let ((interruption (with-interruptions-lock (*current-thread*)
                         (pop (thread-interruptions *current-thread*)))))
@@ -1082,6 +1087,16 @@ return DEFAULT if given or else signal JOIN-THREAD-ERROR."
       (kill-safely (thread-os-thread *current-thread*) sb!unix:sigpipe))
     (when interruption
       (funcall interruption))))
+
+#!+sb-thruption
+(defun run-interruption ()
+  (in-interruption () ;the non-thruption code does this in the signal handler
+    (loop
+       (let ((interruption (with-interruptions-lock (*current-thread*)
+                             (pop (thread-interruptions *current-thread*)))))
+         (unless interruption
+           (return))
+         (funcall interruption)))))
 
 (defun interrupt-thread (thread function)
   #!+sb-doc
@@ -1115,7 +1130,7 @@ run in same the order they were sent."
                                    (without-interrupts
                                      (allow-with-interrupts
                                        (funcall function))))))))
-           (when (minusp (kill-safely os-thread sb!unix:sigpipe))
+           (when (minusp (wake-thread os-thread))
              (error 'interrupt-thread-error :thread thread))))))
 
 (defun terminate-thread (thread)
