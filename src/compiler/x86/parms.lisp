@@ -186,9 +186,6 @@
 
 #!+win32
 (progn
-  #!+sb-safepoint
-  (def!constant gc-safepoint-page-addr #x21000000)
-
   (def!constant read-only-space-start #x22000000)
   (def!constant read-only-space-end   #x220ff000)
 
@@ -203,11 +200,6 @@
 
 #!+linux
 (progn
-  #!+sb-safepoint
-  ;; it looks like 0x08000000 also works in reality, but going by the CMUCL
-  ;; comment above, let's avoid hitting the runtime.
-  (def!constant gc-safepoint-page-addr    #x08000000)
-
   (def!constant read-only-space-start     #x01000000)
   (def!constant read-only-space-end       #x010ff000)
 
@@ -222,9 +214,6 @@
 
 #!+sunos
 (progn
-  #!+sb-safepoint
-  (error "SB-SAFEPOINT enabled, but parms.lisp not configured")
-
   (def!constant read-only-space-start     #x20000000)
   (def!constant read-only-space-end       #x200ff000)
 
@@ -239,9 +228,6 @@
 
 #!+freebsd
 (progn
-  #!+sb-safepoint
-  (error "SB-SAFEPOINT enabled, but parms.lisp not configured")
-
   (def!constant read-only-space-start     #x01000000)
   (def!constant read-only-space-end       #x010ff000)
 
@@ -256,9 +242,6 @@
 
 #!+openbsd
 (progn
-  #!+sb-safepoint
-  (error "SB-SAFEPOINT enabled, but parms.lisp not configured")
-
   (def!constant read-only-space-start     #x1b000000)
   (def!constant read-only-space-end       #x1b0ff000)
 
@@ -273,9 +256,6 @@
 
 #!+netbsd
 (progn
-  #!+sb-safepoint
-  (error "SB-SAFEPOINT enabled, but parms.lisp not configured")
-
   (def!constant read-only-space-start     #x20000000)
   (def!constant read-only-space-end       #x200ff000)
 
@@ -292,9 +272,6 @@
 
 #!+darwin
 (progn
-  #!+sb-safepoint
-  (error "SB-SAFEPOINT enabled, but parms.lisp not configured")
-
   (def!constant read-only-space-start #x04000000)
   (def!constant read-only-space-end   #x040ff000)
 

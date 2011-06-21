@@ -38,10 +38,12 @@
 #define align_8byte	8
 #define align_16byte	16
 #define align_32byte	32
+#define align_page	32768
 #else
 #define	align_4byte	2
 #define	align_8byte	3
 #define	align_16byte	4	
+#define	align_page	15
 #endif			
 
 /*
@@ -451,5 +453,11 @@ Lloop:
 Lend:        
 	ret
 	SIZE(GNAME(fast_bzero))
-
+
+	.globl GNAME(gc_safepoint_page)
+	.data
+        .align  align_page
+GNAME(gc_safepoint_page):
+        .fill 32768
+
         END()

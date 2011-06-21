@@ -4518,10 +4518,6 @@ gc_init(void)
 {
     page_index_t i;
 
-#if defined(LISP_FEATURE_SB_SAFEPOINT)
-    alloc_gc_page();
-#endif
-
     /* Compute the number of pages needed for the dynamic space.
      * Dynamic space size should be aligned on page size. */
     page_table_pages = dynamic_space_size/PAGE_BYTES;

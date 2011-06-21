@@ -51,10 +51,12 @@
 #define align_4byte	4
 #define align_8byte	8
 #define align_16byte	16
+#define align_page	4096
 #else
 #define	align_4byte	2
 #define	align_8byte	3
 #define	align_16byte	4	
+#define align_page	12
 #endif			
 
 /*
@@ -945,6 +947,12 @@ GNAME(fast_bzero_pointer):
          * Initially points to a basic function.  Change this variable
          * to fast_bzero_detect if OS supports SSE.  */
         .long GNAME(fast_bzero_base)
+
+	.globl GNAME(gc_safepoint_page)
+	.data
+        .align  align_page
+GNAME(gc_safepoint_page):
+        .fill BACKEND_PAGE_BYTES
 
 	.text
 	.align	align_16byte,0x90
