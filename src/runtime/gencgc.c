@@ -693,6 +693,31 @@ zero_dirty_pages(page_index_t start, page_index_t end) {
 struct alloc_region boxed_region;
 struct alloc_region unboxed_region;
 
+struct write_log {
+        lispobj ** writes;
+        lispobj ** end;
+        lispobj ** start;
+};
+
+extern struct write_log write_log;
+struct write_log write_log;
+
+void
+init_write_log (struct write_log *log, unsigned count)
+{
+        lispobj ** buffer = calloc(count, 2*sizeof(lispobj *));
+        log->writes = log->start = buffer;
+        log->end = buffer+count*2;
+}
+
+void flush_write_log (struct write_log *log, lispobj * base, lispobj offset)
+{
+        fprintf(stderr, "flush write log\n");
+        (void)base;
+        (void)offset;
+        log->writes = log->start;
+}
+
 /* The generation currently being allocated to. */
 static generation_index_t gc_alloc_generation;
 
@@ -4620,6 +4645,7 @@ gc_init(void)
     gc_alloc_generation = 0;
     gc_set_region_empty(&boxed_region);
     gc_set_region_empty(&unboxed_region);
+    init_write_log(&write_log, (1UL << 12));
 
     last_free_page = 0;
 }

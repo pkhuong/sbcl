@@ -215,6 +215,43 @@
              (inst jmp DONE))))
     (values)))
 
+(defun log-write (base offset &optional (temp temp-reg-tn))
+  (let ((FLUSH (gen-label))
+        (DONE (gen-label))
+        (free-pointer
+         #!-sb-thread
+         (make-ea :qword
+                  :scale 1 :disp
+                  (make-fixup "write_log" :foreign)))
+        (end-addr
+         #!-sb-thread
+         (make-ea :qword
+                  :scale 1 :disp
+                  (make-fixup "write_log" :foreign 8))))
+    (inst mov temp free-pointer)
+    (inst cmp temp end-addr)
+    (inst jmp :ge FLUSH)
+    (inst mov (make-ea :qword :base temp) base)
+    (when offset
+      (inst mov (make-ea :qword :base temp :disp 8) offset))
+    (inst add temp 16)
+    (inst mov free-pointer temp)
+    (emit-label DONE)
+    (assemble (*elsewhere*)
+      (emit-label FLUSH)
+      (inst push temp)
+      (inst push base)
+      (cond (offset
+             (inst push offset))
+            (t
+             (zeroize temp)
+             (inst push temp)))
+      (inst lea temp (make-ea :qword
+                              :disp (make-fixup "ssb_tramp" :foreign)))
+      (inst call temp)
+      (inst jmp DONE))
+    (values)))
+
 ;;; Allocate an other-pointer object of fixed SIZE with a single word
 ;;; header having the specified WIDETAG value. The result is placed in
 ;;; RESULT-TN.
