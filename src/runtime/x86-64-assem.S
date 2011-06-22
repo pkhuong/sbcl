@@ -319,20 +319,16 @@ GNAME(ssb_tramp):
 	push	%rcx
 	push	%rdx
 	push	%rsi
-	push	%rdi
 	push	%r8
 	push	%r9
 	push	%r10
 	push	%r11
-	mov	16(%rbp),%rdi
-        mov	24(%rbp),%rsi
-        mov	32(%rbp),%rdx
+        mov	16(%rbp),%rdi
 	call	GNAME(flush_write_log)
 	pop	%r11
 	pop	%r10
 	pop	%r9
 	pop	%r8
-	pop	%rdi
 	pop	%rsi
 	pop	%rdx
 	pop	%rcx

@@ -705,16 +705,16 @@ struct write_log write_log;
 void
 init_write_log (struct write_log *log, unsigned count)
 {
+        gc_assert(count > 0);
         lispobj ** buffer = calloc(count, 2*sizeof(lispobj *));
+        fprintf(stderr, "init write log %p %p\n", log, buffer);
         log->writes = log->start = buffer;
-        log->end = buffer+count*2;
+        log->end = buffer+(count-1)*2;
 }
 
-void flush_write_log (struct write_log *log, lispobj * base, lispobj offset)
+void flush_write_log (struct write_log *log)
 {
-        fprintf(stderr, "flush write log\n");
-        (void)base;
-        (void)offset;
+        fprintf(stderr, "flush write log %p\n", log);
         log->writes = log->start;
 }
 
@@ -4645,7 +4645,7 @@ gc_init(void)
     gc_alloc_generation = 0;
     gc_set_region_empty(&boxed_region);
     gc_set_region_empty(&unboxed_region);
-    init_write_log(&write_log, (1UL << 12));
+    init_write_log(&write_log, (1UL << 20));
 
     last_free_page = 0;
 }

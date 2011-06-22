@@ -230,22 +230,19 @@
                   (make-fixup "write_log" :foreign 8))))
     (inst mov temp free-pointer)
     (inst cmp temp end-addr)
-    (inst jmp :ge FLUSH)
     (inst mov (make-ea :qword :base temp) base)
-    (when offset
+    (when (and offset
+               (or (tn-p offset)
+                   (> offset 1024)))
       (inst mov (make-ea :qword :base temp :disp 8) offset))
-    (inst add temp 16)
+    (inst lea temp (make-ea :qword :base temp :disp 16))
     (inst mov free-pointer temp)
+    (inst jmp :ge FLUSH)
     (emit-label DONE)
     (assemble (*elsewhere*)
       (emit-label FLUSH)
+      (inst lea temp free-pointer)
       (inst push temp)
-      (inst push base)
-      (cond (offset
-             (inst push offset))
-            (t
-             (zeroize temp)
-             (inst push temp)))
       (inst lea temp (make-ea :qword
                               :disp (make-fixup "ssb_tramp" :foreign)))
       (inst call temp)
@@ -397,6 +394,7 @@
        (:results (value :scs ,scs))
        (:result-types ,el-type)
        (:generator 5
+         (log-write object index)
          (move rax old-value)
          (inst cmpxchg (make-ea :qword :base object :index index
                                 :disp (- (* ,offset n-word-bytes) ,lowtag))
@@ -449,6 +447,7 @@
        (:results (value :scs ,scs))
        (:result-types ,el-type)
        (:generator 3                    ; pw was 5
+         ,(when (eql el-type '*))
          (inst mov value (make-ea :qword :base object :index index
                                   :disp (- (* (+ ,offset offset) n-word-bytes)
                                            ,lowtag)))))
@@ -483,6 +482,8 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
+         ,(when (member el-type '(* t))
+            `(log-write object index))
          (inst mov (make-ea :qword :base object :index index
                             :disp (- (* ,offset n-word-bytes) ,lowtag))
                value)
@@ -501,6 +502,8 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 3                    ; was 5
+         ,(when (member el-type '(* t))
+            `(log-write object index))
          (inst mov (make-ea :qword :base object
                             :disp (- (* (+ ,offset index) n-word-bytes)
                                      ,lowtag))
@@ -525,6 +528,9 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
+         ,@(when (member el-type '(* t))
+             `((assert (< offset 1024))
+               (log-write object index)))
          (inst mov (make-ea :qword :base object :index index
                             :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
                value)
@@ -546,6 +552,8 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 3                    ; was 5
+          ,(when (member el-type '(* t))
+            `(log-write object (+ offset index)))
          (inst mov (make-ea :qword :base object
                             :disp (- (* (+ ,offset index offset) n-word-bytes)
                                      ,lowtag))
