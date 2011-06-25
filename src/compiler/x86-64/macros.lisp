@@ -37,20 +37,29 @@
 (defmacro loadw (value ptr &optional (slot 0) (lowtag 0))
   `(inst mov ,value (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
-(defmacro storew (value ptr &optional (slot 0) (lowtag 0))
-  (once-only ((value value))
+(defmacro storew (value ptr &optional (slot 0) (lowtag 0) (log (neq lowtag 0)))
+  (once-only ((value value)
+              (ptr   ptr))
     `(cond ((and (integerp ,value)
                  (not (typep ,value '(signed-byte 32))))
+            ,(when log
+               `(log-write ,value ,ptr ,slot))
             (inst mov temp-reg-tn ,value)
             (inst mov (make-ea-for-object-slot ,ptr ,slot ,lowtag) temp-reg-tn))
            (t
+            ,(when log
+               `(log-write ,value ,ptr ,slot))
             (inst mov (make-ea-for-object-slot ,ptr ,slot ,lowtag) ,value)))))
 
 (defmacro pushw (ptr &optional (slot 0) (lowtag 0))
   `(inst push (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
-(defmacro popw (ptr &optional (slot 0) (lowtag 0))
-  `(inst pop (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+(defmacro popw (ptr &optional (slot 0) (lowtag 0) (log (neq lowtag 0)))
+  (once-only ((ptr ptr))
+    `(progn
+       ,(when log
+          `(log-write t ,ptr ,slot))
+       (inst pop (make-ea-for-object-slot ,ptr ,slot ,lowtag)))))
 
 ;;;; macros to generate useful values
 
@@ -126,6 +135,26 @@
        `(inst mov ,n-target
               (make-ea :byte :base ,n-source
                              :disp (+ ,n-offset (1- n-word-bytes))))))))
+
+(defparameter *in-allocation* nil)
+(defun log-write (value address-tn &optional (offset 0))
+  (when (or (location= address-tn rbp-tn)
+            (location= address-tn rsp-tn)
+            (and (tn-p value)
+                 (sc-is value immediate))
+            (integerp value)
+            *in-allocation*)
+    (return-from log-write))
+  (let ((table (make-fixup "store_buffer" :foreign))
+        (temp  temp-reg-tn))
+    (if (plusp offset)
+        (inst lea temp (make-ea :qword :base address-tn
+                                :disp (* n-word-bytes offset)))
+        (inst mov temp address-tn))
+    (inst shr temp (integer-length (1- gencgc-card-bytes)))
+    (inst and temp (1- card-table-size))
+    (inst mov (make-ea :byte :base temp :disp table)
+              1)))
 
 ;;;; allocation helpers
 
@@ -286,7 +315,7 @@
 
 (defmacro maybe-pseudo-atomic (not-really-p &body body)
   `(if ,not-really-p
-       (progn ,@body)
+       (let ((*in-allocation* t)) ,@body)
        (pseudo-atomic ,@body)))
 
 ;;; Unsafely clear pa flags so that the image can properly lose in a
@@ -320,7 +349,8 @@
 #!-sb-thread
 (defmacro pseudo-atomic (&rest forms)
   (with-unique-names (label)
-    `(let ((,label (gen-label)))
+    `(let ((,label (gen-label))
+           (*in-allocation* t))
        ;; FIXME: The MAKE-EA noise should become a MACROLET macro or
        ;; something. (perhaps SVLB, for static variable low byte)
        (inst mov (make-ea :qword :disp (+ nil-value
@@ -345,24 +375,33 @@
 ;;;; indexed references
 
 (defmacro define-full-compare-and-swap
-    (name type offset lowtag scs el-type &optional translate)
+    (name type offset lowtag scs el-type &optional translate
+     &aux (barrier (memq el-type '(* t))))
   `(progn
      (define-vop (,name)
          ,@(when translate `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg) :to :eval)
-              (index :scs (any-reg) :to :result)
+       (:args (object :scs (descriptor-reg) :to :result)
+              (index :scs (any-reg) :to :result ,@(when barrier '(:target ea)))
               (old-value :scs ,scs :target rax)
               (new-value :scs ,scs))
        (:arg-types ,type tagged-num ,el-type ,el-type)
        (:temporary (:sc descriptor-reg :offset rax-offset
                         :from (:argument 2) :to :result :target value)  rax)
+       ,@(when barrier '((:temporary (:sc any-reg) ea)))
        (:results (value :scs ,scs))
        (:result-types ,el-type)
        (:generator 5
+         ,(when barrier
+            `(progn
+               (inst lea ea (make-ea :qword :base object :index index
+                                     :disp (- (* ,offset n-word-bytes) ,lowtag)))
+               (log-write new-value ea)))
          (move rax old-value)
-         (inst cmpxchg (make-ea :qword :base object :index index
-                                :disp (- (* ,offset n-word-bytes) ,lowtag))
+         (inst cmpxchg ,(if barrier
+                            '(make-ea :qword :base ea)
+                            `(make-ea :qword :base object :index index
+                                      :disp (- (* ,offset n-word-bytes) ,lowtag)))
                new-value :lock)
          (move value rax)))))
 
@@ -433,22 +472,31 @@
                                   :disp (- (* (+ ,offset index offset) n-word-bytes)
                                            ,lowtag)))))))
 
-(defmacro define-full-setter (name type offset lowtag scs el-type &optional translate)
+(defmacro define-full-setter (name type offset lowtag scs el-type &optional translate
+                              &aux (barrier (memq el-type '(* t))))
   `(progn
      (define-vop (,name)
        ,@(when translate
            `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg))
-              (index :scs (any-reg))
+       (:args (object :scs (descriptor-reg) ,@(when barrier '(:to :result)))
+              (index :scs (any-reg)         ,@(when barrier  '(:target ea)))
               (value :scs ,scs :target result))
        (:arg-types ,type tagged-num ,el-type)
+       ,@(when barrier
+           `((:temporary (:sc any-reg) ea)))
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
-         (inst mov (make-ea :qword :base object :index index
-                            :disp (- (* ,offset n-word-bytes) ,lowtag))
-               value)
+        ,(if barrier
+             `(progn
+                (inst lea ea (make-ea :qword :base object :index index
+                                      :disp (- (* ,offset n-word-bytes) ,lowtag)))
+                (log-write value ea)
+                (inst mov (make-ea :qword :base ea)  value))
+              `(inst mov (make-ea :qword :base object :index index
+                                  :disp (- (* ,offset n-word-bytes) ,lowtag))
+                     value))
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
        ,@(when translate
@@ -461,23 +509,33 @@
                    (:constant (load/store-index ,n-word-bytes ,(eval lowtag)
                                                 ,(eval offset)))
                    ,el-type)
+       ,@(when barrier
+           `((:temporary (:sc any-reg) ea)))
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 3                    ; was 5
-         (inst mov (make-ea :qword :base object
-                            :disp (- (* (+ ,offset index) n-word-bytes)
-                                     ,lowtag))
-               value)
+         ,(if barrier
+              `(progn
+                 (inst lea ea (make-ea :qword :base object
+                                       :disp (- (* (+ ,offset index) n-word-bytes)
+                                                ,lowtag)))
+                 (log-write value ea)
+                 (inst mov (make-ea :qword :base ea) value))
+              `(inst mov (make-ea :qword :base object
+                                       :disp (- (* (+ ,offset index) n-word-bytes)
+                                                ,lowtag))
+                     value))
          (move result value)))))
 
-(defmacro define-full-setter+offset (name type offset lowtag scs el-type &optional translate)
+(defmacro define-full-setter+offset (name type offset lowtag scs el-type &optional translate
+                                     &aux (barrier (memq el-type '(* t))))
   `(progn
      (define-vop (,name)
        ,@(when translate
            `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg))
-              (index :scs (any-reg))
+       (:args (object :scs (descriptor-reg) ,@(when barrier '(:to :result)))
+              (index :scs (any-reg)         ,@(when barrier  '(:target ea)))
               (value :scs ,scs :target result))
        (:info offset)
        (:arg-types ,type tagged-num
@@ -485,18 +543,26 @@
                                                      n-word-bytes
                                                      vector-data-offset))
                    ,el-type)
+       ,@(when barrier
+           `((:temporary (:sc any-reg) ea)))
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
-         (inst mov (make-ea :qword :base object :index index
-                            :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
-               value)
+         ,(if barrier
+              `(progn
+                 (inst lea ea (make-ea :qword :base object :index index
+                                       :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag)))
+                 (log-write value ea)
+                 (inst mov (make-ea :qword :base ea)  value))
+              `(inst mov (make-ea :qword :base object :index index
+                                  :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
+                     value))
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
        ,@(when translate
            `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg))
+       (:args (object :scs (descriptor-reg) ,@(when barrier '(:to :result)))
               (value :scs ,scs :target result))
        (:info index offset)
        (:arg-types ,type
@@ -506,13 +572,22 @@
                                                      n-word-bytes
                                                      vector-data-offset))
                    ,el-type)
+       ,@(when barrier
+           `((:temporary (:sc any-reg) ea)))
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 3                    ; was 5
-         (inst mov (make-ea :qword :base object
-                            :disp (- (* (+ ,offset index offset) n-word-bytes)
-                                     ,lowtag))
-               value)
+         ,(if barrier
+              `(progn
+                 (inst lea ea (make-ea :qword :base object
+                                       :disp (- (* (+ ,offset index offset) n-word-bytes)
+                                                ,lowtag)))
+                 (log-write value ea)
+                 (inst mov (make-ea :qword :base ea) value))
+              `(inst mov (make-ea :qword :base object
+                                       :disp (- (* (+ ,offset index offset) n-word-bytes)
+                                                ,lowtag))
+                     value))
          (move result value)))))
 
 ;;; helper for alien stuff.

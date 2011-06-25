@@ -116,8 +116,8 @@
     (inst lea res
           (make-ea :byte :base result :disp (- (* vector-data-offset n-word-bytes)
                                                other-pointer-lowtag)))
-    (storew type result 0 other-pointer-lowtag)
-    (storew length result vector-length-slot other-pointer-lowtag)
+    (storew type result 0 other-pointer-lowtag nil)
+    (storew length result vector-length-slot other-pointer-lowtag nil)
     (zeroize zero)
     (inst rep)
     (inst stos zero)))

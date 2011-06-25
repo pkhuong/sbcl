@@ -33,17 +33,20 @@
 ;;; compatible systems to return different values for getpagesize().
 ;;; -- JES, 2007-01-06
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (setf *backend-page-bytes* 32768))
+  (setf *backend-page-bytes* 4096))
 
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (defparameter *backend-card-table-size* (ash 1 21)))
+(def!constant card-table-size *backend-card-table-size*)
 ;;; The size in bytes of GENCGC cards, i.e. the granularity at which
 ;;; writes to old generations are logged.  With mprotect-based write
 ;;; barriers, this must be a multiple of the OS page size.
-(def!constant gencgc-card-bytes *backend-page-bytes*)
+(def!constant gencgc-card-bytes 2048)
 ;;; The minimum size of new allocation regions.  While it doesn't
 ;;; currently make a lot of sense to have a card size lower than
 ;;; the alloc granularity, it will, once we are smarter about finding
 ;;; the start of objects.
-(def!constant gencgc-alloc-granularity *backend-page-bytes*)
+(def!constant gencgc-alloc-granularity 1)
 ;;; The minimum size at which we release address ranges to the OS.
 ;;; This must be a multiple of the OS page size.
 (def!constant gencgc-release-granularity *backend-page-bytes*)

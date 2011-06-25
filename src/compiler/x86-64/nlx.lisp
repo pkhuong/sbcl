@@ -165,8 +165,8 @@
                  (inst cmp count (fixnumize i))
                  (inst jmp :le default-lab)
                  (when first-stack-arg-p
-                   (storew rdx-tn rbx-tn -1))
-                 (sc-case tn
+                   (storew rdx-tn rbx-tn -1)) ; FIXME: I think rbx is a stack pointer.
+                 (sc-case tn                  ;        Otherwise, this needs a barrier
                    ((descriptor-reg any-reg)
                     (loadw tn start (frame-word-offset (+ sp->fp-offset i))))
                    ((control-stack)
@@ -260,8 +260,8 @@
     (loadw temp ofp sap-pointer-slot other-pointer-lowtag)
     (storew temp block unwind-block-current-cont-slot)
 
-    (inst lea temp-reg-tn (make-fixup nil :code-object entry-label))
-    (storew temp-reg-tn
+    (inst lea temp (make-fixup nil :code-object entry-label))
+    (storew temp
             block
             catch-block-entry-pc-slot)
 

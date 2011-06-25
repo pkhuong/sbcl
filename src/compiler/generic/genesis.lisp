@@ -2865,6 +2865,7 @@ core and return a descriptor to it."
   ;; conceptually like something that belongs to SB!VM. In any case,
   ;; it's needed C-side.
   (format t "#define BACKEND_PAGE_BYTES ~DLU~%" sb!c:*backend-page-bytes*)
+  (format t "#define BACKEND_CARD_TABLE_SIZE ~DLU~%" sb!vm::*backend-card-table-size*)
 
   (terpri)
 

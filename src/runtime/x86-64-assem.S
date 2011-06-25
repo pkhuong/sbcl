@@ -308,7 +308,7 @@ GNAME(alloc_tramp):
 	ret
 	SIZE(GNAME(alloc_tramp))
 
-		
+
 /*
  * the closure trampoline
  */
