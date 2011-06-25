@@ -58,6 +58,7 @@
 #if !defined(LISP_FEATURE_X86) && !defined(LISP_FEATURE_X86_64)
 #include "genesis/cons.h"
 #endif
+#include "store_buffer.h"
 
 /* forward declarations */
 page_index_t  gc_find_freeish_pages(long *restart_page_ptr, long nbytes,
@@ -81,7 +82,7 @@ enum {
 boolean enable_page_protection = 1;
 
 /* the minimum size (in bytes) for a large object*/
-long large_object_size = 4 * GENCGC_ALLOC_GRANULARITY;
+long large_object_size = 4 * PAGE_BYTES;
 
 
 /*
@@ -593,6 +594,8 @@ void zero_pages_with_mmap(page_index_t start, page_index_t end) {
     if (start > end)
       return;
 
+    return fast_bzero(page_address(start), length);
+
     os_invalidate(addr, length);
     new_addr = os_validate(addr, length);
     if (new_addr == NULL || new_addr != addr) {
@@ -641,6 +644,64 @@ zero_dirty_pages(page_index_t start, page_index_t end) {
     }
 }
 
+static inline void
+gencgc_handle_store(void* store_addr)
+{
+    page_index_t page_index;
+    if (!store_addr) return;
+
+    page_index = find_page_index(store_addr);
+
+    if (page_index == (-1)) return;
+}
+
+
+static int
+cmp_ptr (const void * va, const void * vb)
+{
+        lispobj * a = *(lispobj**)va,
+                * b = *(lispobj**)vb;
+
+        if (a == b) return 0;
+        return (a < b) ? -1 : 1;
+}
+
+#include "cycle.h"
+
+static void
+process_store_buffer (struct store_buffer * buffer)
+{
+    page_index_t start;
+    ticks begin = getticks(), end;
+    unsigned long count = 0, new = 0;
+    char * first = (char*)-1UL, * last = (char*)0;
+    for (start = 0; start < last_free_page; start++) {
+            unsigned long addr;
+            addr = (unsigned long)page_address(start);
+            char * ptr = &buffer->table[(addr/GENCGC_CARD_BYTES)%BACKEND_CARD_TABLE_SIZE];
+            int dirty = *ptr;
+            dirty |= buffer->table[((addr/GENCGC_CARD_BYTES)+1)%BACKEND_CARD_TABLE_SIZE];
+            if (dirty) {
+                    if (ptr < first) first = ptr;
+                    if (ptr >= last) last = ptr+1;
+                    if (!page_boxed_p(start)) continue;
+                    if (page_table[start].gen == 0) continue;
+                    count++;
+                    if (page_table[start].write_protected) {
+                            new++;
+                            /* Unprotect the page. */
+                            page_table[start].write_protected_cleared = 1;
+                            page_table[start].write_protected = 0;
+                    }
+            }
+    }
+
+    if ((first != (char*)-1UL) && (last != (char*)0))
+            memset(first, 0, last-first);
+    end = getticks();
+    /* fprintf(stderr, "\nstore_buffer: %lu\t%lu\t%.f\n", */
+    /*         count, new, elapsed(end, begin)); */
+}
 
 /*
  * To support quick and inline allocation, regions of memory can be
@@ -2929,6 +2990,8 @@ update_page_write_prot(page_index_t page)
     if (page_table[page].write_protected
         /* FIXME: What's the reason for not write-protecting pinned pages? */
         || page_table[page].dont_move
+        //|| page_table[page+1 < page_table_pages ? page+1 : page].dont_move
+        //|| page_table[page > 0 ? page-1 : page].dont_move
         || page_unboxed_p(page))
         return (0);
 
@@ -2961,6 +3024,7 @@ update_page_write_prot(page_index_t page)
         /* Write-protect the page. */
         /*FSHOW((stderr, "/write-protecting page %d gen %d\n", page, gen));*/
 
+        if (0)
         os_protect((void *)page_addr,
                    GENCGC_CARD_BYTES,
                    OS_VM_PROT_READ|OS_VM_PROT_EXECUTE);
@@ -3342,6 +3406,7 @@ unprotect_oldspace(void)
                     region_bytes += GENCGC_CARD_BYTES;
                 } else {
                     /* Unprotect previous region. */
+                    if (0)
                     os_protect(region_addr, region_bytes, OS_VM_PROT_ALL);
                     /* First page in new region. */
                     region_addr = page_addr;
@@ -3352,6 +3417,7 @@ unprotect_oldspace(void)
     }
     if (region_addr) {
         /* Unprotect last region. */
+        if (0)
         os_protect(region_addr, region_bytes, OS_VM_PROT_ALL);
     }
 }
@@ -3865,6 +3931,7 @@ write_protect_generation_pages(generation_index_t generation)
 
             page_start = (void *)page_address(start);
 
+            if (0)
             os_protect(page_start,
                        npage_bytes(last - start),
                        OS_VM_PROT_READ | OS_VM_PROT_EXECUTE);
@@ -4306,7 +4373,7 @@ collect_garbage(generation_index_t last_gen)
     /* The largest value of last_free_page seen since the time
      * remap_free_pages was called. */
     static page_index_t high_water_mark = 0;
-
+    process_store_buffer(&store_buffer);
     FSHOW((stderr, "/entering collect_garbage(%d)\n", last_gen));
     log_generation_stats(gc_logfile, "=== GC Start ===");
 
@@ -4622,6 +4689,8 @@ gc_init(void)
     gc_set_region_empty(&unboxed_region);
 
     last_free_page = 0;
+
+    init_store_buffer(&store_buffer, (1UL<<20));
 }
 
 /*  Pick up the dynamic space from after a core load.
@@ -4824,6 +4893,9 @@ gencgc_handle_wp_violation(void* fault_addr)
 {
     page_index_t page_index = find_page_index(fault_addr);
 
+    unhandled_sigmemoryfault(fault_addr);
+    return 0;
+
 #if QSHOW_SIGNALS
     FSHOW((stderr, "heap WP violation? fault_addr=%x, page_index=%d\n",
            fault_addr, page_index));
@@ -4866,6 +4938,7 @@ gencgc_handle_wp_violation(void* fault_addr)
         return 1;
     }
 }
+
 /* This is to be called when we catch a SIGSEGV/SIGBUS, determine that
  * it's not just a case of the program hitting the write barrier, and
  * are about to let Lisp deal with it. It's basically just a

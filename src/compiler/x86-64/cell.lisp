@@ -31,6 +31,7 @@
   (:generator 1
     (if (sc-is value immediate)
         (let ((val (tn-value value)))
+          (log-write value object offset)
           (move-immediate (make-ea :qword
                                    :base object
                                    :disp (- (* offset n-word-bytes)
@@ -60,6 +61,7 @@
   (:ignore name)
   (:results (result :scs (descriptor-reg any-reg)))
   (:generator 5
+     (log-write new object offset)
      (move rax old)
      (inst cmpxchg (make-ea :qword :base object
                             :disp (- (* offset n-word-bytes) lowtag))
@@ -96,6 +98,7 @@
         (inst cmp rax no-tls-value-marker-widetag)
         (inst jmp :ne check)
         (move rax old))
+      (log-write new symbol symbol-value-slot)
       (inst cmpxchg (make-ea :qword :base symbol
                              :disp (- (* symbol-value-slot n-word-bytes)
                                       other-pointer-lowtag)

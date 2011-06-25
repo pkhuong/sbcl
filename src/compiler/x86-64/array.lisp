@@ -164,7 +164,8 @@
 
 ;;;; integer vectors whose elements are smaller than a byte, i.e.,
 ;;;; bit, 2-bit, and 4-bit vectors
-
+;;;; Obviously, these vectors are unboxed, so they don't need any
+;;;; write barrier.
 (macrolet ((def-small-data-vector-frobs (type bits)
              (let* ((elements-per-word (floor n-word-bits bits))
                     (bit-shift (1- (integer-length elements-per-word))))
@@ -721,6 +722,8 @@
 
 ;;; These vops are useful for accessing the bits of a vector
 ;;; irrespective of what type of vector it is.
+;;; You deserve all the pain you'll get if you use that on vectors
+;;; that contain descriptors.
 (define-full-reffer vector-raw-bits * vector-data-offset other-pointer-lowtag
   (unsigned-reg) unsigned-num %vector-raw-bits)
 (define-full-setter set-vector-raw-bits * vector-data-offset other-pointer-lowtag
