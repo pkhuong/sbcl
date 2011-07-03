@@ -2799,7 +2799,8 @@ core and return a descriptor to it."
               (maybe-record-with-munged-name "-SC-NUMBER" "sc_" 5)
               (maybe-record-with-translated-name '("-SIZE") 6)
               (maybe-record-with-translated-name '("-START" "-END" "-PAGE-BYTES"
-                                                   "-CARD-BYTES" "-GRANULARITY")
+                                                   "-CARD-BYTES" "-GRANULARITY"
+                                                   "-CARD-COUNT")
                                                  7 :large t)
               (maybe-record-with-translated-name '("-CORE-ENTRY-TYPE-CODE") 8)
               (maybe-record-with-translated-name '("-CORE-SPACE-ID") 9)

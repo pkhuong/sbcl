@@ -140,8 +140,45 @@
               (make-ea :byte :base ,n-source
                              :disp (+ ,n-offset (1- n-word-bytes))))))))
 
-(defun log-write (value address-tn &optional (offset 0))
-  (declare (ignore value address-tn offset)))
+(defvar *in-allocation* nil)
+
+(defun ea-or-tn-base-tn (ea-or-tn)
+  (cond ((tn-p ea-or-tn)
+         ea-or-tn)
+        ((ea-p ea-or-tn)
+         (ea-base ea-or-tn))))
+
+(defun log-write (value address &optional (offset 0))
+  #!-sb-sw-barrier
+  (declare (ignore value address offset))
+  #!-sb-sw-barrier (return-from log-write)
+  #!+sb-sw-barrier
+  (let ((base-tn (ea-or-tn-base-tn address)))
+    (when (or *in-allocation*
+              (location= base-tn rbp-tn)
+              (location= base-tn rsp-tn)
+              (and (tn-p value)
+                   (or (sc-is value immediate)
+                       (memq (sb!c::tn-primitive-type value)
+                             (load-time-value
+                              (mapcar #'primitive-type-or-lose
+                                      '(character fixnum positive-fixnum single-float))
+                              t))))
+              (integerp value)
+              (and (tn-p base-tn)
+                   (sb!c::tn-dx-p base-tn)))
+      (return-from log-write))
+    (let ((table (make-fixup "gencgc_card_table" :foreign))
+          (temp  temp-reg-tn))
+      (cond ((plusp offset)
+             (assert (tn-p address))
+             (inst lea temp (make-ea :qword :base address
+                                     :disp (* n-word-bytes offset))))
+            (t
+             (inst mov temp address)))
+      (inst shr temp (integer-length (1- gencgc-card-bytes)))
+      (inst and temp (1- gencgc-card-count))
+      (inst mov (make-ea :byte :base temp :disp table) 1))))
 
 ;;;; allocation helpers
 
@@ -366,10 +403,11 @@
        (emit-label ,label))))
 
 (defmacro with-protected-allocation ((&optional not-pseudo-atomic) &body body)
-  (if (not not-pseudo-atomic)
-      `(pseudo-atomic ,@body)
-      `(maybe-pseudo-atomic ,not-pseudo-atomic
-         ,@body)))
+  `(let ((*in-allocation* t))
+     ,(if (not not-pseudo-atomic)
+          `(pseudo-atomic ,@body)
+          `(maybe-pseudo-atomic ,not-pseudo-atomic
+             ,@body))))
 
 ;;;; indexed references
 
