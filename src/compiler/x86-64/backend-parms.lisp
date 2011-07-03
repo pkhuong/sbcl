@@ -35,6 +35,15 @@
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (setf *backend-page-bytes* 32768))
 
+;;; The size of the card table in cards.  This doesn't directly constrain
+;;; the heap size, since the table is addressed modulo its size.
+#!+sb-sw-barrier
+(def!constant gencgc-card-count (ash 1 21))
+;;; The overflow area of the card table (in cards).  Small constant
+;;; offsets are precomputed away, but after the modulo computation, so
+;;; an overflow area must be left at the end of the table.
+#!+sb-sw-barrier
+(def!constant gencgc-overflow-card-count 64)
 ;;; The size in bytes of GENCGC cards, i.e. the granularity at which
 ;;; writes to old generations are logged.  With mprotect-based write
 ;;; barriers, this must be a multiple of the OS page size.

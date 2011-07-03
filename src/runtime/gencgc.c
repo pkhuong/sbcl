@@ -29,6 +29,7 @@
 #include <signal.h>
 #include <errno.h>
 #include <string.h>
+#include <stdint.h>
 #include "sbcl.h"
 #include "runtime.h"
 #include "os.h"
@@ -366,6 +367,81 @@ unsigned long gencgc_release_granularity = GENCGC_RELEASE_GRANULARITY;
 
 extern unsigned long gencgc_alloc_granularity;
 unsigned long gencgc_alloc_granularity = GENCGC_ALLOC_GRANULARITY;
+
+#ifdef LISP_FEATURE_SB_SW_BARRIER
+extern char gencgc_card_table[GENCGC_CARD_COUNT+GENCGC_OVERFLOW_CARD_COUNT];
+char gencgc_card_table[GENCGC_CARD_COUNT+GENCGC_OVERFLOW_CARD_COUNT];
+
+/* Avoid potential issues with SSE, and use a hand-rolled bzero.
+ * Really, maybe we should just do this right and always save the
+ * XMM state.
+ */
+static void safe_bzero (void * b, unsigned long count)
+{
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+    extern void fast_bzero(void*, size_t); /* in <arch>-assem.S */
+
+    char * start = (char*)b;
+    char *   end = start+count;
+    uintptr_t aligned_start = (uintptr_t)start&-64UL;
+    uintptr_t aligned_end   = (uintptr_t)(end+63)&-64UL;
+    char * ptr;
+    if (aligned_start < aligned_end) {
+        fast_bzero((void*)aligned_start, aligned_end - aligned_start);
+        for (ptr = start; ptr < (char*)aligned_start; ptr++)
+            *ptr = 0;
+        for (ptr = aligned_end; ptr < end; ptr++)
+            *ptr = 0;
+    } else {
+        for (ptr = start; ptr < end; ptr++)
+            *ptr = 0;
+    }
+#else
+    bzero(b, count);
+#endif
+}
+
+static void init_card_table (char * table)
+{
+    safe_bzero(table, GENCGC_CARD_COUNT+GENCGC_OVERFLOW_CARD_COUNT);
+}
+
+static void process_card_table (char * table)
+{
+    page_index_t start;
+    char * first = (char*)-1UL, * last = (char*)0;
+#define REG_PTR(PTR) do {                       \
+        if ((PTR) < first) first = (PTR);       \
+        if ((PTR) >= last) last  = (PTR)+1;     \
+    } while (0)
+
+    unsigned long i;
+    for (i = 0; i < GENCGC_OVERFLOW_CARD_COUNT; i++) {
+        table[i] |= table[GENCGC_CARD_COUNT+i];
+        table[GENCGC_CARD_COUNT+i] = 0;
+    }
+
+    for (start = 0; start < last_free_page; start++) {
+        uintptr_t addr = (uintptr_t)page_address(start);
+        char * ptr1 = &table[(addr/GENCGC_CARD_BYTES) % GENCGC_CARD_COUNT];
+        char * ptr2 = &table[(addr/GENCGC_CARD_BYTES + 1) % GENCGC_CARD_COUNT];
+        int dirty = *ptr1 | *ptr2;
+        if (*ptr1) REG_PTR(ptr1);
+        if (*ptr2) REG_PTR(ptr2);
+        if (dirty) {
+            if (!page_boxed_p(start)) continue;
+            if (page_table[start].gen == 0) continue;
+            if (page_table[start].write_protected) {
+                page_table[start].write_protected_cleared = 1;
+                page_table[start].write_protected = 0;
+            }
+        }
+    }
+#undef REG_PTR
+    if ((first != (char*)-1UL) && (last != (char*)0))
+        safe_bzero(first, last-first);
+}
+#endif
 
 
 /*
@@ -2987,11 +3063,11 @@ update_page_write_prot(page_index_t page)
     if (wp_it == 1) {
         /* Write-protect the page. */
         /*FSHOW((stderr, "/write-protecting page %d gen %d\n", page, gen));*/
-
+#ifndef LISP_FEATURE_SB_SW_BARRIER
         os_protect((void *)page_addr,
                    GENCGC_CARD_BYTES,
                    OS_VM_PROT_READ|OS_VM_PROT_EXECUTE);
-
+#endif
         /* Note the page as protected in the page tables. */
         page_table[page].write_protected = 1;
     }
@@ -3369,7 +3445,9 @@ unprotect_oldspace(void)
                     region_bytes += GENCGC_CARD_BYTES;
                 } else {
                     /* Unprotect previous region. */
+#ifndef LISP_FEATURE_SB_SW_BARRIER
                     os_protect(region_addr, region_bytes, OS_VM_PROT_ALL);
+#endif
                     /* First page in new region. */
                     region_addr = page_addr;
                     region_bytes = GENCGC_CARD_BYTES;
@@ -3377,10 +3455,12 @@ unprotect_oldspace(void)
             }
         }
     }
+#ifndef LISP_FEATURE_SB_SW_BARRIER
     if (region_addr) {
         /* Unprotect last region. */
         os_protect(region_addr, region_bytes, OS_VM_PROT_ALL);
     }
+#endif
 }
 
 /* Work through all the pages and free any in from_space. This
@@ -3889,13 +3969,13 @@ write_protect_generation_pages(generation_index_t generation)
                   break;
                 page_table[last].write_protected = 1;
             }
-
+#ifndef LISP_FEATURE_SB_SW_BARRIER
             page_start = (void *)page_address(start);
 
             os_protect(page_start,
                        npage_bytes(last - start),
                        OS_VM_PROT_READ | OS_VM_PROT_EXECUTE);
-
+#endif
             start = last;
         }
     }
@@ -4368,6 +4448,10 @@ collect_garbage(generation_index_t last_gen)
         last_gen = 0;
     }
 
+#ifdef LISP_FEATURE_SB_SW_BARRIER
+    process_card_table(&gencgc_card_table[0]);
+#endif
+
     /* Flush the alloc regions updating the tables. */
     gc_alloc_update_all_page_tables();
 
@@ -4520,7 +4604,9 @@ gc_free_heap(void)
 #ifndef LISP_FEATURE_WIN32 /* Pages already zeroed on win32? Not sure
                             * about this change. */
             page_start = (void *)page_address(page);
+#ifndef LISP_FEATURE_SB_SW_BARRIER
             os_protect(page_start, npage_bytes(last_page-page), OS_VM_PROT_ALL);
+#endif
             remap_free_pages(page, last_page-1, 1);
             page = last_page-1;
 #endif
@@ -4589,6 +4675,10 @@ gc_init(void)
      * unnecessary and did hurt startup time. */
     page_table = calloc(page_table_pages, sizeof(struct page));
     gc_assert(page_table);
+
+#ifdef LISP_FEATURE_SB_SW_BARRIER
+    init_card_table(&gencgc_card_table[0]);
+#endif
 
     gc_init_tables();
     scavtab[WEAK_POINTER_WIDETAG] = scav_weak_pointer;
@@ -4870,16 +4960,20 @@ gencgc_handle_wp_violation(void* fault_addr)
            fault_addr, page_index));
 #endif
 
+#ifdef LISP_FEATURE_SB_SW_BARRIER
+    if (page_index != -1)
+            lose("fault in Lisp heap at %p\n", fault_addr);
+    unhandled_sigmemoryfault(fault_addr);
+    return 0;
+#else
     /* Check whether the fault is within the dynamic space. */
     if (page_index == (-1)) {
-
         /* It can be helpful to be able to put a breakpoint on this
          * case to help diagnose low-level problems. */
         unhandled_sigmemoryfault(fault_addr);
 
         /* not within the dynamic space -- not our responsibility */
         return 0;
-
     } else {
         int ret;
         ret = thread_mutex_lock(&free_pages_lock);
@@ -4906,6 +5000,7 @@ gencgc_handle_wp_violation(void* fault_addr)
         /* Don't worry, we can handle it. */
         return 1;
     }
+#endif
 }
 /* This is to be called when we catch a SIGSEGV/SIGBUS, determine that
  * it's not just a case of the program hitting the write barrier, and

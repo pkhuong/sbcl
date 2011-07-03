@@ -140,8 +140,36 @@
               (make-ea :byte :base ,n-source
                              :disp (+ ,n-offset (1- n-word-bytes))))))))
 
+(defvar *in-allocation* nil)
+#!-sb-sw-barrier
 (defun emit-write-barrier (value address-tn &optional (offset 0) (lowtag 0))
   (declare (ignore value address-tn offset lowtag)))
+
+#!+sb-sw-barrier
+(defun emit-write-barrier (value address-tn &optional (offset 0) (lowtag 0))
+  (when (or *in-allocation*
+            (location= address-tn rbp-tn)
+            (location= address-tn rsp-tn)
+            (and (tn-p value)
+                 (or (sc-is value immediate)
+                     (memq (primitive-type-name
+                            (sb!c::tn-primitive-type value))
+                           '(character fixnum positive-fixnum single-float))))
+            (integerp value)
+            (sb!c::tn-dx-p address-tn))
+    (return-from emit-write-barrier))
+  (let* ((offset          (- (* n-word-bytes offset) lowtag))
+         (card-offset     (truncate offset gencgc-card-bytes))
+         (safe-overflow-p (< card-offset gencgc-overflow-card-count))
+         (table           (make-fixup "gencgc_card_table" :foreign
+                                      (if safe-overflow-p card-offset 0)))
+         (temp            temp-reg-tn))
+    (if safe-overflow-p
+        (inst mov temp address-tn)
+        (inst lea temp (make-ea :qword :base address-tn :disp offset)))
+    (inst shr temp (integer-length (1- gencgc-card-bytes)))
+    (inst and temp (1- gencgc-card-count))
+    (inst mov (make-ea :byte :base temp :disp table) 1)))
 
 ;;;; allocation helpers
 
@@ -366,10 +394,11 @@
        (emit-label ,label))))
 
 (defmacro with-protected-allocation ((&optional not-pseudo-atomic) &body body)
-  (if (not not-pseudo-atomic)
-      `(pseudo-atomic ,@body)
-      `(maybe-pseudo-atomic ,not-pseudo-atomic
-         ,@body)))
+  `(let ((*in-allocation* t))
+     ,(if (not not-pseudo-atomic)
+          `(pseudo-atomic ,@body)
+          `(maybe-pseudo-atomic ,not-pseudo-atomic
+             ,@body))))
 
 ;;;; indexed references
 
