@@ -154,6 +154,13 @@
 ;;; decision.
 
 (defun allocation-dynamic-extent (alloc-tn size lowtag)
+  ;; This asks for an amount of non-trickery on the part of DX-
+  ;; allocating VOPs.  The function assumes that the VOP has
+  ;; alloc-tn as a result.  So, if there's exactly one write to
+  ;; alloc-tn, then it's the allocating VOP, and we're good.
+  (when (and (sb!c::tn-writes alloc-tn)
+             (not (sb!c::tn-ref-next (sb!c::tn-writes alloc-tn))))
+    (setf (sb!c::tn-dx-p alloc-tn) t))
   (inst sub rsp-tn size)
   ;; see comment in x86/macros.lisp implementation of this
   (inst and rsp-tn #.(lognot lowtag-mask))
