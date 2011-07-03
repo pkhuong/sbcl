@@ -260,8 +260,8 @@
     (loadw temp ofp sap-pointer-slot other-pointer-lowtag)
     (storew temp block unwind-block-current-cont-slot)
 
-    (inst lea temp-reg-tn (make-fixup nil :code-object entry-label))
-    (storew temp-reg-tn
+    (inst lea temp (make-fixup nil :code-object entry-label))
+    (storew temp
             block
             catch-block-entry-pc-slot)
 

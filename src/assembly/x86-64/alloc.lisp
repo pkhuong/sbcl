@@ -116,7 +116,8 @@
                  (emit-label not-error))
                (inst add (make-ea-for-symbol-value *free-tls-index*)
                      (fixnumize 1))
-               (storew target other symbol-tls-index-slot other-pointer-lowtag)
+               (storew target other symbol-tls-index-slot other-pointer-lowtag
+                       nil) ; no write barrier: it's a fixnum
                (emit-label release-tls-index-lock)
                ;; No need for barriers on x86/x86-64 on unlock.
                (store-symbol-value 0 *tls-index-lock*)

@@ -21,33 +21,42 @@
   (:generator 1
    (loadw result object offset lowtag)))
 
-(define-vop (set-slot)
+(define-vop (%set-slot)
   (:args (object :scs (descriptor-reg))
          (value :scs (descriptor-reg any-reg immediate)))
   (:temporary (:sc descriptor-reg) temp)
   (:info name offset lowtag)
   (:ignore name)
   (:results)
+  (:variant-vars barrierp)
   (:generator 1
-    (if (sc-is value immediate)
-        (let ((val (tn-value value)))
-          (move-immediate (make-ea :qword
-                                   :base object
-                                   :disp (- (* offset n-word-bytes)
-                                            lowtag))
-                          (etypecase val
-                            (integer
-                             (fixnumize val))
-                            (symbol
-                             (+ nil-value (static-symbol-offset val)))
-                            (character
-                             (logior (ash (char-code val) n-widetag-bits)
-                                     character-widetag)))
-                          temp))
-        ;; Else, value not immediate.
-        (storew value object offset lowtag))))
+    (cond ((sc-is value immediate)
+           (let ((val (tn-value value)))
+             (when barrierp
+               (log-write value object offset))
+             (move-immediate (make-ea :qword
+                                      :base object
+                                      :disp (- (* offset n-word-bytes)
+                                               lowtag))
+                             (etypecase val
+                               (integer
+                                (fixnumize val))
+                               (symbol
+                                (+ nil-value (static-symbol-offset val)))
+                               (character
+                                (logior (ash (char-code val) n-widetag-bits)
+                                        character-widetag)))
+                             temp)))
+          (barrierp
+           (storew value object offset lowtag))
+          (t
+           (storew value object offset lowtag nil)))))
 
-(define-vop (init-slot set-slot))
+(define-vop (set-slot %set-slot)
+  (:variant t))
+
+(define-vop (init-slot %set-slot)
+  (:variant nil))
 
 (define-vop (compare-and-swap-slot)
   (:args (object :scs (descriptor-reg) :to :eval)
@@ -60,6 +69,7 @@
   (:ignore name)
   (:results (result :scs (descriptor-reg any-reg)))
   (:generator 5
+     (log-write new object offset)
      (move rax old)
      (inst cmpxchg (make-ea :qword :base object
                             :disp (- (* offset n-word-bytes) lowtag))
@@ -96,6 +106,7 @@
         (inst cmp rax no-tls-value-marker-widetag)
         (inst jmp :ne check)
         (move rax old))
+      (log-write new symbol symbol-value-slot)
       (inst cmpxchg (make-ea :qword :base symbol
                              :disp (- (* symbol-value-slot n-word-bytes)
                                       other-pointer-lowtag)
