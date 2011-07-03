@@ -1266,7 +1266,7 @@
       (inst mov result nil-value)
       (inst jrcxz done)
       (inst lea dst (make-ea :qword :base rcx :index rcx))
-      (maybe-pseudo-atomic stack-allocate-p
+      (with-protected-allocation (stack-allocate-p)
        (allocation dst dst node stack-allocate-p list-pointer-lowtag)
        ;; Set decrement mode (successive args at lower addresses)
        (inst std)
