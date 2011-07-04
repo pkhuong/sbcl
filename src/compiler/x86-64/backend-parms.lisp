@@ -49,4 +49,4 @@
 (def!constant gencgc-alloc-granularity 4096)
 ;;; The minimum size at which we release address ranges to the OS.
 ;;; This must be a multiple of the OS page size.
-(def!constant gencgc-release-granularity *backend-page-bytes*)
+(def!constant gencgc-release-granularity (ash 1 21))
