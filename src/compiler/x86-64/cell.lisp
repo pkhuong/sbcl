@@ -56,7 +56,7 @@
   (:variant t))
 
 (define-vop (init-slot %set-slot)
-  (:variant nil))
+  (:variant t))
 
 (define-vop (compare-and-swap-slot)
   (:args (object :scs (descriptor-reg) :to :eval)

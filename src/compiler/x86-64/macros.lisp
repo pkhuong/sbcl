@@ -38,6 +38,7 @@
   `(inst mov ,value (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 (defmacro storew (value ptr &optional (slot 0) (lowtag 0) (logp (neq lowtag 0)))
+  (setf logp (neq lowtag 0))
   (once-only ((value  value)
               (ptr    ptr)
               (slot   slot)
@@ -57,6 +58,7 @@
   `(inst push (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 (defmacro popw (ptr &optional (slot 0) (lowtag 0) (logp (neq lowtag 0)))
+  (setf logp (neq lowtag 0))
   (once-only ((ptr    ptr)
               (slot   slot)
               (lowtag lowtag))
@@ -153,18 +155,21 @@
   (declare (ignore value address offset))
   #!-sb-sw-barrier (return-from log-write)
   #!+sb-sw-barrier
-  (let ((base-tn (ea-or-tn-base-tn address)))
-    (when (or *in-allocation*
-              (location= base-tn rbp-tn)
-              (location= base-tn rsp-tn)
+  (let ((base-tn address #+nil(ea-or-tn-base-tn address)))
+    (declare (ignorable base-tn))
+    value
+    #+nil(when (or *in-allocation*
+              #+nil(location= base-tn rbp-tn)
+              #+nil(location= base-tn rsp-tn)
               (and (tn-p value)
                    (or (sc-is value immediate)
-                       (memq (sb!c::tn-primitive-type value)
+                       #+nil(memq (sb!c::tn-primitive-type value)
                              (load-time-value
                               (mapcar #'primitive-type-or-lose
                                       '(character fixnum positive-fixnum single-float))
                               t))))
               (integerp value)
+              #+nil
               (and (tn-p base-tn)
                    (sb!c::tn-dx-p base-tn)))
       (return-from log-write))
@@ -418,7 +423,7 @@
      (define-vop (,name)
          ,@(when translate `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg) :to :eval)
+       (:args (object :scs (descriptor-reg) :to :result)
               (index :scs (any-reg) :to :result)
               (old-value :scs ,scs :target rax)
               (new-value :scs ,scs))
@@ -516,7 +521,7 @@
        ,@(when translate
            `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg))
+       (:args (object :scs (descriptor-reg) :to :result)
               (index :scs (any-reg))
               (value :scs ,scs :target result))
        (:arg-types ,type tagged-num ,el-type)
@@ -539,7 +544,7 @@
        ,@(when translate
            `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg))
+       (:args (object :scs (descriptor-reg) :to :result)
               (value :scs ,scs :target result))
        (:info index)
        (:arg-types ,type
@@ -571,7 +576,7 @@
        ,@(when translate
            `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg))
+       (:args (object :scs (descriptor-reg) :to :result)
               (index :scs (any-reg))
               (value :scs ,scs :target result))
        (:info offset)
@@ -599,7 +604,7 @@
        ,@(when translate
            `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg))
+       (:args (object :scs (descriptor-reg) :to :result)
               (value :scs ,scs :target result))
        (:info index offset)
        (:arg-types ,type

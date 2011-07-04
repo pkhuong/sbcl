@@ -81,7 +81,7 @@ enum {
 boolean enable_page_protection = 1;
 
 /* the minimum size (in bytes) for a large object*/
-long large_object_size = 4 * GENCGC_ALLOC_GRANULARITY;
+long large_object_size = 4 * PAGE_BYTES;
 
 
 /*
@@ -377,21 +377,26 @@ static void process_card_table (struct gencgc_card_table * table)
 {
     page_index_t start;
     char * first = (char*)-1UL, * last = (char*)0;
+    int dirty;
     fprintf(stderr, "in process table\n");
     for (start = 0; start < last_free_page; start++) {
-            unsigned long addr;
-            addr = (unsigned long)page_address(start);
-            char * ptr = &table->table[(addr/GENCGC_CARD_BYTES) % GENCGC_CARD_COUNT];
-            if (*ptr) {
-                    if (ptr < first) first = ptr;
-                    if (ptr >= last) last = ptr+1;
-                    if (!page_boxed_p(start)) continue;
-                    if (page_table[start].gen == 0) continue;
-                    if (page_table[start].write_protected) {
-                            page_table[start].write_protected_cleared = 1;
-                            page_table[start].write_protected = 0;
-                    }
+        unsigned long addr;
+        addr = (unsigned long)page_address(start);
+        char * ptr = &table->table[(addr/GENCGC_CARD_BYTES) % GENCGC_CARD_COUNT];
+        dirty = *ptr;
+        dirty |= table->table[((addr/GENCGC_CARD_BYTES)+1) % GENCGC_CARD_COUNT];
+        dirty |= table->table[((addr/GENCGC_CARD_BYTES)-1) % GENCGC_CARD_COUNT];
+
+        if (dirty) {
+            if (ptr < first) first = ptr;
+            if (ptr >= last) last = ptr+1;
+            if (!page_boxed_p(start)) continue;
+            if (page_table[start].gen == 0) continue;
+            if (page_table[start].write_protected) {
+                page_table[start].write_protected_cleared = 1;
+                page_table[start].write_protected = 0;
             }
+        }
     }
 
     if ((first != (char*)-1UL) && (last != (char*)0))
