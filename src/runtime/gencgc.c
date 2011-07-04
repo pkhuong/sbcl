@@ -689,6 +689,7 @@ process_store_buffer (struct store_buffer * buffer)
             char * ptr = &buffer->table[(addr/GENCGC_CARD_BYTES)%BACKEND_CARD_TABLE_SIZE];
             int dirty = *ptr;
             dirty |= buffer->table[((addr/GENCGC_CARD_BYTES)+1)%BACKEND_CARD_TABLE_SIZE];
+            dirty = 1;
             if (dirty) {
                     if (ptr < first) first = ptr;
                     if (ptr >= last) last = ptr+1;
