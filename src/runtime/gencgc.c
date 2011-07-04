@@ -362,22 +362,26 @@ extern unsigned long gencgc_alloc_granularity;
 unsigned long gencgc_alloc_granularity = GENCGC_ALLOC_GRANULARITY;
 
 #ifdef LISP_FEATURE_SB_SW_BARRIER
-extern char gencgc_card_table[GENCGC_CARD_COUNT];
-char gencgc_card_table[GENCGC_CARD_COUNT];
+struct gencgc_card_table {
+    char table[GENCGC_CARD_COUNT];
+};
+extern struct gencgc_card_table gencgc_card_table;
+struct gencgc_card_table gencgc_card_table;
 
-static void init_card_table (char * table)
+static void init_card_table (struct gencgc_card_table * table)
 {
-    memset(table, 0, GENCGC_CARD_COUNT);
+    memset(&table->table, 0, GENCGC_CARD_COUNT);
 }
 
-static void process_card_table (char * table)
+static void process_card_table (struct gencgc_card_table * table)
 {
     page_index_t start;
     char * first = (char*)-1UL, * last = (char*)0;
+    fprintf(stderr, "in process table\n");
     for (start = 0; start < last_free_page; start++) {
             unsigned long addr;
             addr = (unsigned long)page_address(start);
-            char * ptr = &table[(addr/GENCGC_CARD_BYTES) % GENCGC_CARD_COUNT];
+            char * ptr = &table->table[(addr/GENCGC_CARD_BYTES) % GENCGC_CARD_COUNT];
             if (*ptr) {
                     if (ptr < first) first = ptr;
                     if (ptr >= last) last = ptr+1;
@@ -392,6 +396,7 @@ static void process_card_table (char * table)
 
     if ((first != (char*)-1UL) && (last != (char*)0))
             memset(first, 0, last-first);
+    fprintf(stderr, "out process table\n");
 }
 #endif
 
@@ -4389,6 +4394,7 @@ collect_garbage(generation_index_t last_gen)
      * remap_free_pages was called. */
     static page_index_t high_water_mark = 0;
 
+    fprintf(stderr, "Entering collect_garbage\n");
     FSHOW((stderr, "/entering collect_garbage(%d)\n", last_gen));
     log_generation_stats(gc_logfile, "=== GC Start ===");
 
@@ -4520,6 +4526,7 @@ collect_garbage(generation_index_t last_gen)
     gc_active_p = 0;
 
     log_generation_stats(gc_logfile, "=== GC End ===");
+    fprintf(stderr, "Leaving collect_garbage\n");
     SHOW("returning from collect_garbage");
 }
 
@@ -4914,6 +4921,7 @@ gencgc_handle_wp_violation(void* fault_addr)
 #endif
 
 #ifdef LISP_FEATURE_SB_SW_BARRIER
+    fprintf("WP violation, %p %ld\n", fault_addr, page_index);
     unhandled_sigmemoryfault(fault_addr);
     return 0;
 #else
