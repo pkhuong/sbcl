@@ -602,7 +602,7 @@ void zero_pages_with_mmap(page_index_t start, page_index_t end) {
 
     gc_assert(length >= gencgc_release_granularity);
     gc_assert((length % gencgc_release_granularity) == 0);
-    return fast_bzero(page_address(start), length);
+    //return fast_bzero(page_address(start), length);
 
     os_invalidate(addr, length);
     new_addr = os_validate(addr, length);
