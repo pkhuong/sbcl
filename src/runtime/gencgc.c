@@ -632,6 +632,22 @@ zero_pages(page_index_t start, page_index_t end) {
 
 }
 
+static void
+zero_and_mark_pages(page_index_t start, page_index_t end) {
+    page_index_t i;
+    if (start > end)
+      return;
+
+#if defined(LISP_FEATURE_X86) || defined(LISP_FEATURE_X86_64)
+    fast_bzero(page_address(start), npage_bytes(1+end-start));
+#else
+    bzero(page_address(start), npage_bytes(1+end-start));
+#endif
+
+    for (i = start; i <= end; i++)
+        page_table[i].need_to_zero = 0;
+}
+
 /* Zero the pages from START to END (inclusive), except for those
  * pages that are known to already zeroed. Mark all pages in the
  * ranges as non-zeroed.
@@ -4346,7 +4362,7 @@ remap_page_range (page_index_t from, page_index_t to, int forcibly)
      */
 #if defined(LISP_FEATURE_SUNOS)
     if (forcibly)
-        zero_pages(from, to);
+        zero_and_mark_pages(from, to);
 #else
     const page_index_t
             release_granularity = gencgc_release_granularity/GENCGC_CARD_BYTES,
@@ -4357,14 +4373,14 @@ remap_page_range (page_index_t from, page_index_t to, int forcibly)
 
     if (aligned_from < aligned_end) {
         zero_pages_with_mmap(aligned_from, aligned_end-1);
-        if (forcibly) {
+        if (forcibly || 1) {
             if (aligned_from != from)
-                zero_pages(from, aligned_from-1);
+                zero_and_mark_pages(from, aligned_from-1);
             if (aligned_end != end)
-                zero_pages(aligned_end, end-1);
+                zero_and_mark_pages(aligned_end, end-1);
         }
-    } else if (forcibly)
-        zero_pages(from, to);
+    } else if (forcibly || 1)
+        zero_and_mark_pages(from, to);
 #endif
 }
 

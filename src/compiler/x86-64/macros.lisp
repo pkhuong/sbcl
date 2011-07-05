@@ -38,6 +38,7 @@
   `(inst mov ,value (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 (defmacro storew (value ptr &optional (slot 0) (lowtag 0) (log (neq lowtag 0)))
+  (setf log nil)
   (once-only ((value value)
               (ptr   ptr))
     `(cond ((and (integerp ,value)
@@ -138,7 +139,8 @@
 
 (defparameter *in-allocation* nil)
 (defun log-write (value address-tn &optional (offset 0))
-  (when (or (location= address-tn rbp-tn)
+  (when (or
+            (location= address-tn rbp-tn)
             (location= address-tn rsp-tn)
             (and (tn-p value)
                  (sc-is value immediate))
