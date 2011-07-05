@@ -42,7 +42,7 @@
     (pseudo-atomic
      (allocation result bytes node)
      (inst lea result (make-ea :qword :base result :disp other-pointer-lowtag))
-     (storew header result 0 other-pointer-lowtag))))
+     (storew header result 0 other-pointer-lowtag t))))
 
 ;;;; additional accessors and setters for the array header
 (define-full-reffer %array-dimension *
