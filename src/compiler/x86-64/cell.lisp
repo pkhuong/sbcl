@@ -279,7 +279,7 @@
     (inst lea raw (make-fixup "closure_tramp" :foreign))
     NORMAL-FUN
     (storew function fdefn fdefn-fun-slot other-pointer-lowtag t)
-    (storew raw fdefn fdefn-raw-addr-slot other-pointer-lowtag)
+    (storew raw fdefn fdefn-raw-addr-slot other-pointer-lowtag t)
     (move result function)))
 
 (define-vop (fdefn-makunbound)
@@ -290,7 +290,7 @@
   (:generator 38
     (storew nil-value fdefn fdefn-fun-slot other-pointer-lowtag t)
     (storew (make-fixup "undefined_tramp" :foreign)
-            fdefn fdefn-raw-addr-slot other-pointer-lowtag)
+            fdefn fdefn-raw-addr-slot other-pointer-lowtag y)
     (move result fdefn)))
 
 ;;;; binding and unbinding
@@ -400,7 +400,7 @@
     (inst jmp :eq SKIP)
     (loadw value bsp (- binding-value-slot binding-size))
     #!-sb-thread
-    (storew value symbol symbol-value-slot other-pointer-lowtag)
+    (storew value symbol symbol-value-slot other-pointer-lowtag t)
     #!+sb-thread
     (loadw tls-index symbol symbol-tls-index-slot other-pointer-lowtag)
     #!+sb-thread
