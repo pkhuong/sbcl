@@ -37,10 +37,10 @@
 (defmacro loadw (value ptr &optional (slot 0) (lowtag 0))
   `(inst mov ,value (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
-(defmacro storew (value ptr &optional (slot 0) (lowtag 0) (log (neq lowtag 0)))
-  (setf log nil)
+(defmacro storew (value ptr &optional (slot 0) (lowtag 0) (log nil))
   (once-only ((value value)
-              (ptr   ptr))
+              (ptr   ptr)
+              (slot  slot))
     `(cond ((and (integerp ,value)
                  (not (typep ,value '(signed-byte 32))))
             ,(when log

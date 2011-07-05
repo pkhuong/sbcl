@@ -46,7 +46,7 @@
                                      character-widetag)))
                           temp))
         ;; Else, value not immediate.
-        (storew value object offset lowtag))))
+        (storew value object offset lowtag t))))
 
 (define-vop (init-slot set-slot))
 
@@ -278,7 +278,7 @@
     (inst jmp :e NORMAL-FUN)
     (inst lea raw (make-fixup "closure_tramp" :foreign))
     NORMAL-FUN
-    (storew function fdefn fdefn-fun-slot other-pointer-lowtag)
+    (storew function fdefn fdefn-fun-slot other-pointer-lowtag t)
     (storew raw fdefn fdefn-raw-addr-slot other-pointer-lowtag)
     (move result function)))
 
@@ -288,7 +288,7 @@
   (:args (fdefn :scs (descriptor-reg) :target result))
   (:results (result :scs (descriptor-reg)))
   (:generator 38
-    (storew nil-value fdefn fdefn-fun-slot other-pointer-lowtag)
+    (storew nil-value fdefn fdefn-fun-slot other-pointer-lowtag t)
     (storew (make-fixup "undefined_tramp" :foreign)
             fdefn fdefn-raw-addr-slot other-pointer-lowtag)
     (move result fdefn)))
@@ -350,7 +350,7 @@
     (store-symbol-value bsp *binding-stack-pointer*)
     (storew temp bsp (- binding-value-slot binding-size))
     (storew symbol bsp (- binding-symbol-slot binding-size))
-    (storew val symbol symbol-value-slot other-pointer-lowtag)))
+    (storew val symbol symbol-value-slot other-pointer-lowtag t)))
 
 #!+sb-thread
 (define-vop (unbind)
@@ -377,7 +377,7 @@
     (load-symbol-value bsp *binding-stack-pointer*)
     (loadw symbol bsp (- binding-symbol-slot binding-size))
     (loadw value bsp (- binding-value-slot binding-size))
-    (storew value symbol symbol-value-slot other-pointer-lowtag)
+    (storew value symbol symbol-value-slot other-pointer-lowtag t)
     (storew 0 bsp (- binding-symbol-slot binding-size))
     (storew 0 bsp (- binding-value-slot binding-size))
     (inst sub bsp (* binding-size n-word-bytes))
