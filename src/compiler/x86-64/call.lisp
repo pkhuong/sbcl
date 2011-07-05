@@ -1279,17 +1279,17 @@
        ;; Compute a pointer to the next cons.
        (inst add dst (* cons-size n-word-bytes))
        ;; Store a pointer to this cons in the CDR of the previous cons.
-       (storew dst dst -1 list-pointer-lowtag)
+       (storew dst dst -1 list-pointer-lowtag t)
        (emit-label enter)
        ;; Grab one value and stash it in the car of this cons.
        (inst mov rax (make-ea :qword :base src))
        (inst sub src n-word-bytes)
-       (storew rax dst 0 list-pointer-lowtag)
+       (storew rax dst 0 list-pointer-lowtag t)
        ;; Go back for more.
        (inst sub rcx n-word-bytes)
        (inst jmp :nz loop)
        ;; NIL out the last cons.
-       (storew nil-value dst 1 list-pointer-lowtag)
+       (storew nil-value dst 1 list-pointer-lowtag t)
        (inst cld))
       (emit-label done))))
 
