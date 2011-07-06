@@ -141,6 +141,7 @@
                              :disp (+ ,n-offset (1- n-word-bytes))))))))
 
 (defvar *in-allocation* nil)
+(defvar *conditional-write-barrier* nil)
 #!-sb-sw-barrier
 (defun emit-write-barrier (value address-tn &optional (offset 0) (lowtag 0))
   (declare (ignore value address-tn offset lowtag)))
@@ -169,7 +170,14 @@
         (inst lea temp (make-ea :qword :base address-tn :disp offset)))
     (inst shr temp (integer-length (1- gencgc-card-bytes)))
     (inst and temp (1- gencgc-card-count))
-    (inst mov (make-ea :byte :base temp :disp table) 1)))
+    (if *conditional-write-barrier*
+        (let ((SKIP (gen-label)))
+          (inst lea temp (make-ea :qword :base temp :disp table))
+          (inst cmp 0 (make-ea :byte :base temp))
+          (inst jmp :ne SKIP)
+          (inst mov (make-ea :byte :base temp) 1)
+          (emit-label SKIP))
+        (inst mov (make-ea :byte :base temp :disp table) 1))))
 
 ;;;; allocation helpers
 
