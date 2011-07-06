@@ -721,8 +721,8 @@ process_store_buffer (struct store_buffer * buffer)
             }
     }
 
-    if ((first != (char*)-1UL) && (last != (char*)0))
-            memset(first, 0, last-first);
+    /* if ((first != (char*)-1UL) && (last != (char*)0)) */
+    /*         memset(first, 0, last-first); */
     end = getticks();
     /* fprintf(stderr, "\nstore_buffer: %lu\t%lu\t%.f\n", */
     /*         count, new, elapsed(end, begin)); */
@@ -4373,13 +4373,13 @@ remap_page_range (page_index_t from, page_index_t to, int forcibly)
 
     if (aligned_from < aligned_end) {
         zero_pages_with_mmap(aligned_from, aligned_end-1);
-        if (forcibly || 1) {
+        if (forcibly) {
             if (aligned_from != from)
                 zero_and_mark_pages(from, aligned_from-1);
             if (aligned_end != end)
                 zero_and_mark_pages(aligned_end, end-1);
         }
-    } else if (forcibly || 1)
+    } else if (forcibly)
         zero_and_mark_pages(from, to);
 #endif
 }

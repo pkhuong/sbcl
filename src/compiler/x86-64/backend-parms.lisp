@@ -41,7 +41,7 @@
 ;;; The size in bytes of GENCGC cards, i.e. the granularity at which
 ;;; writes to old generations are logged.  With mprotect-based write
 ;;; barriers, this must be a multiple of the OS page size.
-(def!constant gencgc-card-bytes 2048)
+(def!constant gencgc-card-bytes 4096)
 ;;; The minimum size of new allocation regions.  While it doesn't
 ;;; currently make a lot of sense to have a card size lower than
 ;;; the alloc granularity, it will, once we are smarter about finding

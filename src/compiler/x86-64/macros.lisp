@@ -139,6 +139,9 @@
 
 (defparameter *in-allocation* nil)
 (defun log-write (value address-tn &optional (offset 0))
+  (aver (not (location= address-tn temp-reg-tn)))
+  (aver (not (and (tn-p value)
+                  (location= value temp-reg-tn))))
   (when (or
             (location= address-tn rbp-tn)
             (location= address-tn rsp-tn)

@@ -290,7 +290,7 @@
   (:generator 38
     (storew nil-value fdefn fdefn-fun-slot other-pointer-lowtag t)
     (storew (make-fixup "undefined_tramp" :foreign)
-            fdefn fdefn-raw-addr-slot other-pointer-lowtag y)
+            fdefn fdefn-raw-addr-slot other-pointer-lowtag t)
     (move result fdefn)))
 
 ;;;; binding and unbinding
@@ -387,33 +387,43 @@
   (:args (where :scs (descriptor-reg any-reg)))
   (:temporary (:sc unsigned-reg) symbol value bsp #!+sb-thread tls-index)
   (:generator 0
+    (aver (not (location= symbol temp-reg-tn)))
+    (aver (not (location= value  temp-reg-tn)))
+    (aver (not (location= bsp    temp-reg-tn)))
+    (aver (not (location= where  temp-reg-tn)))
+
     (load-binding-stack-pointer bsp)
     (inst cmp where bsp)
     (inst jmp :e DONE)
 
-    LOOP
-    (loadw symbol bsp (- binding-symbol-slot binding-size))
-    (inst or symbol symbol)
-    (inst jmp :z SKIP)
-    ;; Bind stack debug sentinels have the unbound marker in the symbol slot
-    (inst cmp symbol unbound-marker-widetag)
-    (inst jmp :eq SKIP)
-    (loadw value bsp (- binding-value-slot binding-size))
-    #!-sb-thread
-    (storew value symbol symbol-value-slot other-pointer-lowtag t)
-    #!+sb-thread
-    (loadw tls-index symbol symbol-tls-index-slot other-pointer-lowtag)
-    #!+sb-thread
-    (inst mov (make-ea :qword :base thread-base-tn :scale 1 :index tls-index)
-          value)
-    (storew 0 bsp (- binding-symbol-slot binding-size))
+    (pseudo-atomic
+      (let ((SKIP (gen-label))
+            (LOOP (gen-label)))
+        (emit-label LOOP)
+        (loadw symbol bsp (- binding-symbol-slot binding-size))
+        (inst or symbol symbol)
+        (inst jmp :z SKIP)
+        ;; Bind stack debug sentinels have the unbound marker in the symbol slot
+        (inst cmp symbol unbound-marker-widetag)
+        (inst jmp :eq SKIP)
+        (loadw value bsp (- binding-value-slot binding-size))
+        (inst push temp-reg-tn)
+        (inst pop temp-reg-tn)
+        #!-sb-thread
+        (storew value symbol symbol-value-slot other-pointer-lowtag nil)
+        #!+sb-thread
+        (loadw tls-index symbol symbol-tls-index-slot other-pointer-lowtag)
+        #!+sb-thread
+        (inst mov (make-ea :qword :base thread-base-tn :scale 1 :index tls-index)
+              value)
+        (storew 0 bsp (- binding-symbol-slot binding-size))
 
-    SKIP
-    (storew 0 bsp (- binding-value-slot binding-size))
-    (inst sub bsp (* binding-size n-word-bytes))
-    (inst cmp where bsp)
-    (inst jmp :ne LOOP)
-    (store-binding-stack-pointer bsp)
+        (emit-label SKIP)
+        (storew 0 bsp (- binding-value-slot binding-size))
+        (inst sub bsp (* binding-size n-word-bytes))
+        (inst cmp where bsp)
+        (inst jmp :ne LOOP))
+      (store-binding-stack-pointer bsp))
 
     DONE))
 
