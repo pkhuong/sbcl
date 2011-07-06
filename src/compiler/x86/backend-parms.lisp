@@ -48,7 +48,7 @@
 ;;; The size of the card table in cards.  This doesn't directly constrain
 ;;; the heap size, since the table is addressed modulo its size.
 #!+sb-sw-barrier
-(def!constant gencgc-card-count (ash 1 21))
+(def!constant gencgc-card-count (ash 1 20))
 ;;; The overflow area of the card table (in cards).  Small constant
 ;;; offsets are precomputed away, but after the modulo computation, so
 ;;; an overflow area must be left at the end of the table.
@@ -65,4 +65,4 @@
 (def!constant gencgc-alloc-granularity 0)
 ;;; The minimum size at which we release address ranges to the OS.
 ;;; This must be a multiple of the OS page size.
-(def!constant gencgc-release-granularity *backend-page-bytes*)
+(def!constant gencgc-release-granularity (ash 1 21))
