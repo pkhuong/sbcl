@@ -162,12 +162,13 @@
     res))
 
 (define-fop (fop-layout 45)
-  (let ((nuntagged (pop-stack))
+  (let ((metadata (pop-stack))
+        (nuntagged (pop-stack))
         (length (pop-stack))
         (depthoid (pop-stack))
         (inherits (pop-stack))
         (name (pop-stack)))
-    (find-and-init-or-check-layout name length inherits depthoid nuntagged)))
+    (find-and-init-or-check-layout name length inherits depthoid nuntagged metadata)))
 
 (define-fop (fop-end-group 64 :stackp nil)
   (/show0 "THROWing FASL-GROUP-END")

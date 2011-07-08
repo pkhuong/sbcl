@@ -1292,6 +1292,7 @@
                                    :depthoid (length inherits)
                                    :length (dd-layout-length info)
                                    :n-untagged-slots (dd-raw-length info)
+                                   :untagged-metadata nil
                                    :info info))
           (old-layout (or compiler-layout old-layout)))
       (cond
@@ -1311,7 +1312,8 @@
                                  (layout-length new-layout)
                                  (layout-inherits new-layout)
                                  (layout-depthoid new-layout)
-                                 (layout-n-untagged-slots new-layout))
+                                 (layout-n-untagged-slots new-layout)
+                                 (layout-untagged-metadata new-layout))
         (values class new-layout old-layout))
        (t
         (let ((old-info (layout-info old-layout)))

@@ -904,10 +904,10 @@ core and return a descriptor to it."
                    (descriptor-bits des)))))
       (res))))
 
-(declaim (ftype (function (symbol descriptor descriptor descriptor descriptor)
-                          descriptor)
+(declaim (ftype (function (symbol descriptor descriptor descriptor descriptor t)
+                          t)
                 make-cold-layout))
-(defun make-cold-layout (name length inherits depthoid nuntagged)
+(defun make-cold-layout (name length inherits depthoid nuntagged metadata)
   (let ((result (allocate-boxed-object *dynamic*
                                        ;; KLUDGE: Why 1+? -- WHN 19990901
                                        ;; header word? -- CSR 20051204
@@ -936,6 +936,10 @@ core and return a descriptor to it."
     (cold-set-layout-slot result 'info *nil-descriptor*)
     (cold-set-layout-slot result 'pure *nil-descriptor*)
     (cold-set-layout-slot result 'n-untagged-slots nuntagged)
+    (cold-set-layout-slot result 'untagged-metadata (etypecase metadata
+                                                      (descriptor metadata)
+                                                      (null *nil-descriptor*)
+                                                      (integer (make-fixnum-descriptor metadata))))
     (cold-set-layout-slot result 'source-location *nil-descriptor*)
     (cold-set-layout-slot result 'for-std-class-p *nil-descriptor*)
 
@@ -945,7 +949,8 @@ core and return a descriptor to it."
                 (descriptor-fixnum length)
                 (listify-cold-inherits inherits)
                 (descriptor-fixnum depthoid)
-                (descriptor-fixnum nuntagged)))
+                (descriptor-fixnum nuntagged)
+                metadata))
     (setf (gethash (descriptor-bits result) *cold-layout-names*) name)
 
     result))
@@ -964,7 +969,8 @@ core and return a descriptor to it."
                             (number-to-core target-layout-length)
                             (vector-in-core)
                             (number-to-core (layout-depthoid xlayout-layout))
-                            (number-to-core 0)))
+                            (number-to-core 0)
+                            nil))
   (write-wordindexed
    *layout-layout* sb!vm:instance-slots-offset *layout-layout*)
 
@@ -978,19 +984,22 @@ core and return a descriptor to it."
                             (number-to-core 0)
                             (vector-in-core)
                             (number-to-core 0)
-                            (number-to-core 0)))
+                            (number-to-core 0)
+                            nil))
          (so-layout
           (make-cold-layout 'structure-object
                             (number-to-core 1)
                             (vector-in-core t-layout)
                             (number-to-core 1)
-                            (number-to-core 0)))
+                            (number-to-core 0)
+                            nil))
          (bso-layout
           (make-cold-layout 'structure!object
                             (number-to-core 1)
                             (vector-in-core t-layout so-layout)
                             (number-to-core 2)
-                            (number-to-core 0)))
+                            (number-to-core 0)
+                            nil))
          (layout-inherits (vector-in-core t-layout
                                           so-layout
                                           bso-layout)))
@@ -2041,7 +2050,8 @@ core and return a descriptor to it."
     result))
 
 (define-cold-fop (fop-layout)
-  (let* ((nuntagged-des (pop-stack))
+  (let* ((metadata      (pop-stack))
+         (nuntagged-des (pop-stack))
          (length-des (pop-stack))
          (depthoid-des (pop-stack))
          (cold-inherits (pop-stack))
@@ -2049,6 +2059,7 @@ core and return a descriptor to it."
          (old (gethash name *cold-layouts*)))
     (declare (type descriptor length-des depthoid-des cold-inherits))
     (declare (type symbol name))
+    (format t "metadata: ~A~%" metadata)
     ;; If a layout of this name has been defined already
     (if old
       ;; Enforce consistency between the previous definition and the
@@ -2061,12 +2072,14 @@ core and return a descriptor to it."
            old-length
            old-inherits-list
            old-depthoid
-           old-nuntagged)
+           old-nuntagged
+           old-metadata)
           old
         (declare (type descriptor old-layout-descriptor))
         (declare (type index old-length old-nuntagged))
         (declare (type fixnum old-depthoid))
         (declare (type list old-inherits-list))
+        old-metadata
         (aver (eq name old-name))
         (let ((length (descriptor-fixnum length-des))
               (inherits-list (listify-cold-inherits cold-inherits))
@@ -2101,7 +2114,7 @@ core and return a descriptor to it."
         old-layout-descriptor)
       ;; Make a new definition from scratch.
       (make-cold-layout name length-des cold-inherits depthoid-des
-                        nuntagged-des))))
+                        nuntagged-des metadata))))
 
 ;;;; cold fops for loading symbols
 

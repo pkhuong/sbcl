@@ -1355,4 +1355,5 @@
   (sub-dump-object (layout-depthoid obj) file)
   (sub-dump-object (layout-length obj) file)
   (sub-dump-object (layout-n-untagged-slots obj) file)
+  (sub-dump-object (layout-untagged-metadata obj) file)
   (dump-fop 'fop-layout file))
