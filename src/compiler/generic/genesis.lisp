@@ -2061,7 +2061,6 @@ core and return a descriptor to it."
          (old (gethash name *cold-layouts*)))
     (declare (type descriptor length-des depthoid-des cold-inherits))
     (declare (type symbol name))
-    (format t "metadata: ~A~%" metadata)
     ;; If a layout of this name has been defined already
     (if old
       ;; Enforce consistency between the previous definition and the

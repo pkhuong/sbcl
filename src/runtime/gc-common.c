@@ -678,7 +678,7 @@ scav_boxed(lispobj *where, lispobj object)
 static long
 scav_instance(lispobj *where, lispobj object)
 {
-    lispobj nuntagged;
+    lispobj nuntagged, untagged_data;
     long ntotal = HeaderValue(object);
     lispobj layout = ((struct instance *)where)->slots[0];
 
@@ -688,7 +688,26 @@ scav_instance(lispobj *where, lispobj object)
         layout = (lispobj) forwarding_pointer_value(native_pointer(layout));
 
     nuntagged = ((struct layout *)native_pointer(layout))->n_untagged_slots;
+    untagged_data = ((struct layout *)native_pointer(layout))->untagged_metadata;
+#if 1
+    if (!untagged_data) {
+        scavenge(where+1, ntotal);
+    } else if (fixnump(untagged_data)) {
+        unsigned long data = fixnum_value(untagged_data);
+        long index;
+        for (index = 0; (index < ntotal) && data; index++, data >>= 1) {
+            if (!(data&1))
+                scavenge(where+1+index, 1);
+        }
+        if (index != ntotal) 
+            scavenge(where+1+index, ntotal-index);
+    } else {
+        print(untagged_data);
+        lose("\nfoo %li\n", ntotal);
+    }
+#else
     scavenge(where + 1, ntotal - fixnum_value(nuntagged));
+#endif
 
     return ntotal + 1;
 }

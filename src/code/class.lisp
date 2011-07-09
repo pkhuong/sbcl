@@ -194,7 +194,7 @@
   ;; This slot is known to the C runtime support code.
   (n-untagged-slots 0 :type index)
   ;; Metadata
-  (untagged-metadata (1- (ash 1 80)) :type unsigned-byte)
+  (untagged-metadata 0 :type unsigned-byte)
   ;; Definition location
   (source-location nil)
   ;; Information about slots in the class to PCL: this provides fast
