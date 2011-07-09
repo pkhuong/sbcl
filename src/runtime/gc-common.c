@@ -691,16 +691,31 @@ scav_instance(lispobj *where, lispobj object)
     untagged_data = ((struct layout *)native_pointer(layout))->untagged_metadata;
 #if 1
     if (!untagged_data) {
+        gc_assert(!nuntagged);
         scavenge(where+1, ntotal);
     } else if (fixnump(untagged_data)) {
         unsigned long data = fixnum_value(untagged_data);
         long index;
+        {
+            unsigned long mask = (1UL<<fixnum_value(nuntagged))-1;
+            mask <<= ntotal-fixnum_value(nuntagged);
+            if (mask != data) {
+                    fprintf(stderr, "%li %li %lu %lu\n",
+                            ntotal, fixnum_value(nuntagged), mask, data);
+                print(layout);
+                gc_assert(mask == data);
+            }
+        }
         for (index = 0; (index < ntotal) && data; index++, data >>= 1) {
             if (!(data&1))
                 scavenge(where+1+index, 1);
         }
-        if (index != ntotal) 
+        if (index != ntotal) {
+            lose("%li %li %li %lx\n",
+                 ntotal, index,
+                 fixnum_value(nuntagged), fixnum_value(untagged_data));
             scavenge(where+1+index, ntotal-index);
+        }
     } else {
         print(untagged_data);
         lose("\nfoo %li\n", ntotal);

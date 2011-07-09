@@ -937,11 +937,30 @@ core and return a descriptor to it."
     (cold-set-layout-slot result 'pure *nil-descriptor*)
     (cold-set-layout-slot result 'n-untagged-slots nuntagged)
     (cold-set-layout-slot result 'untagged-metadata (etypecase metadata
-                                                      (descriptor metadata)
-                                                      (null *nil-descriptor*)
+                                                      (descriptor
+                                                         (assert (= (descriptor-fixnum metadata)
+                                                                    (ash (1- (ash 1 (descriptor-fixnum nuntagged)))
+                                                                         (- (+ (descriptor-fixnum length)
+                                                                               (mod (1+ (descriptor-fixnum length))
+                                                                                    2))
+                                                                            (descriptor-fixnum nuntagged)))))
+                                                         metadata)
                                                       ((integer #.sb!xc:most-negative-fixnum #.sb!xc:most-positive-fixnum)
+                                                         (assert (= metadata
+                                                                    (ash (1- (ash 1 (descriptor-fixnum nuntagged)))
+                                                                          (- (+ (descriptor-fixnum length)
+                                                                                (mod (1+ (descriptor-fixnum length))
+                                                                                     2))
+                                                                             (descriptor-fixnum nuntagged)))))
                                                          (make-fixnum-descriptor metadata))
-                                                      (integer (bignum-to-core metadata))))
+                                                      (integer
+                                                         (assert (= metadata
+                                                                    (ash (1- (ash 1 (descriptor-fixnum nuntagged)))
+                                                                         (- (+ (descriptor-fixnum length)
+                                                                               (mod (1+ (descriptor-fixnum length))
+                                                                                    2))
+                                                                            (descriptor-fixnum nuntagged)))))
+                                                         (bignum-to-core metadata))))
     (cold-set-layout-slot result 'source-location *nil-descriptor*)
     (cold-set-layout-slot result 'for-std-class-p *nil-descriptor*)
 

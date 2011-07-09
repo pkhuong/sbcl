@@ -280,6 +280,10 @@
                 %init-or-check-layout))
 (defun %init-or-check-layout
     (layout classoid length inherits depthoid nuntagged metadata)
+  (assert (= metadata
+             (ash (1- (ash 1 nuntagged))
+                  (- (+ length (mod (1+ length) 2))
+                     nuntagged))))
   (cond ((eq (layout-invalid layout) :uninitialized)
          ;; There was no layout before, we just created one which
          ;; we'll now initialize with our information.

@@ -1293,7 +1293,8 @@
                                    :length (dd-layout-length info)
                                    :n-untagged-slots (dd-raw-length info)
                                    :untagged-metadata (ash (1- (ash 1 (dd-raw-length info)))
-                                                           (1+ (dd-length info)))
+                                                           (- (dd-instance-length info)
+                                                              (dd-raw-length info)))
                                    :info info))
           (old-layout (or compiler-layout old-layout)))
       (cond
