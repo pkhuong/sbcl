@@ -939,7 +939,9 @@ core and return a descriptor to it."
     (cold-set-layout-slot result 'untagged-metadata (etypecase metadata
                                                       (descriptor metadata)
                                                       (null *nil-descriptor*)
-                                                      (integer (make-fixnum-descriptor metadata))))
+                                                      ((integer #.sb!xc:most-negative-fixnum #.sb!xc:most-positive-fixnum)
+                                                         (make-fixnum-descriptor metadata))
+                                                      (integer (bignum-to-core metadata))))
     (cold-set-layout-slot result 'source-location *nil-descriptor*)
     (cold-set-layout-slot result 'for-std-class-p *nil-descriptor*)
 
@@ -970,7 +972,7 @@ core and return a descriptor to it."
                             (vector-in-core)
                             (number-to-core (layout-depthoid xlayout-layout))
                             (number-to-core 0)
-                            nil))
+                            0))
   (write-wordindexed
    *layout-layout* sb!vm:instance-slots-offset *layout-layout*)
 
@@ -985,21 +987,21 @@ core and return a descriptor to it."
                             (vector-in-core)
                             (number-to-core 0)
                             (number-to-core 0)
-                            nil))
+                            0))
          (so-layout
           (make-cold-layout 'structure-object
                             (number-to-core 1)
                             (vector-in-core t-layout)
                             (number-to-core 1)
                             (number-to-core 0)
-                            nil))
+                            0))
          (bso-layout
           (make-cold-layout 'structure!object
                             (number-to-core 1)
                             (vector-in-core t-layout so-layout)
                             (number-to-core 2)
                             (number-to-core 0)
-                            nil))
+                            0))
          (layout-inherits (vector-in-core t-layout
                                           so-layout
                                           bso-layout)))

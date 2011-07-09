@@ -1292,7 +1292,7 @@
                                    :depthoid (length inherits)
                                    :length (dd-layout-length info)
                                    :n-untagged-slots (dd-raw-length info)
-                                   :untagged-metadata nil
+                                   :untagged-metadata (ash 1 80) ;; FOO
                                    :info info))
           (old-layout (or compiler-layout old-layout)))
       (cond

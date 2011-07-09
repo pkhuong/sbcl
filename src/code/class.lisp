@@ -194,7 +194,7 @@
   ;; This slot is known to the C runtime support code.
   (n-untagged-slots 0 :type index)
   ;; Metadata
-  (untagged-metadata nil)
+  (untagged-metadata (1- (ash 1 80)) :type unsigned-byte)
   ;; Definition location
   (source-location nil)
   ;; Information about slots in the class to PCL: this provides fast
@@ -275,7 +275,7 @@
 ;;; its class slot value is set to an UNDEFINED-CLASS. -- FIXME: This
 ;;; is no longer true, :UNINITIALIZED used instead.
 (declaim (ftype (function (layout classoid index simple-vector layout-depthoid
-                                  index t)
+                                  index unsigned-byte)
                           layout)
                 %init-or-check-layout))
 (defun %init-or-check-layout
@@ -351,7 +351,7 @@
                            simple-vector
                            layout-depthoid
                            index
-                           t))
+                           unsigned-byte))
                 redefine-layout-warning))
 (defun redefine-layout-warning (old-context old-layout
                                 context length inherits depthoid nuntagged metadata)
@@ -404,7 +404,7 @@
                  between the ~A definition and the ~A definition"
                 name old-context context)
           t)
-        (unless (equal (layout-untagged-metadata old-layout) metadata)
+        (unless (eql (layout-untagged-metadata old-layout) metadata)
           (warn "change in the layout medatadata for ~A between the ~A definition and the ~A definition"
                 name old-context context)
           t))))
@@ -412,7 +412,7 @@
 ;;; Require that LAYOUT data be consistent with CLASS, LENGTH,
 ;;; INHERITS, and DEPTHOID.
 (declaim (ftype (function
-                 (layout classoid index simple-vector layout-depthoid index t))
+                 (layout classoid index simple-vector layout-depthoid index unsigned-byte))
                 check-layout))
 (defun check-layout (layout classoid length inherits depthoid nuntagged metadata)
   (aver (eq (layout-classoid layout) classoid))
@@ -442,7 +442,7 @@
 ;;; Used by the loader to forward-reference layouts for classes whose
 ;;; definitions may not have been loaded yet. This allows type tests
 ;;; to be loaded when the type definition hasn't been loaded yet.
-(declaim (ftype (function (symbol index simple-vector layout-depthoid index t)
+(declaim (ftype (function (symbol index simple-vector layout-depthoid index unsigned-byte)
                           layout)
                 find-and-init-or-check-layout))
 (defun find-and-init-or-check-layout (name length inherits depthoid nuntagged metadata)
@@ -1443,7 +1443,7 @@
                                           inherits-vector
                                           depthoid
                                           0
-                                          nil)
+                                          0)
            :invalidate nil)))))
   (/show0 "done with loop over *BUILT-IN-CLASSES*"))
 
@@ -1486,7 +1486,7 @@
                              (classoid-layout (find-classoid x)))
                            inherits-list)))
         #-sb-xc-host (/show0 "INHERITS=..") #-sb-xc-host (/hexstr inherits)
-        (register-layout (find-and-init-or-check-layout name 0 inherits -1 0 nil)
+        (register-layout (find-and-init-or-check-layout name 0 inherits -1 0 0)
                          :invalidate nil))))
   (/show0 "done defining temporary STANDARD-CLASSes"))
 
