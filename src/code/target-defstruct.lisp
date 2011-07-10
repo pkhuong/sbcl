@@ -364,24 +364,23 @@
   (let* ((len (%instance-length structure))
          (res (%make-instance len))
          (layout (%instance-layout structure))
-         (nuntagged (layout-n-untagged-slots layout)))
-
+         (info (layout-info layout)))
     (declare (type index len))
     (when (layout-invalid layout)
       (error "attempt to copy an obsolete structure:~%  ~S" structure))
 
-    ;; Copy ordinary slots and layout.
-    (dotimes (i (- len nuntagged))
-      (declare (type index i))
-      (setf (%instance-ref res i)
-            (%instance-ref structure i)))
-
-    ;; Copy raw slots.
-    (dotimes (i nuntagged)
-      (declare (type index i))
-      (setf (%raw-instance-ref/word res i)
-            (%raw-instance-ref/word structure i)))
-
+    (setf (%instance-ref res 0) (%instance-ref structure 0))
+    (dolist (slot (dd-slots info))
+      (let ((index (dsd-index slot)))
+        (cond ((eql t (dsd-raw-type slot))
+               (setf (%instance-ref res index)
+                     (%instance-ref structure index)))
+              (t
+               (let ((rsd (structure-raw-slot-data (dsd-type slot))))
+                 (loop repeat (raw-slot-data-n-words rsd)
+                       for i upfrom index
+                       do (setf (%raw-instance-ref/word res i)
+                                (%raw-instance-ref/word structure i))))))))
     res))
 
 
@@ -394,9 +393,10 @@
   ;; all this with %RAW-INSTANCE-REF/WORD and bitwise comparisons, but
   ;; that'll fail in some cases. For example -0.0 and 0.0 are EQUALP
   ;; but have different bit patterns. -- JES, 2007-08-21
-  (loop with i = -1
+  (loop
         for dsd in (dd-slots (layout-info layout))
         for raw-type = (dsd-raw-type dsd)
+        for index = (dsd-index dsd)
         for rsd = (when raw-type
                     (find raw-type
                           *raw-slot-data-list*
@@ -404,10 +404,30 @@
         for accessor = (when rsd
                          (raw-slot-data-accessor-name rsd))
         always (or (not accessor)
-                   (progn
-                     (incf i)
-                     (equalp (funcall accessor x i)
-                             (funcall accessor y i))))))
+                   (equalp (funcall accessor x index)
+                           (funcall accessor y index)))))
+
+(defun instance-slots-equalp (layout x y)
+  ;; This implementation sucks, but hopefully EQUALP on raw structures
+  ;; won't be a major bottleneck for anyone. It'd be tempting to do
+  ;; all this with %RAW-INSTANCE-REF/WORD and bitwise comparisons, but
+  ;; that'll fail in some cases. For example -0.0 and 0.0 are EQUALP
+  ;; but have different bit patterns. -- JES, 2007-08-21
+  (loop
+        for dsd in (dd-slots (layout-info layout))
+        for raw-type = (dsd-raw-type dsd)
+        for index = (dsd-index dsd)
+        for rsd = (when raw-type
+                    (find raw-type
+                          *raw-slot-data-list*
+                          :key 'raw-slot-data-raw-type))
+        for accessor = (when rsd
+                         (raw-slot-data-accessor-name rsd))
+        always (if accessor
+                   (equalp (funcall accessor x index)
+                           (funcall accessor y index))
+                   (equalp (%instance-ref x index)
+                           (%instance-ref y index)))))
 
 ;;; default PRINT-OBJECT method
 

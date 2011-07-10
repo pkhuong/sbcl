@@ -696,7 +696,7 @@ scav_instance(lispobj *where, lispobj object)
     } else if (fixnump(untagged_data)) {
         unsigned long data = fixnum_value(untagged_data);
         long index;
-        {
+        if (0) {
             unsigned long mask = (1UL<<fixnum_value(nuntagged))-1;
             mask <<= ntotal-fixnum_value(nuntagged);
             if (mask != data) {
@@ -706,7 +706,7 @@ scav_instance(lispobj *where, lispobj object)
                 gc_assert(mask == data);
             }
         }
-        for (index = 0; (index < ntotal) && data; index++, data >>= 1) {
+        for (index = 0; (index < ntotal) /* && data*/; index++, data >>= 1) {
             if (!(data&1))
                 scavenge(where+1+index, 1);
         }

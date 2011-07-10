@@ -795,10 +795,11 @@
                (alignment (raw-slot-data-alignment rsd))
                (off (rem (dd-raw-length dd) alignment)))
           (unless (zerop off)
-            (incf (dd-raw-length dd) (- alignment off)))
+            (incf (dd-length dd) (- alignment off)))
           (setf (dsd-raw-type dsd) (raw-slot-data-raw-type rsd))
-          (setf (dsd-index dsd) (dd-raw-length dd))
-          (incf (dd-raw-length dd) words)))))
+          (setf (dsd-index dsd) (dd-length dd))
+          (setf (dd-raw-length dd) (dd-length dd))
+          (incf (dd-length dd) words)))))
   (values))
 
 (defun typed-structure-info-or-lose (name)
@@ -1239,7 +1240,7 @@
 
 (declaim (inline dd-layout-length))
 (defun dd-layout-length (dd)
-  (+ (dd-length dd) (dd-raw-length dd)))
+  (+ (dd-length dd) #+nil (dd-raw-length dd)))
 
 (declaim (ftype (sfunction (defstruct-description) index) dd-instance-length))
 (defun dd-instance-length (dd)
@@ -1252,6 +1253,17 @@
   (let ((layout-length (dd-layout-length dd)))
     (declare (type index layout-length))
     (+ layout-length (mod (1+ layout-length) 2))))
+
+(defun dd-bitmap (dd)
+  #+nil
+  (ash (1- (ash 1 (dd-raw-length info)))
+       (- (dd-instance-length info)
+          (dd-raw-length info)))
+  (let ((bitmap 1)) ; initial layout
+    (dolist (slot (dd-slots dd)
+             (ldb (byte (dd-instance-length dd) 0) (lognot bitmap)))
+      (when (eql t (dsd-raw-type slot))
+        (setf (ldb (byte 1 (dsd-index slot)) bitmap) 1)))))
 
 ;;; This is called when we are about to define a structure class. It
 ;;; returns a (possibly new) class object and the layout which should
@@ -1292,9 +1304,11 @@
                                    :depthoid (length inherits)
                                    :length (dd-layout-length info)
                                    :n-untagged-slots (dd-raw-length info)
-                                   :untagged-metadata (ash (1- (ash 1 (dd-raw-length info)))
-                                                           (- (dd-instance-length info)
-                                                              (dd-raw-length info)))
+                                   :untagged-metadata (let ((bitmap (dd-bitmap info)))
+                                                        #+nil(unless (zerop bitmap)
+                                                          (format t "mask: ~X ~A~%"
+                                                                  bitmap (dd-instance-length info)))
+                                                        bitmap)
                                    :info info))
           (old-layout (or compiler-layout old-layout)))
       (cond
