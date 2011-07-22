@@ -161,6 +161,7 @@ generation_index_t from_space;
 generation_index_t new_space;
 
 /* Set to 1 when in GC */
+extern boolean gc_active_p;
 boolean gc_active_p = 0;
 
 /* should the GC be conservative on stack. If false (only right before
@@ -4869,6 +4870,8 @@ gencgc_handle_wp_violation(void* fault_addr)
     FSHOW((stderr, "heap WP violation? fault_addr=%x, page_index=%d\n",
            fault_addr, page_index));
 #endif
+
+    gc_assert(!gc_active_p);
 
     /* Check whether the fault is within the dynamic space. */
     if (page_index == (-1)) {

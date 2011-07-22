@@ -44,6 +44,11 @@
 #include "genesis/hash-table.h"
 #include "gc-internal.h"
 
+extern boolean gc_active_p;
+#define MEMBAR do { __asm__ volatile("" ::: "memory"); } while (0)
+#define CLEAR_GC do { gc_active_p = 0; MEMBAR; } while (0)
+#define SET_GC do { MEMBAR; gc_active_p = 1; } while (0)
+
 #ifdef LISP_FEATURE_SPARC
 #define LONG_FLOAT_SIZE 4
 #else
@@ -1533,10 +1538,10 @@ size_weak_pointer(lispobj *where)
     return WEAK_POINTER_NWORDS;
 }
 
-
 void scan_weak_pointers(void)
 {
     struct weak_pointer *wp, *next_wp;
+    CLEAR_GC;
     for (wp = weak_pointers, next_wp = NULL; wp != NULL; wp = next_wp) {
         lispobj value = wp->value;
         lispobj *first_pointer;
@@ -1566,6 +1571,7 @@ void scan_weak_pointers(void)
             wp->broken = T;
         }
     }
+    SET_GC;
 }
 
 
@@ -1704,7 +1710,9 @@ scav_hash_table_entries (struct hash_table *hash_table)
                 lispobj new_key = kv_vector[2*i];
 
                 if (old_key != new_key && new_key != empty_symbol) {
+                    CLEAR_GC;
                     hash_table->needs_rehash_p = T;
+                    SET_GC;
                 }
             }
         }
@@ -1775,10 +1783,12 @@ scav_vector (lispobj *where, lispobj object)
         /* Delay scavenging of this table by pushing it onto
          * weak_hash_tables (if it's not there already) for the weak
          * object phase. */
+        CLEAR_GC;
         if (hash_table->next_weak_hash_table == NIL) {
             hash_table->next_weak_hash_table = (lispobj)weak_hash_tables;
             weak_hash_tables = hash_table;
         }
+        SET_GC;
     }
 
     return (CEILING(kv_length + 2, 2));
@@ -1866,6 +1876,7 @@ scan_weak_hash_tables (void)
 {
     struct hash_table *table, *next;
 
+    CLEAR_GC;
     for (table = weak_hash_tables; table != NULL; table = next) {
         next = (struct hash_table *)table->next_weak_hash_table;
         table->next_weak_hash_table = NIL;
@@ -1873,6 +1884,7 @@ scan_weak_hash_tables (void)
     }
 
     weak_hash_tables = NULL;
+    SET_GC;
 }
 
 
