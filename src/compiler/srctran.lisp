@@ -3283,6 +3283,27 @@
 ;;; Integers using Multiplication", 1994 by Torbj\"{o}rn Granlund and
 ;;; Peter L. Montgomery, Figures 4.2 and 6.2, modified to exclude the
 ;;; case of division by powers of two.
+;;;
+;;; Some trickery: the precision is the number of bits of precision
+;;; we need in the internal fixed point approximation.  We're careful
+;;; to take the *ceiling* of the binary logarithm:
+;;;
+;;; The final result of choose-multiplier is S, M (N = word size) s.t.
+;;; 2^{N+S} < m*d <= 2^{N+S} * (1+2^{-precision})
+;;; some algebra gives: x/d < m*x*2^{-(N+S)} <= x/d + x*2^{-prevision}/d
+;;;                                          < x/d + 1/d
+;;; And that's enough to guarantee that taking the floor of the middle
+;;; expression is equivalent to the floor of x/d.
+;;;
+;;; More trickery: when the divisor D is a multiple of two, the division
+;;; can be simplified by first dividing by two (or a power of two).
+;;; Granlund & Montgomery's paper does that with a shift right.  Yet,
+;;; it's fairly straightforward to show that masking the corresponding
+;;; bits does just as well.  It's equivalent to shifting right, then
+;;; multiplying by the same power of two.  When the multiplier is word-
+;;; sized, the temporary value still all fits in a word, and the artificial
+;;; multiplication by a power of two is compensated by the final shift.
+;;;
 ;;; The following two examples show an average case and the worst case
 ;;; with respect to the complexity of the generated expression, under
 ;;; a word size of 64 bits:
@@ -3299,8 +3320,10 @@
 ;;;                        -1)))
 ;;;        -2))
 ;;;
-(defun gen-unsigned-div-by-constant-expr (y)
-  (declare (type (integer 3 #.most-positive-word) y))
+(defun gen-unsigned-div-by-constant-expr (y max-x node)
+  (declare (type (integer 3 #.most-positive-word) y)
+           (type word max-x)
+           (ignore node))
   (aver (not (zerop (logand y (1- y)))))
   (labels ((ld (x)
              ;; the floor of the binary logarithm of (positive) X
@@ -3317,25 +3340,32 @@
                   ((not (and (< (ash m-low -1) (ash m-high -1))
                              (> shift 0)))
                    (values m-high shift)))))
-    (let ((n (expt 2 sb!vm:n-word-bits))
+    (let ((n (ash 1 sb!vm:n-word-bits))
+          (precision (integer-length max-x))
           (shift1 0))
       (multiple-value-bind (m shift2)
-          (choose-multiplier y sb!vm:n-word-bits)
+          (choose-multiplier y precision)
         (when (and (>= m n) (evenp y))
           (setq shift1 (ld (logand y (- y))))
           (multiple-value-setq (m shift2)
-            (choose-multiplier (/ y (ash 1 shift1))
-                               (- sb!vm:n-word-bits shift1))))
-        (if (>= m n)
-            (flet ((word-mod (x)
-                     `(ldb (byte #.sb!vm:n-word-bits 0) ,x)))
-              `(let* ((num x)
-                      (t1 (%multiply num ,(- m n))))
-                 (ash ,(word-mod `(+ t1 (ash ,(word-mod `(- num t1))
-                                             -1)))
-                      ,(- 1 shift2))))
-            `(ash (%multiply (ash x ,(- shift1)) ,m)
-                  ,(- shift2)))))))
+            (choose-multiplier (ash y (- shift1))
+                               (- precision shift1))))
+        (cond ((>= m n)
+               (flet ((word-mod (x)
+                        `(ldb (byte #.sb!vm:n-word-bits 0) ,x)))
+                 `(let* ((num x)
+                         (t1 (%multiply-high num ,(- m n))))
+                    (ash ,(word-mod `(+ t1 (ash ,(word-mod `(- num t1))
+                                                -1)))
+                         ,(- 1 shift2)))))
+              ((plusp shift1)
+               `(ash (%multiply-high (logandc2 x ,(1- (ash 1 shift1))) ,m)
+                     ,(- (+ shift1 shift2))))
+              ((zerop shift2) ; ugly, but needed for the fixnum VOP to kick in
+               `(truly-the (integer 0 ,(truncate max-x y))
+                           (%multiply-high x ,m)))
+              (t
+               `(ash (%multiply-high x ,m) ,(- shift2))))))))
 
 ;;; If the divisor is constant and both args are positive and fit in a
 ;;; machine word, replace the division by a multiplication and possibly
@@ -3346,18 +3376,20 @@
 ;;; the same value, emit much simpler code to handle that. (This case
 ;;; may be rare but it's easy to detect and the compiler doesn't find
 ;;; this optimization on its own.)
-(deftransform truncate ((x y) ((unsigned-byte #.sb!vm:n-word-bits)
-                               (constant-arg
-                                (unsigned-byte #.sb!vm:n-word-bits)))
-                        *
+(deftransform truncate ((x y) (word (constant-arg word)) *
                         :policy (and (> speed compilation-speed)
-                                     (> speed space)))
+                                     (> speed space))
+                        :node node)
   "convert integer division to multiplication"
-  (let ((y (lvar-value y)))
+  (let* ((y (lvar-value y))
+         (x-type (lvar-type x))
+         (x-high (or (and (numeric-type-p x-type)
+                          (numeric-type-high x-type))
+                     most-positive-word)))
     ;; Division by zero, one or powers of two is handled elsewhere.
     (when (zerop (logand y (1- y)))
       (give-up-ir1-transform))
-    `(let* ((quot ,(gen-unsigned-div-by-constant-expr y))
+    `(let* ((quot ,(gen-unsigned-div-by-constant-expr y x-high node))
             (rem (ldb (byte #.sb!vm:n-word-bits 0)
                       (- x (* quot ,y)))))
        (values quot rem))))
