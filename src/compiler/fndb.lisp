@@ -319,6 +319,9 @@
   (real &optional real) (values integer real)
   (movable foldable flushable explicit-check))
 
+(defknown %multiply-high (word word) word
+  (foldable flushable movable))
+
 (defknown (%floor %ceiling)
   (real real) (values integer real)
   (movable foldable flushable explicit-check))

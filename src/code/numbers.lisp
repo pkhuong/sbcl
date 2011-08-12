@@ -590,6 +590,11 @@
         (foreach single-float double-float #!+long-float long-float))
        (truncate-float (dispatch-type divisor))))))
 
+#!-multiply-high-vops (declaim (inline %multiply-high))
+(defun %multiply-high (x y)
+  (declare (type word x y))
+  (values (sb!bignum:%multiply x y)))
+
 ;;; Declare these guys inline to let them get optimized a little.
 ;;; ROUND and FROUND are not declared inline since they seem too
 ;;; obscure and too big to inline-expand by default. Also, this gives

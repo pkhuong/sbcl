@@ -309,6 +309,10 @@
  ;; foreign code that uses a 32-bit off_t.
  ; :largefile
 
+ ;; Enabled automatically for platforms that offer VOPs for a word by word
+ ;; to high word half multiplication (sb!kernel:%multiply-high).
+ ; :multiply-high-vops
+
  ;;
  ;; miscellaneous notes on other things which could have special significance
  ;; in the *FEATURES* list
