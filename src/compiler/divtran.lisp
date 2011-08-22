@@ -317,7 +317,7 @@ into a simple \"perfect\" multiply-high sequence and a division."
     (let* ((gcd      (1- (integer-length (logand d (- d)))))
            (preshift (- sb!vm:n-word-bits gcd))
            (temp     (ash (* m max-n) (- gcd))))
-      (if (or (typep mul 'word)
+      (if (or (typep mul '(unsigned-byte #.(1+ sb-vm:n-word-bits)))
               (zerop gcd)
               (> (+ (integer-length m) preshift) sb!vm:n-word-bits)
               (not (typep temp 'word)))
@@ -331,6 +331,7 @@ Go for the generic over-approximation if possible. Otherwise, split
 the fraction in its integral and fractional parts, and emit a truncated
 multiplication by a fraction < 1."
   (declare (type word max-n m d))
+  (assert (> m d))
   (or (second (multiple-value-call #'maybe-emit-mul-shift max-n
                 (find-over-approximation-constants max-n m d)))
       (multiple-value-bind (q r) (truncate m d)
