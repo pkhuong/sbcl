@@ -279,48 +279,50 @@ low bits.
 When all of these fail, go for the generic over-approximation."
   (declare (type word max-n d))
   (when (zerop (logand d (1- d)))
-    `(ash x ,(- (integer-length (1- d)))))
-  (let ((vanilla (multiple-value-call #'maybe-emit-mul-shift max-n
-                   (find-over-approximation-constants max-n 1 d) t))
-        (gcd     (1- (integer-length (logand d (- d))))))
-    (cond ((<= (first vanilla) 2)
-           (second vanilla))
-          ((find-under-approximation-emitter max-n d))
-          ((plusp gcd)
-           (let ((mask (1- (ash 1 gcd))))
-             `(let ((x (logandc2 x ,mask)))
-                ,(second (multiple-value-call #'maybe-emit-mul-shift
-                           (logandc2 max-n mask)
-                           (multiple-value-bind (mul shift)
-                               (find-over-approximation-constants (ash max-n (- gcd))
-                                                                  1 (ash d (- gcd)))
-                             (values mul (+ shift gcd)))
-                           t)))))
-          (t
-           (second vanilla)))))
+    (return-from emit-truncate-sequence-1
+      `(ash x ,(- (integer-length (1- d))))))
+  (multiple-value-bind (mul shift)
+      (find-over-approximation-constants max-n 1 d)
+    (let ((gcd (1- (integer-length (logand d (- d))))))
+      (cond ((typep mul 'word)
+             (second (maybe-emit-mul-shift max-n mul shift t)))
+            ((< max-n most-positive-word)
+             (find-under-approximation-emitter max-n d))
+            ((plusp gcd)
+             (let ((mask (1- (ash 1 gcd))))
+               `(let ((x (logandc2 x ,mask)))
+                  ,(second (multiple-value-call #'maybe-emit-mul-shift
+                             (logandc2 max-n mask)
+                             (multiple-value-bind (mul shift)
+                                 (find-over-approximation-constants (ash max-n (- gcd))
+                                                                    1 (ash d (- gcd)))
+                               (values mul (+ shift gcd)))
+                             t)))))
+            (t
+             (second (maybe-emit-mul-shift max-n mul shift t)))))))
 
 (defun emit-truncate-sequence-2 (max-n m d)
   "Generate code for a truncated multiplication by a fraction < 1.
 Go for the generic over-approximation scheme, except when we hit the full
 2-word code sequence.
 In that case, try to simplify the truncation by factorising the multiplier
-in a simply \"perfect\" multiply-high sequence and a division."
+into a simple \"perfect\" multiply-high sequence and a division."
   (declare (type word max-n m d))
   (assert (< m d))
-  (let* ((vanilla (multiple-value-call #'maybe-emit-mul-shift max-n
-                    (find-over-approximation-constants max-n m d) t))
-         (gcd     (min (1- (integer-length (logand d (- d))))
-                       (- sb!vm:n-word-bits (integer-length m))))
-         (preshift (- sb!vm:n-word-bits gcd))
-         (temp    (ash (* m max-n) (- gcd))))
-    (if (or (< (first vanilla) 6)
-            (zerop gcd)
-            (> (+ (integer-length m) preshift) sb!vm:n-word-bits)
-            (plusp #-sb-xc-host (ash (sb!kernel:%multiply-high m max-n) (- gcd))
-                   #+sb-xc-host (ash (* m max-n) (- (+ gcd sb!vm:n-word-bits)))))
-        (second vanilla)
-        `(let ((x (sb!kernel:%multiply-high x ,(ash m preshift))))
-           ,(emit-truncate-sequence-1 temp (ash d (- gcd)))))))
+  (multiple-value-bind (mul shift)
+      (find-over-approximation-constants max-n m d)
+    (let* ((gcd     (min (1- (integer-length (logand d (- d))))
+                         (- sb!vm:n-word-bits (integer-length m))))
+           (preshift (- sb!vm:n-word-bits gcd))
+           (temp    (ash (* m max-n) (- gcd))))
+      (if (or (typep mul 'word)
+              (zerop gcd)
+              (> (+ (integer-length m) preshift) sb!vm:n-word-bits)
+              (plusp #-sb-xc-host (ash (sb!kernel:%multiply-high m max-n) (- gcd))
+                     #+sb-xc-host (ash (* m max-n) (- (+ gcd sb!vm:n-word-bits)))))
+          (second (maybe-emit-mul-shift max-n mul shift t))
+          `(let ((x (sb!kernel:%multiply-high x ,(ash m preshift))))
+             ,(emit-truncate-sequence-1 temp (ash d (- gcd))))))))
 
 (defun emit-truncate-sequence-3 (max-n m d)
   "Generate code for a truncated multiplication by a fraction > 1.
