@@ -144,20 +144,25 @@
         ((typep mul 'word)
          (list 2
                (if (= shift sb!vm:n-word-bits)
-                   `(truly-the (integer 0 ,(ash (* max mul) (- shift)))
+                   `(truly-the (integer 0 ,#+sb-xc-host (ash (* max mul) (- shift))
+                                           #-sb-xc-host (sb!kernel:%multiply-high max mul))
                                (sb!kernel:%multiply-high x ,mul))
                    `(ash (sb!kernel:%multiply-high x ,mul)
                          ,(- sb!vm:n-word-bits shift)))))
         ((<= (integer-length mul) (1+ sb!vm:n-word-bits))
          (list 3
-               (let ((mul (ldb (byte sb!vm:n-word-bits 0) mul)))
-                 `(let ((high (sb!kernel:%multiply-high x ,mul)))
+               (let* ((mullo (ldb (byte sb!vm:n-word-bits 0) mul))
+                      (result #+sb-xc-host (ash (* max mul) (- shift))
+                              #-sb-xc-host (ash (+ max (sb!kernel:%multiply-high max mullo))
+                                                (- shift sb!vm:n-word-bits))))
+                 `(let ((high (sb!kernel:%multiply-high x ,mullo)))
                     ,(if (= shift sb!vm:n-word-bits)
-                         `(+ x (truly-the (integer 0
-                                                   ,#-sb-xc-host (sb!kernel:%multiply-high max mul)
-                                                    #+sb-xc-host (ash (* max mul) (- sb!vm:n-word-bits)))
-                                          high))
-                         `(ash (+ high (ash (- x high) -1))
+                         `(truly-the (integer 0 ,result)
+                                     (+ x (truly-the (integer 0
+                                                              ,#-sb-xc-host (sb!kernel:%multiply-high max mullo)
+                                                              #+sb-xc-host (ash (* max mullo) (- sb!vm:n-word-bits)))
+                                                     high)))
+                         `(ash (truly-the word (+ high (ash (truly-the word (- x high)) -1)))
                                ,(- 1 (- shift sb!vm:n-word-bits))))))))))
 
 (defun emit-slow-mul-shift (max mul shift)
@@ -368,9 +373,10 @@ multiplication by a fraction < 1."
               (not (typep m 'word))
               (not (typep d 'word)))
       (give-up-ir1-transform))
-    `(let* ((quot ,(emit-truncate-sequence max-x m d))
-            (rem (ldb (byte #.sb!vm:n-word-bits 0)
-                      (- x (* quot ,y)))))
+    `(let* ((quot (truly-the (integer 0 ,(truncate max-x y))
+                             ,(emit-truncate-sequence max-x m d)))
+            (rem  (truly-the (rational 0 (,y))
+                             (- x (* quot ,y)))))
        (values quot rem))))
 
 
