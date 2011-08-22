@@ -311,7 +311,7 @@ into a simple \"perfect\" multiply-high sequence and a division."
   (assert (< m d))
   (when (zerop (logand d (1- d)))
     (return-from emit-truncate-sequence-2
-      (maybe-emit-mul-shift max-n m (integer-length (1- d)) t)))
+      (second (maybe-emit-mul-shift max-n m (integer-length (1- d)) t))))
   (multiple-value-bind (mul shift)
       (find-over-approximation-constants max-n m d)
     (let* ((gcd      (1- (integer-length (logand d (- d)))))
