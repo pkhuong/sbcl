@@ -429,7 +429,10 @@
 (with-test (:name (:integer-division-using-multiplication :correctness))
   (let ((*random-state* (make-random-state t)))
     (dolist (dividend-type `((unsigned-byte ,sb-vm:n-word-bits)
+                             (mod ,(1- (ash 1 sb-vm:n-word-bits)))
                              (and fixnum unsigned-byte)
+                             (mod ,most-positive-fixnum)
+                             (unsigned-byte 24)
                              (integer 10000 10100)))
       (dolist (divisor `(;; Some special cases from the paper
                          7 10 14 641 274177

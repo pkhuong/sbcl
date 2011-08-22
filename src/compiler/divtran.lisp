@@ -118,109 +118,257 @@
            (logand x ,mask)))))
 
 
-;;; Return an expression to calculate the integer quotient of X and
-;;; constant Y, using multiplication, shift and add/sub instead of
-;;; division. Both arguments must be unsigned, fit in a machine word and
-;;; Y must neither be zero nor a power of two. The quotient is rounded
-;;; towards zero.
-;;; The algorithm is taken from the paper "Division by Invariant
-;;; Integers using Multiplication", 1994 by Torbj\"{o}rn Granlund and
-;;; Peter L. Montgomery, Figures 4.2 and 6.2, modified to exclude the
-;;; case of division by powers of two.
-;;; The algorithm includes an adaptive precision argument.  Use it, since
-;;; we often have sub-word value ranges.  Careful, in this case, we need
-;;; p s.t 2^p > n, not the ceiling of the binary log.
-;;; Also, for some reason, the paper prefers shifting to masking.  Mask
-;;; instead.  Masking is equivalent to shifting right, then left again;
-;;; all the intermediate values are still words, so we just have to shift
-;;; right a bit more to compensate, at the end.
-;;;
-;;; The following two examples show an average case and the worst case
-;;; with respect to the complexity of the generated expression, under
-;;; a word size of 64 bits:
-;;;
-;;; (UNSIGNED-DIV-TRANSFORMER 10 MOST-POSITIVE-WORD) ->
-;;; (ASH (%MULTIPLY (LOGANDC2 X 0) 14757395258967641293) -3)
-;;;
-;;; (UNSIGNED-DIV-TRANSFORMER 7 MOST-POSITIVE-WORD) ->
-;;; (LET* ((NUM X)
-;;;        (T1 (%MULTIPLY NUM 2635249153387078803)))
-;;;   (ASH (LDB (BYTE 64 0)
-;;;             (+ T1 (ASH (LDB (BYTE 64 0)
-;;;                             (- NUM T1))
-;;;                        -1)))
-;;;        -2))
-;;;
-(defun gen-unsigned-div-by-constant-expr (y max-x)
-  (declare (type (integer 3 #.most-positive-word) y)
-           (type word max-x))
-  (aver (not (zerop (logand y (1- y)))))
-  (labels ((ld (x)
-             ;; the floor of the binary logarithm of (positive) X
-             (integer-length (1- x)))
-           (choose-multiplier (y precision)
-             (do* ((l (ld y))
-                   (shift l (1- shift))
-                   (expt-2-n+l (expt 2 (+ sb!vm:n-word-bits l)))
-                   (m-low (truncate expt-2-n+l y) (ash m-low -1))
-                   (m-high (truncate (+ expt-2-n+l
-                                        (ash expt-2-n+l (- precision)))
-                                     y)
-                           (ash m-high -1)))
-                  ((not (and (< (ash m-low -1) (ash m-high -1))
-                             (> shift 0)))
-                   (values m-high shift)))))
-    (let ((n (expt 2 sb!vm:n-word-bits))
-          (precision (integer-length max-x))
-          (shift1 0))
-      (multiple-value-bind (m shift2)
-          (choose-multiplier y precision)
-        (when (and (>= m n) (evenp y))
-          (setq shift1 (ld (logand y (- y))))
-          (multiple-value-setq (m shift2)
-            (choose-multiplier (/ y (ash 1 shift1))
-                               (- precision shift1))))
-        (cond ((>= m n)
-               (flet ((word (x)
-                        `(truly-the word ,x)))
-                 `(let* ((num x)
-                         (t1 (%multiply-high num ,(- m n))))
-                    (ash ,(word `(+ t1 (ash ,(word `(- num t1))
-                                            -1)))
-                         ,(- 1 shift2)))))
-              ((and (zerop shift1) (zerop shift2))
-               (let ((max (truncate max-x y)))
-                 ;; Explicit TRULY-THE needed to get the FIXNUM=>FIXNUM
-                 ;; VOP.
-                 `(truly-the (integer 0 ,max)
-                             (%multiply-high x ,m))))
-              (t
-               `(ash (%multiply-high (logandc2 x ,(1- (ash 1 shift1))) ,m)
-                     ,(- (+ shift1 shift2)))))))))
+;;;; Multiply/shift generator
+;;;;
+;;;; Computes (x*m)>>s without overflow, for m and s constant
+;;;; and x a word.
+;;;;
+;;;; Returns a cost value, and the expression itself.
+;;;; If no generator is available (e.g. s > 2 n-word-bits), returns nil.
+;;;; Currently used only to transform TRUNCATE by constants, but can
+;;;; probably be reused.
+(declaim (inline emit-trivial-mul-shift emit-mulhi-shift emit-slow-mul-shift))
+(defun emit-trivial-mul-shift (max mul shift)
+  "If everything fits in a word, life's simple"
+  (when (and (typep mul 'word)
+             #-sb-xc-host
+             (zerop (sb!kernel:%multiply-high max mul))
+             #+sb-xc-host
+             (typep (* max mul) 'word))
+    (list 1 `(ash (* x ,mul) ,(- shift)))))
+
+(defun emit-mulhi-shift (max mul shift)
+  "When shift >= word-size, and multiplier is a word,
+ we can use a multiply-high."
+  (cond ((< shift sb!vm:n-word-bits) nil)
+        ((typep mul 'word)
+         (list 2
+               (if (= shift sb!vm:n-word-bits)
+                   `(truly-the (integer 0 ,(ash (* max mul) (- shift)))
+                               (sb!kernel:%multiply-high x ,mul))
+                   `(ash (sb!kernel:%multiply-high x ,mul)
+                         ,(- sb!vm:n-word-bits shift)))))
+        ((<= (integer-length mul) (1+ sb!vm:n-word-bits))
+         (list 3
+               (let ((mul (ldb (byte sb!vm:n-word-bits 0) mul)))
+                 `(let ((high (sb!kernel:%multiply-high x ,mul)))
+                    ,(if (= shift sb!vm:n-word-bits)
+                         `(+ x (truly-the (integer 0
+                                                   ,#-sb-xc-host (sb!kernel:%multiply-high max mul)
+                                                    #+sb-xc-host (ash (* max mul) (- sb!vm:n-word-bits)))
+                                          high))
+                         `(ash (+ high (ash (- x high) -1))
+                               ,(- 1 (- shift sb!vm:n-word-bits))))))))))
+
+(defun emit-slow-mul-shift (max mul shift)
+  "If we can let shift = 2*word-size, and mul fit in a double word as well,
+emit this sequence."
+  (let ((remaining-shift (- (* 2 sb!vm:n-word-bits) shift)))
+    (when (<= (+ remaining-shift (integer-length max))
+              sb!vm:n-word-bits)
+      (list 6
+            (let ((mulh (ash mul (- sb!vm:n-word-bits)))
+                  (mull (ldb (byte sb!vm:n-word-bits 0) mul)))
+              `(let* ((x   (ash x ,remaining-shift))
+                      (low (sb!kernel:%multiply-high x ,mull)))
+                 (values (sb!bignum:%multiply-and-add x ,mulh low))))))))
+
+(defun maybe-emit-mul-shift (max mul shift &optional (errorp nil))
+  "Sequentially try more expensive generators until one applies."
+  (declare (type word max)
+           (type unsigned-byte mul)
+           (type (integer 0 #.(* 2 sb!vm:n-word-bits)) shift))
+  (macrolet ((try (value)
+               ` (let ((value ,value))
+                   (when value
+                     (return-from maybe-emit-mul-shift value)))))
+    ;; are we lucky?
+    (try (emit-trivial-mul-shift max mul shift))
+    ;; try and increase shift to at least n-word-bits by only
+    ;; scaling the multiplier
+    (when (< shift sb!vm:n-word-bits)
+      (let ((len (min (- sb!vm:n-word-bits (integer-length mul))
+                      (- sb!vm:n-word-bits shift))))
+        (when (> len 0)
+          (setf mul    (ash mul len)
+                shift  (+ shift len)))))
+    (try (emit-mulhi-shift max mul shift))
+    ;; again, increase shift, but frob the argument as well
+    (let ((max     (- sb!vm:n-word-bits (integer-length max)))
+          (unshift (- sb!vm:n-word-bits shift)))
+      (when (<= unshift max)
+        (let ((sequence (emit-mulhi-shift max mul (+ shift unshift))))
+          (try (and sequence
+                    (list (+ 2 (first sequence))
+                          `(let ((x (ash x ,unshift)))
+                             ,(second sequence))))))))
+    ;; final case: get the shift amount to exactly 2*n-word-bits,
+    ;; and emit the general case.
+    (let ((reshift (min (- (* 2 sb!vm:n-word-bits) shift)
+                        (- (* 2 sb!vm:n-word-bits) (integer-length mul)))))
+      (when (plusp reshift)
+        (setf shift (+ shift reshift)
+              mul   (ash mul reshift))))
+    (try (emit-slow-mul-shift max mul shift))
+    (when errorp
+      (error "Unable to emit multiply/shift sequence for (~S ~A ~A ~A)"
+             'maybe-emit-mul-shift max mul shift))))
+
+;;;; Truncate generator
+;;;;
+;;;; We usually use the over-approximation scheme, as it's very easy to
+;;;; find good constants (see function below).
+;;;;
+;;;; However, when dividing by a constant (e.g. multiplying by 1/d), and
+;;;; when X can be safely incremented by one, we try to use the under-
+;;;; approximation scheme as well.
+(declaim (ftype (function (word word word)
+                          (values unsigned-byte (integer 0 #. (* 2 sb!vm:n-word-bits))
+                                  &optional))
+                find-mul-div-constants))
+(defun find-over-approximation-constants (n m d)
+  "Find the smallest constant mul and shift value s such that
+ [x*mul/2^s] = [x*m/d], for all x <= n"
+  (declare (type word n m d))
+  (let* ((max-shift (* 2 sb!vm:n-word-bits))
+         (low       (truncate (ash m max-shift) d))
+         (high      (truncate (+ (ash m max-shift)
+                                 ;; could under-approximate with a power of two
+                                 (1- (ceiling (ash 1 max-shift) n)))
+                              d))
+         (max-unshift (1- (integer-length (logxor low high))))
+         (min-shift (- max-shift max-unshift)))
+    (values (ash high (- max-unshift))
+            min-shift)))
+
+(declaim (inline find-under-approximation-constants))
+(defun find-under-approximation-constants (n d)
+  "Work in the under-approximatiom scheme: [x/d] = [(x+d)*mul/2^s]."
+  (declare (type word n d))
+  (when (>= n (1- (ash 1 sb!vm:n-word-bits)))
+    (return-from find-under-approximation-constants nil))
+  (let* ((shift (+ sb!vm:n-word-bits (1- (integer-length d))))
+         (approx (truncate (ash 1 shift) d))
+         (round  (round (ash 1 shift) d)))
+    (assert (typep shift 'word))
+    (when (= approx round)
+      (values approx shift))))
+
+(defun find-under-approximation-emitter (n d)
+  (declare (type word n d))
+  (multiple-value-bind (mul shift) (find-under-approximation-constants n d)
+    (and mul shift
+         (if (= shift sb!vm:n-word-bits)
+             `(truly-the (integer 0 ,(truncate n d))
+                         (sb!kernel:%multiply-high (1+ x) ,mul))
+             `(ash (sb!kernel:%multiply-high (1+ x) ,mul)
+                   ,(- sb!vm:n-word-bits shift))))))
+
+(defun emit-truncate-sequence-1 (max-n d)
+  "Generate code for a truncated division.
+First, check for powers of two (:
+Then, go for the straightforward over-approximation sequence
+when it's cheap enough (an in-word multiply/shift or a multiply-high).
+Otherwise, try to exploit an under-approximation, or to mask away
+low bits.
+When all of these fail, go for the generic over-approximation."
+  (declare (type word max-n d))
+  (when (zerop (logand d (1- d)))
+    `(ash x ,(- (integer-length (1- d)))))
+  (let ((vanilla (multiple-value-call #'maybe-emit-mul-shift max-n
+                   (find-over-approximation-constants max-n 1 d) t))
+        (gcd     (1- (integer-length (logand d (- d))))))
+    (cond ((<= (first vanilla) 2)
+           (second vanilla))
+          ((find-under-approximation-emitter max-n d))
+          ((plusp gcd)
+           (let ((mask (1- (ash 1 gcd))))
+             `(let ((x (logandc2 x ,mask)))
+                ,(second (multiple-value-call #'maybe-emit-mul-shift
+                           (logandc2 max-n mask)
+                           (multiple-value-bind (mul shift)
+                               (find-over-approximation-constants (ash max-n (- gcd))
+                                                                  1 (ash d (- gcd)))
+                             (values mul (+ shift gcd)))
+                           t)))))
+          (t
+           (second vanilla)))))
+
+(defun emit-truncate-sequence-2 (max-n m d)
+  "Generate code for a truncated multiplication by a fraction < 1.
+Go for the generic over-approximation scheme, except when we hit the full
+2-word code sequence.
+In that case, try to simplify the truncation by factorising the multiplier
+in a simply \"perfect\" multiply-high sequence and a division."
+  (declare (type word max-n m d))
+  (assert (< m d))
+  (let* ((vanilla (multiple-value-call #'maybe-emit-mul-shift max-n
+                    (find-over-approximation-constants max-n m d) t))
+         (gcd     (min (1- (integer-length (logand d (- d))))
+                       (- sb!vm:n-word-bits (integer-length m))))
+         (preshift (- sb!vm:n-word-bits gcd))
+         (temp    (ash (* m max-n) (- gcd))))
+    (if (or (< (first vanilla) 6)
+            (zerop gcd)
+            (> (+ (integer-length m) preshift) sb!vm:n-word-bits)
+            (plusp #-sb-xc-host (ash (sb!kernel:%multiply-high m max-n) (- gcd))
+                   #+sb-xc-host (ash (* m max-n) (- (+ gcd sb!vm:n-word-bits)))))
+        (second vanilla)
+        `(let ((x (sb!kernel:%multiply-high x ,(ash m preshift))))
+           ,(emit-truncate-sequence-1 temp (ash d (- gcd)))))))
+
+(defun emit-truncate-sequence-3 (max-n m d)
+  "Generate code for a truncated multiplication by a fraction > 1.
+Go for the generic over-approximation if possible. Otherwise, split
+the fraction in its integral and fractional parts, and emit a truncated
+multiplication by a fraction < 1."
+  (declare (type word max-n m d))
+  (or (multiple-value-call #'maybe-emit-mul-shift max-n
+        (find-over-approximation-constants max-n m d))
+      (multiple-value-bind (q r) (truncate m d)
+        `(+ (* x ,q)
+            ,(if (= r 1)
+                 (emit-truncate-sequence-1 max-n d)
+                 (emit-truncate-sequence-2 max-n r d))))))
+
+(defun emit-truncate-sequence (max-n m d)
+  (declare (type word max-n m d))
+  (cond ((= 1 d)
+         `(* x ,m))
+        ((= 1 m)
+         (emit-truncate-sequence-1 max-n d))
+        ((< m d)
+         (emit-truncate-sequence-2 max-n m d))
+        (t
+         (emit-truncate-sequence-3 max-n m d))))
 
 ;;; If the divisor is constant and both args are positive and fit in a
 ;;; machine word, replace the division by a multiplication and possibly
-;;; some shifts and an addition. Calculate the remainder by a second
-;;; multiplication and a subtraction. Dead code elimination will
-;;; suppress the latter part if only the quotient is needed. If the type
-;;; of the dividend allows to derive that the quotient will always have
-;;; the same value, emit much simpler code to handle that. (This case
-;;; may be rare but it's easy to detect and the compiler doesn't find
-;;; this optimization on its own.)
-(deftransform truncate ((x y) (word (constant-arg word))
+;;; some shifts and an addition.  The transform is generalized for fractions
+;;; when both the numerator and denominator are word-sized.
+;;;
+;;; Calculate the remainder by a second multiplication and a subtraction.
+;;; Dead code elimination will suppress the latter part if only the quotient
+;;; is needed.
+(deftransform truncate ((x y) (word (constant-arg (rational (0))))
                         *
                         :policy (and (> speed compilation-speed)
                                      (> speed space)))
-  "convert integer division to multiplication"
+  "convert truncated division by rationals to multiplication"
   (let* ((y      (lvar-value y))
+         (m      (denominator y))
+         (d      (numerator y))
          (x-type (lvar-type x))
          (max-x  (or (and (numeric-type-p x-type)
                           (numeric-type-high x-type))
                      most-positive-word)))
     ;; Division by zero, one or powers of two is handled elsewhere.
-    (when (zerop (logand y (1- y)))
+    (when (or (and (integerp y)
+                   (zerop (logand y (1- y))))
+              (not (typep m 'word))
+              (not (typep d 'word)))
       (give-up-ir1-transform))
-    `(let* ((quot ,(gen-unsigned-div-by-constant-expr y max-x))
+    `(let* ((quot ,(emit-truncate-sequence max-x m d))
             (rem (ldb (byte #.sb!vm:n-word-bits 0)
                       (- x (* quot ,y)))))
        (values quot rem))))
