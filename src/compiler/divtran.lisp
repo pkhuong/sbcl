@@ -328,8 +328,8 @@ Go for the generic over-approximation if possible. Otherwise, split
 the fraction in its integral and fractional parts, and emit a truncated
 multiplication by a fraction < 1."
   (declare (type word max-n m d))
-  (or (multiple-value-call #'maybe-emit-mul-shift max-n
-        (find-over-approximation-constants max-n m d))
+  (or (second (multiple-value-call #'maybe-emit-mul-shift max-n
+                (find-over-approximation-constants max-n m d)))
       (multiple-value-bind (q r) (truncate m d)
         `(+ (* x ,q)
             ,(if (= r 1)
