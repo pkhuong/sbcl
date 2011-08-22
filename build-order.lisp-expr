@@ -517,6 +517,7 @@
  ("src/compiler/generic/vm-typetran")
  ("src/compiler/float-tran")
  ("src/compiler/saptran")
+ ("src/compiler/divtran")
  ("src/compiler/srctran")
  ("src/compiler/generic/vm-tran")
  ("src/compiler/locall")
