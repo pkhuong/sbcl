@@ -135,35 +135,33 @@
              (zerop (sb!kernel:%multiply-high max mul))
              #+sb-xc-host
              (typep (* max mul) 'word))
-    (list 1 `(ash (* x ,mul) ,(- shift)))))
+    `(ash (* x ,mul) ,(- shift))))
 
 (defun emit-mulhi-shift (max mul shift)
   "When shift >= word-size, and multiplier is a word,
  we can use a multiply-high."
   (cond ((< shift sb!vm:n-word-bits) nil)
         ((typep mul 'word)
-         (list 2
-               (if (= shift sb!vm:n-word-bits)
-                   `(truly-the (integer 0 ,#+sb-xc-host (ash (* max mul) (- shift))
-                                           #-sb-xc-host (sb!kernel:%multiply-high max mul))
-                               (sb!kernel:%multiply-high x ,mul))
-                   `(ash (sb!kernel:%multiply-high x ,mul)
-                         ,(- sb!vm:n-word-bits shift)))))
+         (if (= shift sb!vm:n-word-bits)
+             `(truly-the (integer 0 ,#+sb-xc-host (ash (* max mul) (- shift))
+                                  #-sb-xc-host (sb!kernel:%multiply-high max mul))
+                         (sb!kernel:%multiply-high x ,mul))
+             `(ash (sb!kernel:%multiply-high x ,mul)
+                   ,(- sb!vm:n-word-bits shift))))
         ((<= (integer-length mul) (1+ sb!vm:n-word-bits))
-         (list 3
-               (let* ((mullo (ldb (byte sb!vm:n-word-bits 0) mul))
-                      (result #+sb-xc-host (ash (* max mul) (- shift))
-                              #-sb-xc-host (ash (+ max (sb!kernel:%multiply-high max mullo))
-                                                (- shift sb!vm:n-word-bits))))
-                 `(let ((high (sb!kernel:%multiply-high x ,mullo)))
-                    ,(if (= shift sb!vm:n-word-bits)
-                         `(truly-the (integer 0 ,result)
-                                     (+ x (truly-the (integer 0
-                                                              ,#-sb-xc-host (sb!kernel:%multiply-high max mullo)
-                                                              #+sb-xc-host (ash (* max mullo) (- sb!vm:n-word-bits)))
-                                                     high)))
-                         `(ash (truly-the word (+ high (ash (truly-the word (- x high)) -1)))
-                               ,(- 1 (- shift sb!vm:n-word-bits))))))))))
+         (let* ((mullo (ldb (byte sb!vm:n-word-bits 0) mul))
+                (result #+sb-xc-host (ash (* max mul) (- shift))
+                        #-sb-xc-host (ash (+ max (sb!kernel:%multiply-high max mullo))
+                                          (- shift sb!vm:n-word-bits)))
+                (high-max #-sb-xc-host (sb!kernel:%multiply-high max mullo)
+                          #+sb-xc-host (ash (* max mullo) (- sb!vm:n-word-bits))))
+           `(let ((high (sb!kernel:%multiply-high x ,mullo)))
+              ,(if (= shift sb!vm:n-word-bits)
+                   `(truly-the (integer 0 ,result)
+                               (+ x (truly-the (integer 0 ,high-max) high)))
+                   `(ash (truly-the word (+ high (ash (truly-the word (- x high))
+                                                      -1)))
+                         ,(- 1 (- shift sb!vm:n-word-bits)))))))))
 
 (defun emit-slow-mul-shift (max mul shift)
   "If we can let shift = 2*word-size, and mul fit in a double word as well,
@@ -171,12 +169,11 @@ emit this sequence."
   (let ((remaining-shift (- (* 2 sb!vm:n-word-bits) shift)))
     (when (<= (+ remaining-shift (integer-length max))
               sb!vm:n-word-bits)
-      (list 6
-            (let ((mulh (ash mul (- sb!vm:n-word-bits)))
-                  (mull (ldb (byte sb!vm:n-word-bits 0) mul)))
-              `(let* ((x   (ash x ,remaining-shift))
-                      (low (sb!kernel:%multiply-high x ,mull)))
-                 (values (sb!bignum:%multiply-and-add x ,mulh low))))))))
+      (let ((mulh (ash mul (- sb!vm:n-word-bits)))
+            (mull (ldb (byte sb!vm:n-word-bits 0) mul)))
+        `(let* ((x   (ash x ,remaining-shift))
+                (low (sb!kernel:%multiply-high x ,mull)))
+           (values (sb!bignum:%multiply-and-add x ,mulh low)))))))
 
 (defun maybe-emit-mul-shift (max mul shift &optional (errorp nil))
   "Sequentially try more expensive generators until one applies."
@@ -204,9 +201,8 @@ emit this sequence."
       (when (<= unshift max)
         (let ((sequence (emit-mulhi-shift max mul (+ shift unshift))))
           (try (and sequence
-                    (list (+ 2 (first sequence))
-                          `(let ((x (ash x ,unshift)))
-                             ,(second sequence))))))))
+                    `(let ((x (ash x ,unshift)))
+                       ,sequence))))))
     ;; final case: get the shift amount to exactly 2*n-word-bits,
     ;; and emit the general case.
     (let ((reshift (min (- (* 2 sb!vm:n-word-bits) shift)
@@ -259,7 +255,7 @@ emit this sequence."
     (when (= approx round)
       (values approx shift))))
 
-(defun find-under-approximation-emitter (n d)
+(defun emit-under-approximation-sequence (n d)
   (declare (type word n d))
   (multiple-value-bind (mul shift) (find-under-approximation-constants n d)
     (and mul shift
@@ -285,21 +281,20 @@ When all of these fail, go for the generic over-approximation."
       (find-over-approximation-constants max-n 1 d)
     (let ((gcd (1- (integer-length (logand d (- d))))))
       (cond ((typep mul 'word)
-             (second (maybe-emit-mul-shift max-n mul shift t)))
-            ((< max-n most-positive-word)
-             (find-under-approximation-emitter max-n d))
+             (maybe-emit-mul-shift max-n mul shift t))
             ((plusp gcd)
              (let ((mask (1- (ash 1 gcd))))
                `(let ((x (logandc2 x ,mask)))
-                  ,(second (multiple-value-call #'maybe-emit-mul-shift
-                             (logandc2 max-n mask)
-                             (multiple-value-bind (mul shift)
-                                 (find-over-approximation-constants (ash max-n (- gcd))
-                                                                    1 (ash d (- gcd)))
-                               (values mul (+ shift gcd)))
-                             t)))))
+                  ,(multiple-value-call #'maybe-emit-mul-shift
+                     (logandc2 max-n mask)
+                     (multiple-value-bind (mul shift)
+                         (find-over-approximation-constants (ash max-n (- gcd))
+                                                            1 (ash d (- gcd)))
+                       (values mul (+ shift gcd)))
+                     t))))
+            ((emit-under-approximation-sequence max-n d))
             (t
-             (second (maybe-emit-mul-shift max-n mul shift t)))))))
+             (maybe-emit-mul-shift max-n mul shift t))))))
 
 (defun emit-truncate-sequence-2 (max-n m d)
   "Generate code for a truncated multiplication by a fraction < 1.
@@ -311,7 +306,7 @@ into a simple \"perfect\" multiply-high sequence and a division."
   (assert (< m d))
   (when (zerop (logand d (1- d)))
     (return-from emit-truncate-sequence-2
-      (second (maybe-emit-mul-shift max-n m (integer-length (1- d)) t))))
+      (maybe-emit-mul-shift max-n m (integer-length (1- d)) t)))
   (multiple-value-bind (mul shift)
       (find-over-approximation-constants max-n m d)
     (let* ((gcd      (1- (integer-length (logand d (- d)))))
@@ -321,7 +316,7 @@ into a simple \"perfect\" multiply-high sequence and a division."
               (zerop gcd)
               (> (+ (integer-length m) preshift) sb!vm:n-word-bits)
               (not (typep temp 'word)))
-          (second (maybe-emit-mul-shift max-n mul shift t))
+          (maybe-emit-mul-shift max-n mul shift t)
           `(let ((x (sb!kernel:%multiply-high x ,(ash m preshift))))
              ,(emit-truncate-sequence-1 temp (ash d (- gcd))))))))
 
@@ -332,8 +327,8 @@ the fraction in its integral and fractional parts, and emit a truncated
 multiplication by a fraction < 1."
   (declare (type word max-n m d))
   (assert (> m d))
-  (or (second (multiple-value-call #'maybe-emit-mul-shift max-n
-                (find-over-approximation-constants max-n m d)))
+  (or (multiple-value-call #'maybe-emit-mul-shift max-n
+        (find-over-approximation-constants max-n m d))
       (multiple-value-bind (q r) (truncate m d)
         `(+ (* x ,q)
             ,(if (= r 1)
@@ -384,10 +379,9 @@ multiplication by a fraction < 1."
                                      (emit-truncate-sequence max-x m d))
                                     ((<= (1- len-d)
                                          (* 2 sb!vm:n-word-bits))
-                                     (second (maybe-emit-mul-shift
-                                              max-x
-                                              m (1- len-d)
-                                              t)))
+                                     (maybe-emit-mul-shift max-x
+                                                           m (1- len-d)
+                                                           t))
                                     (t 0))))
             (rem  (truly-the (rational 0 (,y))
                              (- x (* quot ,y)))))
