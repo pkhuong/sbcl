@@ -185,6 +185,8 @@ emit this sequence."
                    (when value
                      (return-from maybe-emit-mul-shift value)))))
     ;; are we lucky?
+    (try (and (>= shift (integer-length (* max mul)))
+              0))
     (try (emit-trivial-mul-shift max mul shift))
     ;; try and increase shift to at least n-word-bits by only
     ;; scaling the multiplier
@@ -274,6 +276,8 @@ Otherwise, try to exploit an under-approximation, or to mask away
 low bits.
 When all of these fail, go for the generic over-approximation."
   (declare (type word max-n d))
+  (when (< max-n d)
+    (return-from emit-truncate-sequence-1 0))
   (when (zerop (logand d (1- d)))
     (return-from emit-truncate-sequence-1
       `(ash x ,(- (integer-length (1- d))))))
@@ -304,6 +308,8 @@ In that case, try to simplify the truncation by factorising the multiplier
 into a simple \"perfect\" multiply-high sequence and a division."
   (declare (type word max-n m d))
   (assert (< m d))
+  (when (< (* max-n m) d)
+    (return-from emit-truncate-sequence-2 0))
   (when (zerop (logand d (1- d)))
     (return-from emit-truncate-sequence-2
       (maybe-emit-mul-shift max-n m (integer-length (1- d)) t)))
@@ -327,6 +333,8 @@ the fraction in its integral and fractional parts, and emit a truncated
 multiplication by a fraction < 1."
   (declare (type word max-n m d))
   (assert (> m d))
+  (when (< (* max-n m) d)
+    (return-from emit-truncate-sequence-3 0))
   (or (multiple-value-call #'maybe-emit-mul-shift max-n
         (find-over-approximation-constants max-n m d))
       (multiple-value-bind (q r) (truncate m d)
@@ -368,7 +376,7 @@ multiplication by a fraction < 1."
                           (numeric-type-high x-type))
                      most-positive-word)))
     ;; Division by zero, one or powers of two is handled elsewhere.
-    (when (or (and (integerp y)
+    (when (or #+nil(and (integerp y)
                    (zerop (logand y (1- y))))
               (not (typep m 'word))
               (and (plusp (logand d (1- d)))
@@ -377,12 +385,12 @@ multiplication by a fraction < 1."
     `(let* ((quot (truly-the (integer 0 ,(truncate max-x y))
                              ,(cond ((plusp (logand d (1- d)))
                                      (emit-truncate-sequence max-x m d))
-                                    ((<= (1- len-d)
-                                         (* 2 sb!vm:n-word-bits))
+                                    ((>= len-d (integer-length (* max-x m)))
+                                     0)
+                                    (t
                                      (maybe-emit-mul-shift max-x
                                                            m (1- len-d)
-                                                           t))
-                                    (t 0))))
+                                                           t)))))
             (rem  (truly-the (rational 0 (,y))
                              (- x (* quot ,y)))))
        (values quot rem))))
