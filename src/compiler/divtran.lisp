@@ -247,13 +247,15 @@ emit this sequence."
 (defun find-under-approximation-constants (n d)
   "Work in the under-approximatiom scheme: [x/d] = [(x+d)*mul/2^s]."
   (declare (type word n d))
-  (when (>= n (1- (ash 1 sb!vm:n-word-bits)))
+  (when (>= n most-positive-word)
     (return-from find-under-approximation-constants nil))
-  (let* ((shift (+ sb!vm:n-word-bits (1- (integer-length d))))
+  (let* ((shift (+ sb!vm:n-word-bits (integer-length (1- d))))
          (approx (truncate (ash 1 shift) d))
          (round  (round (ash 1 shift) d)))
     (assert (typep shift 'word))
-    (when (= approx round)
+    (when (and (= approx round)
+               (typep approx 'word)
+               (>= shift sb-vm:n-word-bits))
       (values approx shift))))
 
 (defun emit-under-approximation-sequence (n d)
