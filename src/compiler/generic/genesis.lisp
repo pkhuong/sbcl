@@ -231,6 +231,8 @@
 (defvar *read-only*)
 (defconstant read-only-core-space-id 3)
 
+(defconstant limit-core-space-id 4)
+
 (defconstant descriptor-low-bits 16
   "the number of bits in the low half of the descriptor")
 (defconstant target-space-alignment (ash 1 descriptor-low-bits)

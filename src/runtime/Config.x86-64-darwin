@@ -23,7 +23,7 @@ endif
 
 OS_SRC = bsd-os.c x86-64-bsd-os.c darwin-os.c x86-64-darwin-os.c
 
-OS_LIBS = -lSystem -lc -ldl
+OS_LIBS = -lSystem -lc -ldl -lz
 ifdef LISP_FEATURE_SB_THREAD
   OS_LIBS += -lpthread
 endif

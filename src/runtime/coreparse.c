@@ -41,6 +41,7 @@
 #include "pthread-lutex.h"
 #endif
 
+#include <zlib.h>
 
 unsigned char build_id[] =
 #include "../../output/build-id.tmp"
@@ -194,16 +195,28 @@ os_vm_address_t copy_core_bytes(int fd, os_vm_offset_t offset,
 }
 #endif
 
+os_vm_address_t inflate_core_bytes(int fd, os_vm_offset_t offset,
+                                   os_vm_address_t addr, int len)
+{
+    lose("inflate_core_bytes not implemented\n");
+    return (os_vm_address_t)-1;
+}
+
 static void
 process_directory(int fd, lispobj *ptr, int count, os_vm_offset_t file_offset)
 {
     struct ndir_entry *entry;
+    int compressed;
 
     FSHOW((stderr, "/process_directory(..), count=%d\n", count));
 
     for (entry = (struct ndir_entry *) ptr; --count>= 0; ++entry) {
-
+        compressed = 0;
         long id = entry->identifier;
+        if ((id >= LIMIT_CORE_SPACE_ID) && (id < 2*LIMIT_CORE_SPACE_ID)) {
+            compressed = 1;
+            id -= LIMIT_CORE_SPACE_ID;
+        }
         long offset = os_vm_page_size * (1 + entry->data_page);
         os_vm_address_t addr =
             (os_vm_address_t) (os_vm_page_size * entry->address);
@@ -213,11 +226,15 @@ process_directory(int fd, lispobj *ptr, int count, os_vm_offset_t file_offset)
             os_vm_address_t real_addr;
             FSHOW((stderr, "/mapping %ld(0x%lx) bytes at 0x%lx\n",
                    (long)len, (long)len, (unsigned long)addr));
+            if (compressed) {
+                real_addr = inflate_core_bytes(fd, offset + file_offset, addr, len);
+            } else {
 #ifdef LISP_FEATURE_HPUX
             real_addr = copy_core_bytes(fd, offset + file_offset, addr, len);
 #else
             real_addr = os_map(fd, offset + file_offset, addr, len);
 #endif
+            }
             if (real_addr != addr) {
                 lose("file mapped in wrong place! "
                      "(0x%08x != 0x%08lx)\n",

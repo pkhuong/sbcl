@@ -38,6 +38,8 @@
 #include "genesis/lutex.h"
 #endif
 
+#include <zlib.h>
+
 /* write_runtime_options uses a simple serialization scheme that
  * consists of one word of magic, one word indicating whether options
  * are actually saved, and one word per struct field. */
@@ -70,6 +72,28 @@ write_lispobj(lispobj obj, FILE *file)
     }
 }
 
+static void
+write_bytes_to_file(FILE * file, char *addr, long bytes, int compression)
+{
+    switch (compression) {
+    case -1:
+        while (bytes > 0) {
+            long count = fwrite(addr, 1, bytes, file);
+            if (count > 0) {
+                bytes -= count;
+                addr += count;
+            }
+            else {
+                perror("error writing to save file");
+                bytes = 0;
+            }
+        }
+        break;
+    default: lose("Unknown core compression level %i, exiting\n", compression);
+    }
+    fflush(file);
+};
+
 static long
 write_bytes(FILE *file, char *addr, long bytes, os_vm_offset_t file_offset)
 {
@@ -89,19 +113,7 @@ write_bytes(FILE *file, char *addr, long bytes, os_vm_offset_t file_offset)
     fseek(file, 0, SEEK_END);
     data = (ftell(file)+os_vm_page_size-1)&~(os_vm_page_size-1);
     fseek(file, data, SEEK_SET);
-
-    while (bytes > 0) {
-        count = fwrite(addr, 1, bytes, file);
-        if (count > 0) {
-            bytes -= count;
-            addr += count;
-        }
-        else {
-            perror("error writing to save file");
-            bytes = 0;
-        }
-    }
-    fflush(file);
+    write_bytes_to_file(file, addr, bytes, -1);
     fseek(file, here, SEEK_SET);
     return ((data - file_offset) / os_vm_page_size) - 1;
 }
