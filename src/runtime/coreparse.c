@@ -41,6 +41,7 @@
 #include "pthread-lutex.h"
 #endif
 
+#include <errno.h>
 #include <zlib.h>
 
 unsigned char build_id[] =
@@ -198,8 +199,61 @@ os_vm_address_t copy_core_bytes(int fd, os_vm_offset_t offset,
 os_vm_address_t inflate_core_bytes(int fd, os_vm_offset_t offset,
                                    os_vm_address_t addr, int len)
 {
-    lose("inflate_core_bytes not implemented\n");
-    return (os_vm_address_t)-1;
+    z_stream stream;
+    unsigned char buf[4096];
+    int ret;
+
+    if (-1 == lseek(fd, offset, SEEK_SET)) {
+        lose("Unable to lseek() on corefile\n");
+    }
+
+    stream.zalloc = NULL;
+    stream.zfree = NULL;
+    stream.opaque = NULL;
+    stream.avail_in = 0;
+    stream.next_in = buf;
+
+    ret = inflateInit(&stream);
+    if (ret != Z_OK)
+        lose("zlib error %i\n", ret);
+
+    stream.next_out  = (void*)addr;
+    stream.avail_out = len;
+    do {
+        ssize_t count = read(fd, buf, 4096);
+        if (count < 0)
+            lose("unable to read core file (errno = %i)\n", errno);
+        stream.next_in = buf;
+        stream.avail_in = count;
+        if (count == 0) break;
+        ret = inflate(&stream, Z_NO_FLUSH);
+        switch (ret) {
+        case Z_STREAM_END:
+            break;
+        case Z_OK:
+            if (stream.avail_out == 0)
+                lose("Runaway gzipped core directory... aborting\n");
+            if (stream.avail_in > 0)
+                lose("zlib inflate returned without fully" 
+                     "using up input buffer... aborting\n");
+            break;
+        default:
+            lose("zlib inflate error: %i\n", ret);
+            break;
+        }
+    } while (ret != Z_STREAM_END);
+
+    if (stream.avail_out > 0) {
+        if (stream.avail_out >= os_vm_page_size)
+            fprintf(stderr, "Warning: gzipped core directory significantly"
+                    "shorter than expected (%lu bytes)", stream.avail_out);
+        /* Is this needed? */
+        memset(stream.next_out, 0, stream.avail_out);
+    }
+
+    inflateEnd(&stream);
+    free(buf);
+    return addr;
 }
 
 static void
