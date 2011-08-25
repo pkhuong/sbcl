@@ -252,7 +252,6 @@ os_vm_address_t inflate_core_bytes(int fd, os_vm_offset_t offset,
     }
 
     inflateEnd(&stream);
-    free(buf);
     return addr;
 }
 
