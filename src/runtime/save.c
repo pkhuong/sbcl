@@ -75,8 +75,7 @@ write_lispobj(lispobj obj, FILE *file)
 static void
 write_bytes_to_file(FILE * file, char *addr, long bytes, int compression)
 {
-    switch (compression) {
-    case -1:
+    if (compression == -2) {
         while (bytes > 0) {
             long count = fwrite(addr, 1, bytes, file);
             if (count > 0) {
@@ -88,17 +87,49 @@ write_bytes_to_file(FILE * file, char *addr, long bytes, int compression)
                 bytes = 0;
             }
         }
-        break;
-    default: lose("Unknown core compression level %i, exiting\n", compression);
+    } else if ((compression >= -1) && (compression <= 9)) {
+        z_stream stream;
+        unsigned char buf[4096];
+        unsigned char * written, * end;
+        int ret;
+        stream.zalloc = NULL;
+        stream.zfree = NULL;
+        stream.opaque = NULL;
+        stream.avail_in = bytes;
+        stream.next_in  = (void*)addr;
+        ret = deflateInit(&stream, compression);
+        if (ret != Z_OK)
+            lose("deflateInit: %i\n", ret);
+        do {
+            stream.avail_out = 4096;
+            stream.next_out = buf;
+            ret = deflate(&stream, Z_FINISH);
+            if (ret < 0) lose("zlib deflate error: %i... exiting\n", ret);
+            written = buf;
+            end     = buf+4096-stream.avail_out;
+            while (written < end) {
+                long count = fwrite(written, 1, end-written, file);
+                if (count > 0) {
+                    written += count;
+                } else {
+                    lose("unable to write to core file\n");
+                }
+            }
+        } while (stream.avail_out == 0);
+        deflateEnd(&stream);
+    } else {
+        lose("Unknown core compression level %i, exiting\n", compression);
     }
+
     fflush(file);
 };
 
 static long
-write_bytes(FILE *file, char *addr, long bytes, os_vm_offset_t file_offset)
+write_bytes(FILE *file, char *addr, long bytes, os_vm_offset_t file_offset,
+            int compression)
 {
-    long count, here, data;
-
+    long here, data;
+    
     bytes = (bytes+os_vm_page_size-1)&~(os_vm_page_size-1);
 
 #ifdef LISP_FEATURE_WIN32
@@ -113,7 +144,7 @@ write_bytes(FILE *file, char *addr, long bytes, os_vm_offset_t file_offset)
     fseek(file, 0, SEEK_END);
     data = (ftell(file)+os_vm_page_size-1)&~(os_vm_page_size-1);
     fseek(file, data, SEEK_SET);
-    write_bytes_to_file(file, addr, bytes, -1);
+    write_bytes_to_file(file, addr, bytes, compression);
     fseek(file, here, SEEK_SET);
     return ((data - file_offset) / os_vm_page_size) - 1;
 }
@@ -191,13 +222,17 @@ scan_for_lutexes(lispobj *addr, long n_words)
 }
 #endif
 
+extern int core_compression_level = -1;
+
 static void
 output_space(FILE *file, int id, lispobj *addr, lispobj *end, os_vm_offset_t file_offset)
 {
-    size_t words, bytes, data;
+    size_t words, bytes, data, compressed_flag;
     static char *names[] = {NULL, "dynamic", "static", "read-only"};
 
-    write_lispobj(id, file);
+    compressed_flag = (core_compression_level >= -1) ? LIMIT_CORE_SPACE_ID : 0;
+
+    write_lispobj(id + compressed_flag, file);
     words = end - addr;
     write_lispobj(words, file);
 
@@ -211,7 +246,7 @@ output_space(FILE *file, int id, lispobj *addr, lispobj *end, os_vm_offset_t fil
     printf("writing %lu bytes from the %s space at 0x%08lx\n",
            (unsigned long)bytes, names[id], (unsigned long)addr);
 
-    data = write_bytes(file, (char *)addr, bytes, file_offset);
+    data = write_bytes(file, (char *)addr, bytes, file_offset, core_compression_level);
 
     write_lispobj(data, file);
     write_lispobj((long)addr / os_vm_page_size, file);
@@ -339,7 +374,7 @@ save_to_filehandle(FILE *file, char *filename, lispobj init_function,
             write_lispobj(PAGE_TABLE_CORE_ENTRY_TYPE_CODE, file);
             write_lispobj(4, file);
             write_lispobj(size, file);
-            offset = write_bytes(file, (char *)data, size, core_start_pos);
+            offset = write_bytes(file, (char *)data, size, core_start_pos, -2);
             write_lispobj(offset, file);
         }
     }
@@ -357,7 +392,7 @@ save_to_filehandle(FILE *file, char *filename, lispobj init_function,
         /* save the lutexes */
         offset = write_bytes(file, (char *) lutex_addresses,
                              n_lutexes * sizeof(*lutex_addresses),
-                             core_start_pos);
+                             core_start_pos, -2);
 
         write_lispobj(offset, file);
     }

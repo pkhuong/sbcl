@@ -283,9 +283,9 @@ process_directory(int fd, lispobj *ptr, int count, os_vm_offset_t file_offset)
                 real_addr = inflate_core_bytes(fd, offset + file_offset, addr, len);
             } else {
 #ifdef LISP_FEATURE_HPUX
-            real_addr = copy_core_bytes(fd, offset + file_offset, addr, len);
+                real_addr = copy_core_bytes(fd, offset + file_offset, addr, len);
 #else
-            real_addr = os_map(fd, offset + file_offset, addr, len);
+                real_addr = os_map(fd, offset + file_offset, addr, len);
 #endif
             }
             if (real_addr != addr) {
@@ -375,7 +375,7 @@ load_core_file(char *file, os_vm_offset_t file_offset)
 
     count = read(fd, header, os_vm_page_size);
     if (count < os_vm_page_size) {
-        lose("premature end of core file\n");
+        lose("premature end of core file offset: %lu\n", file_offset);
     }
     SHOW("successfully read first page of core");
 
