@@ -222,7 +222,7 @@ scan_for_lutexes(lispobj *addr, long n_words)
 }
 #endif
 
-extern int core_compression_level = -1;
+extern int core_compression_level = 1;
 
 static void
 output_space(FILE *file, int id, lispobj *addr, lispobj *end, os_vm_offset_t file_offset)
