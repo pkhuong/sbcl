@@ -125,8 +125,8 @@ write_bytes_to_file(FILE * file, char *addr, long bytes, int compression)
 };
 
 static long
-write_bytes(FILE *file, char *addr, long bytes, os_vm_offset_t file_offset,
-            int compression)
+write_and_compress_bytes(FILE *file, char *addr, long bytes, os_vm_offset_t file_offset,
+                         int compression)
 {
     long here, data;
     
@@ -147,6 +147,12 @@ write_bytes(FILE *file, char *addr, long bytes, os_vm_offset_t file_offset,
     write_bytes_to_file(file, addr, bytes, compression);
     fseek(file, here, SEEK_SET);
     return ((data - file_offset) / os_vm_page_size) - 1;
+}
+
+static long
+write_bytes(FILE *file, char *addr, long bytes, os_vm_offset_t file_offset)
+{
+    return write_and_compress_bytes(file, addr, bytes, file_offset, -2);
 }
 
 #if defined(LISP_FEATURE_SB_THREAD) && defined(LISP_FEATURE_SB_LUTEX)
@@ -222,7 +228,8 @@ scan_for_lutexes(lispobj *addr, long n_words)
 }
 #endif
 
-extern int core_compression_level = 1;
+extern int core_compression_level;
+int core_compression_level = 1;
 
 static void
 output_space(FILE *file, int id, lispobj *addr, lispobj *end, os_vm_offset_t file_offset)
@@ -240,13 +247,14 @@ output_space(FILE *file, int id, lispobj *addr, lispobj *end, os_vm_offset_t fil
 
 #if defined(LISP_FEATURE_SB_THREAD) && defined(LISP_FEATURE_SB_LUTEX)
     printf("scanning space for lutexes...\n");
-    scan_for_lutexes((char *)addr, words);
+    scan_for_lutexes((void *)addr, words);
 #endif
 
     printf("writing %lu bytes from the %s space at 0x%08lx\n",
            (unsigned long)bytes, names[id], (unsigned long)addr);
 
-    data = write_bytes(file, (char *)addr, bytes, file_offset, core_compression_level);
+    data = write_and_compress_bytes(file, (char *)addr, bytes, file_offset,
+                                    core_compression_level);
 
     write_lispobj(data, file);
     write_lispobj((long)addr / os_vm_page_size, file);
@@ -374,7 +382,7 @@ save_to_filehandle(FILE *file, char *filename, lispobj init_function,
             write_lispobj(PAGE_TABLE_CORE_ENTRY_TYPE_CODE, file);
             write_lispobj(4, file);
             write_lispobj(size, file);
-            offset = write_bytes(file, (char *)data, size, core_start_pos, -2);
+            offset = write_bytes(file, (char *)data, size, core_start_pos);
             write_lispobj(offset, file);
         }
     }
@@ -392,7 +400,7 @@ save_to_filehandle(FILE *file, char *filename, lispobj init_function,
         /* save the lutexes */
         offset = write_bytes(file, (char *) lutex_addresses,
                              n_lutexes * sizeof(*lutex_addresses),
-                             core_start_pos, -2);
+                             core_start_pos);
 
         write_lispobj(offset, file);
     }
