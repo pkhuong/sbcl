@@ -72,6 +72,7 @@ write_lispobj(lispobj obj, FILE *file)
     }
 }
 
+#define ZLIB_BUFFER_SIZE (1u<<16)
 static void
 write_bytes_to_file(FILE * file, char *addr, long bytes, int compression)
 {
@@ -89,7 +90,7 @@ write_bytes_to_file(FILE * file, char *addr, long bytes, int compression)
         }
     } else if ((compression >= -1) && (compression <= 9)) {
         z_stream stream;
-        unsigned char buf[4096];
+        unsigned char buf[ZLIB_BUFFER_SIZE];
         unsigned char * written, * end;
         int ret;
         stream.zalloc = NULL;
@@ -101,12 +102,12 @@ write_bytes_to_file(FILE * file, char *addr, long bytes, int compression)
         if (ret != Z_OK)
             lose("deflateInit: %i\n", ret);
         do {
-            stream.avail_out = 4096;
+            stream.avail_out = sizeof(buf);
             stream.next_out = buf;
             ret = deflate(&stream, Z_FINISH);
             if (ret < 0) lose("zlib deflate error: %i... exiting\n", ret);
             written = buf;
-            end     = buf+4096-stream.avail_out;
+            end     = buf+sizeof(buf)-stream.avail_out;
             while (written < end) {
                 long count = fwrite(written, 1, end-written, file);
                 if (count > 0) {
@@ -123,6 +124,8 @@ write_bytes_to_file(FILE * file, char *addr, long bytes, int compression)
 
     fflush(file);
 };
+
+#undef ZLIB_BUFFER_SIZE
 
 static long
 write_and_compress_bytes(FILE *file, char *addr, long bytes, os_vm_offset_t file_offset,

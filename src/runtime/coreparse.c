@@ -196,11 +196,12 @@ os_vm_address_t copy_core_bytes(int fd, os_vm_offset_t offset,
 }
 #endif
 
+#define ZLIB_BUFFER_SIZE (1u<<16)
 os_vm_address_t inflate_core_bytes(int fd, os_vm_offset_t offset,
                                    os_vm_address_t addr, int len)
 {
     z_stream stream;
-    unsigned char buf[4096];
+    unsigned char buf[ZLIB_BUFFER_SIZE];
     int ret;
 
     if (-1 == lseek(fd, offset, SEEK_SET)) {
@@ -220,7 +221,7 @@ os_vm_address_t inflate_core_bytes(int fd, os_vm_offset_t offset,
     stream.next_out  = (void*)addr;
     stream.avail_out = len;
     do {
-        ssize_t count = read(fd, buf, 4096);
+        ssize_t count = read(fd, buf, sizeof(buf));
         if (count < 0)
             lose("unable to read core file (errno = %i)\n", errno);
         stream.next_in = buf;
@@ -254,6 +255,7 @@ os_vm_address_t inflate_core_bytes(int fd, os_vm_offset_t offset,
     inflateEnd(&stream);
     return addr;
 }
+#undef ZLIB_BUFFER_SIZE
 
 static void
 process_directory(int fd, lispobj *ptr, int count, os_vm_offset_t file_offset)
