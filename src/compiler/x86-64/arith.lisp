@@ -199,6 +199,19 @@
   (define-binop logior 2 or)
   (define-binop logxor 2 xor))
 
+(define-vop (fast-test-c/fixnum)
+  (:conditional :z)
+  (:args (x :scs (any-reg)))
+  (:arg-types tagged-num)
+  (:info y)
+  (:results)
+  (:result-types)
+  (:generator 2
+    (setf y (fixnumize y))
+    (inst test x (if (typep y '(unsigned-byte 31))
+                     y
+                     (register-inline-constant :qword y)))))
+
 ;;; Special handling of add on the x86; can use lea to avoid a
 ;;; register load, otherwise it uses add.
 (define-vop (fast-+/fixnum=>fixnum fast-safe-arith-op)

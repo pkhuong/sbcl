@@ -1463,3 +1463,21 @@
   (:generator 2
      (move r x)
      (inst shufpd r r #b01)))
+
+(define-vop (data-vector-add-with-offset/simple-array-double-float)
+  (:policy :fast-safe)
+  (:args (x      :scs (double-reg) :target result)
+         (object :scs (descriptor-reg))
+         (index  :scs (any-reg)))
+  (:info offset)
+  (:arg-types double-float simple-array-double-float
+              tagged-num
+              (:constant (constant-displacement other-pointer-lowtag
+                                                n-word-bytes vector-data-offset)))
+  (:results (result :scs (double-reg)))
+  (:result-types double-float)
+  (:generator 5
+    (move result x)
+    (inst addsd result (make-ea :qword :base object :index index
+                                :disp (- (* (+ vector-data-offset offset) n-word-bytes)
+                                         other-pointer-lowtag)))))

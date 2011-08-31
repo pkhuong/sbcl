@@ -228,13 +228,6 @@
         (when (jump-falls-through-p 2block)
           (delete-vop (ir2-block-last-vop 2block)))))))
 
-(defstruct ir2-node
-  receivers
-  globalp ; actually a property of TNs, but never mind
-  name
-  args
-  vop)
-
 (defvar *2block-kill*)
 (defvar *2block-livein*)
 (defvar *2block-liveout*)
@@ -273,6 +266,15 @@
     (walk (block-info (component-head component)))
     (values)))
 
+(defstruct ir2-node
+  receivers
+  globalp ; actually a property of TNs, but never mind
+  name
+  args
+  results
+  position
+  vop)
+
 (defun ir2-block-expression-graph (2block)
   (declare (type ir2-block 2block))
   (let ((values (make-hash-table))
@@ -281,7 +283,8 @@
            (vop-next vop)))
         ((null vop))
       (let* ((name (vop-name vop))
-             (node (make-ir2-node :name name :vop vop)))
+             (node (make-ir2-node :name name
+                                  :vop vop)))
         (vector-push-extend node nodes)
         (do ((ref (vop-args vop) (tn-ref-across ref)))
             ((null ref)
@@ -298,14 +301,22 @@
                   (first (ir2-node-args node)))
             (do ((ref (vop-results vop) (tn-ref-across ref))
                  (index 0 (1+ index)))
-                ((null ref))
+                ((null ref)
+                   (setf (ir2-node-results node)
+                         (nreverse (ir2-node-results node))))
               (let ((tn (tn-ref-tn ref)))
-                (setf (gethash tn values) (cons node index)))))))
+                (setf (gethash tn values) (cons node index))
+                (push tn (ir2-node-results node)))))))
     (maphash (lambda (tn value)
                (when (gethash tn (gethash 2block *2block-liveout*))
                  (setf (ir2-node-globalp (car value)) t)))
              values)
-    (values (nreverse (coerce nodes 'simple-vector))
+    (values (let ((nodes (nreverse (coerce nodes 'simple-vector)))
+                  (idx   0))
+              (map nil (lambda (node)
+                         (shiftf (ir2-node-position node) idx (1+ idx)))
+                        nodes)
+              nodes)
             values)))
 
 (defun expression-graph-to-dot (graph)
@@ -347,15 +358,116 @@
       (format *compiler-trace-output* "}~%~%"))))
 
 (defvar *ir2-optimize* nil)
+(defun arg-name (arg)
+  (and (consp arg)
+       (ir2-node-name (car arg))))
+(defun arg-results (arg)
+  (if (consp arg)
+      (ir2-node-results (car arg))
+      arg))
+(defun get-result (arg)
+  (if (consp arg)
+      (elt (ir2-node-results (car arg)) (cdr arg))
+      arg))
+(defun get-args (node)
+  (mapcar #'get-result (ir2-node-args node)))
+(defun single-use-p (x)
+  (and (consp x)
+       (null (cdr (ir2-node-receivers (cdr x))))))
+
+(defun replace-vop (2block vop name args results info)
+  (let ((template (template-or-lose name)))
+    (multiple-value-bind (first last)
+        (funcall (template-emit-function template)
+                 (vop-node vop) 2block template
+                 (reference-tn-list args
+                                    nil)
+                 (reference-tn-list results t)
+                 info)
+      (insert-vop-sequence first last 2block vop)
+      (delete-vop vop)
+      first)))
+
+(defun %optimize-sum/simple-array-double-float (2block node)
+  (let ((vop (ir2-node-vop node)))
+    (when (eql (ir2-node-name node) 'sb-vm::+/double-float)
+      (destructuring-bind (x y) (ir2-node-args node)
+        (when (eql (arg-name y)
+                   'sb-vm::data-vector-ref-with-offset/simple-array-double-float)
+          (rotatef x y))
+        (when (and (eql (arg-name x)
+                        'sb-vm::data-vector-ref-with-offset/simple-array-double-float)
+                   (single-use-p x))
+          (replace-vop 2block vop
+                       'sb-vm::data-vector-add-with-offset/simple-array-double-float
+                       (cons (get-result y) (get-args (car x)))
+                       (ir2-node-results node)
+                       (vop-codegen-info (ir2-node-vop (car x))))
+          (delete-vop (ir2-node-vop (car x)))
+          t)))))
+
+(defun %optimize-zerop/and (2block node)
+  (let ((vop (ir2-node-vop node)))
+    (when (and (eql (ir2-node-name node) 'sb-vm::fast-eql-c/fixnum)
+               (equal '(0) (vop-codegen-info (ir2-node-vop node)))
+               (eql (arg-name (first (ir2-node-args node)))
+                    'sb-vm::fast-logand-c/fixnum=>fixnum)
+               (single-use-p (first (ir2-node-args node))))
+      (replace-vop 2block vop
+                   'sb-vm::fast-test-c/fixnum
+                   (get-args (car (first (ir2-node-args node))))
+                   nil
+                   (vop-codegen-info (ir2-node-vop (car (first (ir2-node-args node))))))
+      (delete-vop (ir2-node-vop (car (first (ir2-node-args node)))))
+      t)))
+
+(defun only-move-between (graph from to)
+  (when (> from to)
+    (rotatef from to))
+  (loop for i from (1+ from) below to
+        always (eql (ir2-node-name (aref graph i))
+                    'move)))
+
+(defun principal-arg (node index)
+  (let ((arg (elt (ir2-node-args node) index)))
+    (loop
+      (cond ((tn-p arg) (return arg))
+            ((eql 'move (ir2-node-name (car arg)))
+             (setf arg (first (ir2-node-args (car arg)))))
+            (t (return (car arg)))))))
+
+(defun %optimize-cmp/sub (2block node graph)
+  (declare (ignore 2block))
+  (let ((vop (ir2-node-vop node))
+        arg)
+    (when (and (memq (ir2-node-name node) '(sb-vm::fast-if->-c/fixnum
+                                            sb-vm::fast-if-<-c/fixnum 
+                                            sb-vm::fast-eql-c/fixnum))
+               (equal '(0) (vop-codegen-info (ir2-node-vop node)))
+               (ir2-node-p (setf arg (principal-arg node 0)))
+               (eql (ir2-node-name arg)
+                    'sb-vm::fast---c/fixnum=>fixnum)
+               (only-move-between graph
+                                  (ir2-node-position node)
+                                  (ir2-node-position arg)))
+      (delete-vop vop)
+      t)))
+
 (defun ir2-optimize-block (2block)
   (declare (type ir2-block 2block))
   (unless *ir2-optimize*
     (return-from ir2-optimize-block))
-  (when *compiler-trace-output*
-    (let ((graph (ir2-block-expression-graph 2block)))
-      (unless (zerop (length graph))
+  (let ((graph (ir2-block-expression-graph 2block)))
+    (unless (zerop (length graph))
+      (when *compiler-trace-output*
         (format *compiler-trace-output* "~%~%graph: ~%~%")
-        (expression-graph-to-dot graph)))))
+        (expression-graph-to-dot graph)
+        (force-output *compiler-trace-output*))
+      (map nil (lambda (node)
+                 (or (%optimize-sum/simple-array-double-float 2block node)
+                     (%optimize-zerop/and 2block node)
+                     (%optimize-cmp/sub 2block node graph)))
+           graph))))
 
 (defmacro with-ir2-blocks-flow-info ((component) &body body)
   `(let ((*2block-pred*  (make-hash-table))
