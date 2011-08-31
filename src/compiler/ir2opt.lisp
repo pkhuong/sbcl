@@ -228,6 +228,96 @@
         (when (jump-falls-through-p 2block)
           (delete-vop (ir2-block-last-vop 2block)))))))
 
+(defstruct ir2-node
+  receivers
+  globalp ; actually a property of TNs, but never mind
+  name
+  args
+  vop)
+
+(defun ir2-block-expression-graph (2block)
+  (declare (type ir2-block 2block))
+  (let ((values (make-hash-table))
+        (nodes  (make-array 8 :adjustable t :fill-pointer 0)))
+    (do ((vop (ir2-block-start-vop 2block)
+           (vop-next vop)))
+        ((null vop))
+      (let* ((name (vop-name vop))
+             (node (make-ir2-node :name name :vop vop)))
+        (vector-push-extend node nodes)
+        (do ((ref (vop-args vop) (tn-ref-across ref)))
+            ((null ref)
+               (setf (ir2-node-args node)
+                     (nreverse (ir2-node-args node))))
+          (let* ((tn (tn-ref-tn ref))
+                 (arg-node (gethash tn values tn)))
+            (unless (tn-p arg-node)
+              (destructuring-bind (node2 . index) arg-node
+                (push (cons node index) (ir2-node-receivers node2))))
+            (push arg-node (ir2-node-args node))))
+        (if #+nil (memq name '(move)) nil
+            (setf (gethash (tn-ref-tn (vop-results vop)) values)
+                  (first (ir2-node-args node)))
+            (do ((ref (vop-results vop) (tn-ref-across ref))
+                 (index 0 (1+ index)))
+                ((null ref))
+              (let ((tn (tn-ref-tn ref)))
+                (setf (gethash tn values) (cons node index)))))))
+    (maphash (lambda (tn value)
+               (unless (or (tn-local-number tn)
+                           (tn-p value))
+                 (setf (ir2-node-globalp (car value)) t)))
+             values)
+    (values (nreverse (coerce nodes 'simple-vector))
+            values)))
+
+(defun expression-graph-to-dot (graph)
+  (declare (type simple-vector graph))
+  (let ((names (make-hash-table)))
+    (flet ((get-name (x)
+             (or (gethash x names)
+                 (setf (gethash x names)
+                       (let ((*print-case* :downcase))
+                         (let* ((name (if (tn-p x) 'tn (ir2-node-name x)))
+                                (info (and (ir2-node-p x)
+                                           (vop-codegen-info (ir2-node-vop x))))
+                                (stem (if info
+                                           (format nil "[~A~{ ~A~}]" name info)
+                                          (format nil "~A" name)))
+                                (name (format nil "~A ~A"
+                                              name
+                                              (hash-table-count names))))
+                           (format *compiler-trace-output* "~8T\"~A\" [label=\"~A\"];~%"
+                                   name stem)
+                           name))))))
+      (format *compiler-trace-output* "digraph G {~%")
+      (map nil #'get-name graph)
+      (loop for node across graph
+            for self = (get-name node)
+            for args = (ir2-node-args node)
+            do
+         (dolist (arg args)
+           (let ((number nil))
+             (when (consp arg)
+               (setf number (list (cdr arg))
+                     arg (car arg)))
+             (when (eql (car number) 0)
+               (setf number nil))
+             (format *compiler-trace-output* "~8T\"~A\" -> \"~A\" [~{label = ~A, ~}dir=back];~%"
+                     self (get-name arg) number))))
+      (format *compiler-trace-output* "}~%~%"))))
+
+(defvar *ir2-optimize* nil)
+(defun ir2-optimize-block (2block)
+  (declare (type ir2-block 2block))
+  (unless *ir2-optimize*
+    (return-from ir2-optimize-block))
+  (when *compiler-trace-output*
+    (let ((graph (ir2-block-expression-graph 2block)))
+      (unless (zerop (length graph))
+        (format *compiler-trace-output* "~%~%graph: ~%~%")
+        (expression-graph-to-dot graph)))))
+
 (defun ir2-optimize (component)
   (let ((*2block-pred*  (make-hash-table))
         (*2block-succ*  (make-hash-table))
@@ -237,4 +327,9 @@
     (convert-cmovs component)
     (delete-unused-ir2-blocks component)
     (delete-fall-through-jumps component))
+  (values))
+
+(defun ir2-reoptimize (component)
+  (do-ir2-blocks (2block component)
+    (ir2-optimize-block 2block))
   (values))

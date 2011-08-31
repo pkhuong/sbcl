@@ -552,6 +552,8 @@ Examples:
 
           (select-representations component)
 
+          (ir2-reoptimize component)
+          
           (when *check-consistency*
             (maybe-mumble "check2 ")
             (check-ir2-consistency component))
