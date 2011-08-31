@@ -436,7 +436,7 @@
              (setf arg (first (ir2-node-args (car arg)))))
             (t (return (car arg)))))))
 
-(defun %optimize-cmp/sub (2block node graph)
+(defun %optimize-cmp/sub (2block graph node)
   (declare (ignore 2block))
   (let ((vop (ir2-node-vop node))
         arg)
@@ -466,7 +466,7 @@
       (map nil (lambda (node)
                  (or (%optimize-sum/simple-array-double-float 2block node)
                      (%optimize-zerop/and 2block node)
-                     (%optimize-cmp/sub 2block node graph)))
+                     (%optimize-cmp/sub 2block graph node)))
            graph))))
 
 (defmacro with-ir2-blocks-flow-info ((component) &body body)
