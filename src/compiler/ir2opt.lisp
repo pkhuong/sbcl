@@ -326,8 +326,11 @@
              (or (gethash x names)
                  (setf (gethash x names)
                        (let ((*print-case* :downcase))
-                         (let* ((name (if (tn-p x) 'tn (ir2-node-name x)))
-                                (info (and (ir2-node-p x)
+                         (let* ((node-p (ir2-node-p x))
+                                (name (if node-p
+                                          (ir2-node-name x)
+                                          (primitive-type-name (tn-primitive-type x))))
+                                (info (and node-p
                                            (vop-codegen-info (ir2-node-vop x))))
                                 (stem (if info
                                            (format nil "[~A~{ ~A~}]" name info)
@@ -335,10 +338,12 @@
                                 (name (format nil "~A ~A"
                                               name
                                               (hash-table-count names))))
-                           (format *compiler-trace-output* "~8T\"~A\" [label=\"~A~C\"];~%"
-                                   name stem (if (and (ir2-node-p x)
-                                                      (ir2-node-globalp x))
-                                                 #\! #\Space))
+                           (if node-p
+                               (format *compiler-trace-output* "~8T\"~A\" [label=\"~A~C\"];~%"
+                                       name stem (if (ir2-node-globalp x)
+                                                     #\! #\Space))
+                               (format *compiler-trace-output* "~8T\"~A\" [label=\"~A\", shape=box];~%"
+                                       name stem))
                            name))))))
       (format *compiler-trace-output* "digraph G {~%")
       (map nil #'get-name graph)
