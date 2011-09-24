@@ -343,21 +343,21 @@
                  ;; Punt.
                  (t (return (any))))))))
         (member-type
-         (let (res)
            (block nil
-             (mapc-member-type-members
-              (lambda (member)
-                (let ((ptype (primitive-type-of member)))
-                  (if res
-                      (unless (eq ptype res)
-                        (let ((new-ptype (or (maybe-numeric-type-union res ptype)
-                                             (maybe-numeric-type-union ptype res))))
-                          (if new-ptype
-                              (setq res new-ptype)
-                              (return (any)))))
-                      (setf res ptype))))
-              type))
-           res))
+             (let (res)
+               (mapc-member-type-members
+                (lambda (member)
+                  (let ((ptype (primitive-type-of member)))
+                    (if res
+                        (unless (eq ptype res)
+                          (let ((new-ptype (or (maybe-numeric-type-union res ptype)
+                                               (maybe-numeric-type-union ptype res))))
+                            (if new-ptype
+                                (setq res new-ptype)
+                                (return (any)))))
+                        (setf res ptype))))
+                type)
+               res)))
         (named-type
          (ecase (named-type-name type)
            ((t *) (values *backend-t-primitive-type* t))
