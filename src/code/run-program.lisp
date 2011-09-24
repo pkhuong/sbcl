@@ -899,7 +899,8 @@ Users Manual for details about the PROCESS structure."#-win32"
                     (t
                      (incf read-end count)
                      (funcall copy-fun))))))))
-    (push handler *handlers-installed*)))
+    #-win32 (push handler *handlers-installed*)
+    (values)))
 
 ;;; FIXME: something very like this is done in SB-POSIX to treat
 ;;; streams as file descriptor designators; maybe we can combine these
