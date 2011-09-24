@@ -495,8 +495,8 @@ status slot."
       (let ((size (length octets)))
         ;; Copy string.
         (sb-kernel:copy-ub8-to-system-area octets 0 string-sap 0 size)
-        ;; NULL-terminate it
-        (setf (sap-ref-32 string-sap size) 0)
+        ;; NULL-terminate it -- 4 bytes ought to be enough for any encoding.
+        (system-area-ub8-fill 0 string-sap size 4)
         ;; Put the pointer in the vector.
         (setf (sap-ref-sap vec-sap vec-index-offset) string-sap)
         ;; Advance string-sap for the next string.
