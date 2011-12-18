@@ -39,6 +39,7 @@
     (:shadow "{symbol-name}*")
     (:shadowing-import-from "<package-name> {symbol-name}*")
     (:use "{package-name}*")
+    (:local-nicknames "{nickname package-name}*")
     (:import-from "<package-name> {symbol-name}*")
     (:intern "{symbol-name}*")
     (:export "{symbol-name}*")
@@ -52,6 +53,7 @@
         (shadowing-imports nil)
         (use nil)
         (use-p nil)
+        (local-nicknames nil)
         (imports nil)
         (interns nil)
         (exports nil)
@@ -96,6 +98,14 @@
         (:use
          (setf use (append use (stringify-package-designators (cdr option)) )
                use-p t))
+        (:local-nicknames
+         (setf local-nicknames (append (loop for (nickname name)
+                                               on (stringify-package-designators
+                                                   (cdr option))
+                                             by #'cddr
+                                             collect
+                                             (cons nickname name))
+                                       local-nicknames)))
         (:import-from
          (let ((package-name (stringify-package-designator (second option)))
                (names (stringify-string-designators (cddr option))))
@@ -141,7 +151,7 @@
                       ,@(apply #'append (mapcar #'rest shadowing-imports))))
     `(eval-when (:compile-toplevel :load-toplevel :execute)
        (%defpackage ,(stringify-string-designator package) ',nicknames ',size
-                    ',shadows ',shadowing-imports ',(if use-p use :default)
+                    ',shadows ',shadowing-imports ',(if use-p use :default) ',local-nicknames
                     ',imports ',interns ',exports ',implement ',lock ',doc
                     (sb!c:source-location)))))
 
@@ -290,12 +300,13 @@
                     implement lock doc-string)))
 
 (defun %defpackage (name nicknames size shadows shadowing-imports
-                    use imports interns exports implement lock doc-string
+                    use local-nicknames imports interns exports implement lock doc-string
                     source-location)
   (declare (type simple-string name)
            (type list nicknames shadows shadowing-imports
                  imports interns exports)
            (type (or list (member :default)) use)
+           (type list local-nicknames)
            (type (or simple-string null) doc-string)
            #!-sb-package-locks
            (ignore implement lock))
@@ -314,6 +325,7 @@
                                        :use nil
                                        :internal-symbols (or size 10)
                                        :external-symbols (length exports))))
+            (setf (package-local-nicknames package) local-nicknames)
             (update-package package
                             nicknames source-location
                             shadows shadowing-imports

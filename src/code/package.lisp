@@ -78,6 +78,8 @@
   (%nicknames () :type list)
   ;; packages used by this package
   (%use-list () :type list)
+  ;; alist of package-local nickname -> package
+  (local-nicknames () :type list)
   ;; a list of all the hashtables for inherited symbols. This is
   ;; derived from %USE-LIST, but maintained separately from %USE-LIST
   ;; for some reason. (Perhaps the reason is that when FIND-SYMBOL*

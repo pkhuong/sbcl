@@ -1231,16 +1231,19 @@ extended <package-name>::<form-in-package> syntax."
                              (read-buffer-to-string)))
       (setq colons 1)
       (setq package-designator
-            (if (plusp *ouch-ptr*)
+            (if (and (zerop *ouch-ptr*) (not seen-multiple-escapes))
+                *keyword-package*
                 ;; FIXME: It seems inefficient to cons up a package
                 ;; designator string every time we read a symbol with an
                 ;; explicit package prefix. Perhaps we could implement
                 ;; a FIND-PACKAGE* function analogous to INTERN*
                 ;; and friends?
-                (read-buffer-to-string)
-                (if seen-multiple-escapes
-                    (read-buffer-to-string)
-                    *keyword-package*)))
+                (let ((string (read-buffer-to-string)))
+                  (or (cdr (assoc string
+                                  (package-local-nicknames (or *reader-package*
+                                                               (sane-package)))
+                                  :test #'string=))
+                      string))))
       (reset-read-buffer)
       (setq escapes ())
       (setq char (read-char stream nil nil))
