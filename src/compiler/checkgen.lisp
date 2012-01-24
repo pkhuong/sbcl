@@ -95,6 +95,37 @@
                (minimize (numeric-type-low a))
                (maximize (numeric-type-high a))))
            (specifier-type `(integer ,(or low '*) ,(or high '*)))))
+        ((intersection-type-p type)
+         (let* ((types (intersection-type-types type))
+                (low   nil)
+                (high  nil))
+           (flet ((maximize (bound)
+                    (when bound
+                      (etypecase bound
+                        (integer)
+                        (number
+                         (setf bound (ceiling bound)))
+                        (cons
+                         (setf bound (1+ (floor (car bound))))))
+                      (setf low (if low
+                                    (max low bound)
+                                    bound))))
+                  (minimize (bound)
+                    (when bound
+                      (etypecase bound
+                        (integer)
+                        (number
+                         (setf bound (floor bound)))
+                        (cons
+                         (setf bound (1- (ceiling (car bound))))))
+                      (setf high (if high
+                                     (min high bound)
+                                     bound)))))
+             (dolist (a types)
+               (when (numeric-type-p a)
+                 (minimize (numeric-type-high a))
+                 (maximize (numeric-type-low a)))))
+           (specifier-type `(integer ,(or low '*) ,(or high '*)))))
         (t
          (aver (integer-type-p type))
          type)))
@@ -107,7 +138,11 @@
   (declare (type ctype type))
   (cond ((named-type-p type)
          type)
-        ((csubtypep type (specifier-type 'integer))
+        ((and (csubtypep type (specifier-type 'integer))
+              (not (and (intersection-type-p type)
+                        (find-if (lambda (x)
+                                   (typep x 'hairy-type))
+                                 (intersection-type-types type)))))
          ;; KLUDGE: Simple range checks are not that expensive, and we *don't*
          ;; want to accidentally lose eg. array bounds checks due to weakening,
          ;; so for integer types we simply collapse all ranges into one.
