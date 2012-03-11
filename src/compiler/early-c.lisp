@@ -134,8 +134,8 @@ the stack without triggering overflow protection.")
  (setf **world-lock** (sb!thread:make-mutex :name "World Lock")))
 (!defun-from-collected-cold-init-forms !world-lock-cold-init)
 
-(defmacro with-world-lock (() &body body)
-  `(sb!thread:with-recursive-lock (**world-lock**)
+(defmacro with-world-lock ((&key (waitp t)) &body body)
+  `(sb!thread:with-recursive-lock (**world-lock** :waitp ,waitp)
      ,@body))
 
 (declaim (type fixnum *compiler-sset-counter*))
