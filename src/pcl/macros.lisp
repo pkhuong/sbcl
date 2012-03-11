@@ -70,40 +70,44 @@
 
 ;;;; Compile-or-eval
 (/show "pcl/macros.lisp ")
+#+(and sb-thread sb-eval)
 (defun maybe-compile-interpreted-function (function default)
-  (with-world-lock (:waitp nil)
-    (if (sb-thread:holding-mutex-p sb-c::**world-lock**)
+  (or (with-world-lock (:waitp nil)
         (set-funcallable-instance-function
          function
          (handler-bind ((compiler-note #'muffle-warning))
-           (compile nil function)))
-        default)))
+           (compile nil function))))
+      default))
 
+(declaim (ftype (function (function) function) wrap-function)
+         (inline wrap-function))
 (defun wrap-function (function)
   #-(and sb-thread sb-eval) function
   #+(and sb-thread sb-eval)
-  (if (sb-eval:interpreted-function-p function)
-      (let ((callback (funcallable-instance-fun function)))
-        (set-funcallable-instance-function
-         function
-         (lambda (&rest arguments)
-           (declare (dynamic-extent arguments))
-           (apply (maybe-compile-interpreted-function
-                   function callback)
-            arguments))))
-      function))
+  (when (sb-eval:interpreted-function-p function)
+    (let ((callback (funcallable-instance-fun function)))
+      (set-funcallable-instance-function
+       function
+       (lambda (&rest arguments)
+         (declare (dynamic-extent arguments))
+         (apply (maybe-compile-interpreted-function function
+                                                    callback)
+                arguments)))))
+  function)
 
+(define-compiler-macro wrap-function (function)
+  `(the function ,function))
+
+(declaim (ftype (function (cons) function) compile-pcl-lambda))
 (defun compile-pcl-lambda (lambda-form)
   (assert (typep lambda-form '(cons (member lambda named-lambda))))
   #-(and sb-thread sb-eval)
-  (compile nil lambda)
+  (compile nil lambda-form)
   #+(and sb-thread sb-eval)
-  (with-world-lock (:waitp nil)
-    (if (sb-thread:holding-mutex-p sb-c::**world-lock**)
-        (compile nil (subst 'identity 'wrap-function
-                            lambda-form))
-        (wrap-function (sb-eval:eval-in-environment
-                        lambda-form (sb-eval:make-null-environment))))))
+  (or (with-world-lock (:waitp nil)
+        (compile nil lambda-form))
+      (wrap-function (sb-eval:eval-in-environment
+                      lambda-form (sb-eval:make-null-environment)))))
 
 
 ;;;; FIND-CLASS
