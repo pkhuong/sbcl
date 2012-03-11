@@ -151,7 +151,7 @@ is in use, sleep until it is available"
        #'with-system-mutex-thunk
        ,mutex)))
 
-(sb!xc:defmacro with-recursive-lock ((mutex) &body body)
+(sb!xc:defmacro with-recursive-lock ((mutex &key (waitp t)) &body body)
   #!+sb-doc
   "Acquires MUTEX for the dynamic scope of BODY. Within that scope
 further recursive lock attempts for the same mutex succeed. It is
@@ -160,7 +160,8 @@ provided the default value is used for the mutex."
   `(dx-flet ((with-recursive-lock-thunk () ,@body))
      (call-with-recursive-lock
       #'with-recursive-lock-thunk
-      ,mutex)))
+      ,mutex
+      ,waitp)))
 
 (sb!xc:defmacro with-recursive-system-lock ((lock
                                              &key without-gcing)
@@ -204,8 +205,8 @@ provided the default value is used for the mutex."
              (function function))
     (funcall function))
 
-  (defun call-with-recursive-lock (function mutex)
-    (declare (ignore mutex) (function function))
+  (defun call-with-recursive-lock (function mutex waitp)
+    (declare (ignore mutex waitp) (function function))
     (funcall function))
 
   (defun call-with-recursive-system-lock (function lock)
@@ -234,14 +235,14 @@ provided the default value is used for the mutex."
           (when got-it
             (release-mutex mutex))))))
 
-  (defun call-with-recursive-lock (function mutex)
+  (defun call-with-recursive-lock (function mutex waitp)
     (declare (function function))
     (dx-let ((inner-lock-p (eq (mutex-%owner mutex) *current-thread*))
              (got-it nil))
       (without-interrupts
         (unwind-protect
              (when (or inner-lock-p (setf got-it (allow-with-interrupts
-                                                  (get-mutex mutex))))
+                                                  (get-mutex mutex nil waitp))))
                (with-local-interrupts (funcall function)))
           (when got-it
             (release-mutex mutex))))))
