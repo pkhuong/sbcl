@@ -75,8 +75,12 @@
   (or (with-world-lock (:waitp nil)
         (set-funcallable-instance-function
          function
-         (handler-bind ((compiler-note #'muffle-warning))
-           (compile nil function))))
+         (handler-case
+             (handler-bind ((compiler-note #'muffle-warning))
+               (compile nil function))
+           (sb-eval::interpreter-environment-too-complex-error
+             ()
+             default))))
       default))
 
 (declaim (ftype (function (function) function) wrap-function)
