@@ -113,7 +113,7 @@
   (multiple-value-bind (code gensyms) (compute-code lambda code-converter)
     (let ((generator-lambda `(lambda ,gensyms
                                (declare (muffle-conditions compiler-note))
-                               (function ,code))))
+                               (wrap-function (function ,code)))))
       (let ((generator (compile-pcl-lambda generator-lambda)))
         (ensure-fgen test gensyms generator generator-lambda nil)
         generator))))

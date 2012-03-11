@@ -176,13 +176,16 @@
 ;;; --------------------------------
 
 (defun generating-lisp (closure-variables args form)
-  (let ((lambda `(lambda ,closure-variables
-                   ,@(when (member 'miss-fn closure-variables)
-                           `((declare (type function miss-fn))))
-                   #'(lambda ,args
-                       (let ()
-                         (declare #.*optimize-speed*)
-                         ,form)))))
+  (let* ((generated `#'(lambda ,args
+                         (let ()
+                           (declare #.*optimize-speed*)
+                           ,form)))
+         (lambda `(lambda ,closure-variables
+                    ,@(when (member 'miss-fn closure-variables)
+                        `((declare (type function miss-fn))))
+                    ,(if *precompiling-lap*
+                         generated
+                         `(wrap-function ,generated)))))
     (values (if *precompiling-lap*
                 `#',lambda
                 (compile-pcl-lambda lambda))
