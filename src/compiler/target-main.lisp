@@ -109,9 +109,10 @@
       (cond
         #!+sb-eval
         ((sb!eval:interpreted-function-p definition)
-         (multiple-value-bind (definition lexenv)
+         (multiple-value-bind (definition arguments lexenv)
              (sb!eval:prepare-for-compile definition)
-           (actually-compile name definition lexenv source-info tlf)))
+           (apply (actually-compile name definition lexenv source-info tlf)
+                  arguments)))
         ((compiled-function-p definition)
          (values definition nil nil))
         (t

@@ -1122,26 +1122,48 @@
 ;;; Try to compile an interpreted function. If the environment
 ;;; contains local functions or lexical variables we'll punt on
 ;;; compiling it.
+(defun backpatch-native-lexenv (env)
+  (let ((native  (sb!c::copy-lexenv (env-native-lexenv env)))
+        (gensyms '())
+        (values  '()))
+    (setf (sb!c::lexenv-vars native)
+          (mapcar (lambda (native eval)
+                    (destructuring-bind (name . binding)
+                        native
+                      (if (typep binding '(cons (eql sb!sys:macro)))
+                          native
+                          (let ((gensym (make-symbol (symbol-name name))))
+                            (push gensym gensyms)
+                            (push eval values)
+                            (list* name 'sb!sys:macro
+                                   `(cdr ,gensym))))))
+                  (sb!c::lexenv-vars native)
+                  (env-vars env)))
+    (values native gensyms values)))
+
 (defun prepare-for-compile (function)
   (let ((env (interpreted-function-env function)))
     (when (or (env-tags env)
               (env-blocks env)
               (find-if-not #'(lambda (x) (eq x *macro*))
-                           (env-funs env) :key #'cdr)
-              (find-if-not #'(lambda (x) (eq x *symbol-macro*))
-                           (env-vars env)
-                           :key #'cdr))
+                           (env-funs env) :key #'cdr))
       (error 'interpreter-environment-too-complex-error
              :format-control
              "~@<Lexical environment of ~S is too complex to compile.~:@>"
              :format-arguments
              (list function)))
-    (values
-     `(sb!int:named-lambda ,(interpreted-function-name function)
-          ,(interpreted-function-lambda-list function)
-        (declare ,@(interpreted-function-declarations function))
-        ,@(interpreted-function-body function))
-     (env-native-lexenv env))))
+    (multiple-value-bind (lexenv gensyms values)
+        (backpatch-native-lexenv env)
+      (values
+       `(lambda ,gensyms
+          (declare (ignorable ,@gensyms)
+                   (type cons ,@gensyms))
+          (sb!int:named-lambda ,(interpreted-function-name function)
+              ,(interpreted-function-lambda-list function)
+            (declare ,@(interpreted-function-declarations function))
+            ,@(interpreted-function-body function)))
+       values
+       lexenv))))
 
 ;;; Convert a compiler LEXENV to an interpreter ENV. This is needed
 ;;; for EVAL-IN-LEXENV.
