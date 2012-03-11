@@ -19,8 +19,8 @@
   (declare (ignore mutex))
   `(locally ,@body))
 
-(defmacro with-recursive-lock ((mutex) &body body)
-  (declare (ignore mutex))
+(defmacro with-recursive-lock ((mutex &key waitp) &body body)
+  (declare (ignore mutex waitp))
   `(locally ,@body))
 
 (defmacro barrier ((kind) &body body)
