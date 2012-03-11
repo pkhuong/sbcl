@@ -114,7 +114,7 @@
     (let ((generator-lambda `(lambda ,gensyms
                                (declare (muffle-conditions compiler-note))
                                (function ,code))))
-      (let ((generator (compile nil generator-lambda)))
+      (let ((generator (compile-pcl-lambda generator-lambda)))
         (ensure-fgen test gensyms generator generator-lambda nil)
         generator))))
 

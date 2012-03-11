@@ -45,7 +45,7 @@
       (when (and (consp form) (eq (car form) name))
         (return-from get-declaration (cdr form))))))
 
-(/show "pcl/macros.lisp 85")
+(/show "pcl/macros.lisp 48")
 
 (defmacro doplist ((key val) plist &body body)
   `(let ((.plist-tail. ,plist) ,key ,val)
@@ -56,7 +56,7 @@
            (setq ,val (pop .plist-tail.))
            (progn ,@body))))
 
-(/show "pcl/macros.lisp 101")
+(/show "pcl/macros.lisp 59")
 
 (defmacro dolist-carefully ((var list improper-list-handler) &body body)
   `(let ((,var nil)
@@ -67,6 +67,36 @@
                  (setq ,var (pop .dolist-carefully.))
                  ,@body)
                (,improper-list-handler)))))
+
+;;;; Compile-or-eval
+(/show "pcl/macros.lisp ")
+(defun compile-pcl-lambda (lambda-form)
+  (assert (typep lambda-form '(cons (member lambda named-lambda))))
+  #-(and sb-thread sb-eval)
+  (compile nil lambda)
+  #+(and sb-thread sb-eval)
+  (with-world-lock (:waitp nil)
+    (if (sb-thread:holding-mutex-p sb-c::**world-lock**)
+        (compile nil lambda-form)
+        (let* ((box (list nil))
+               (args (gensym "ARGS"))
+               (wrapper
+                 `(lambda (&rest ,args)
+                    (apply (with-world-lock (:waitp nil)
+                             (if (sb-thread:holding-mutex-p
+                                  sb-c::**world-lock**)
+                                 (set-funcallable-instance-function
+                                  (car ',box)
+                                  (handler-bind ((compiler-note
+                                                   #'muffle-warning))
+                                    (compile nil ',lambda-form)))
+                                 ,lambda-form))
+                           ,args)))
+               (interpreted-function (sb-eval:eval-in-environment
+                                      wrapper (sb-eval:make-null-environment))))
+          (assert (funcallable-instance-p interpreted-function))
+          (setf (car box) interpreted-function)))))
+
 
 ;;;; FIND-CLASS
 ;;;;
