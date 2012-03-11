@@ -70,6 +70,29 @@
 
 ;;;; Compile-or-eval
 (/show "pcl/macros.lisp ")
+(defun maybe-compile-interpreted-function (function default)
+  (with-world-lock (:waitp nil)
+    (if (sb-thread:holding-mutex-p sb-c::**world-lock**)
+        (set-funcallable-instance-function
+         function
+         (handler-bind ((compiler-note #'muffle-warning))
+           (compile nil function)))
+        default)))
+
+(defun wrap-function (function)
+  #-(and sb-thread sb-eval) function
+  #+(and sb-thread sb-eval)
+  (if (sb-eval:interpreted-function-p function)
+      (let ((callback (funcallable-instance-fun function)))
+        (set-funcallable-instance-function
+         function
+         (lambda (&rest arguments)
+           (declare (dynamic-extent arguments))
+           (apply (maybe-compile-interpreted-function
+                   function callback)
+            arguments))))
+      function))
+
 (defun compile-pcl-lambda (lambda-form)
   (assert (typep lambda-form '(cons (member lambda named-lambda))))
   #-(and sb-thread sb-eval)
@@ -77,25 +100,10 @@
   #+(and sb-thread sb-eval)
   (with-world-lock (:waitp nil)
     (if (sb-thread:holding-mutex-p sb-c::**world-lock**)
-        (compile nil lambda-form)
-        (let* ((box (list nil))
-               (args (gensym "ARGS"))
-               (wrapper
-                 `(lambda (&rest ,args)
-                    (apply (with-world-lock (:waitp nil)
-                             (if (sb-thread:holding-mutex-p
-                                  sb-c::**world-lock**)
-                                 (set-funcallable-instance-function
-                                  (car ',box)
-                                  (handler-bind ((compiler-note
-                                                   #'muffle-warning))
-                                    (compile nil ',lambda-form)))
-                                 ,lambda-form))
-                           ,args)))
-               (interpreted-function (sb-eval:eval-in-environment
-                                      wrapper (sb-eval:make-null-environment))))
-          (assert (funcallable-instance-p interpreted-function))
-          (setf (car box) interpreted-function)))))
+        (compile nil (subst 'identity 'wrap-function
+                            lambda-form))
+        (wrap-function (sb-eval:eval-in-environment
+                        lambda-form (sb-eval:make-null-environment))))))
 
 
 ;;;; FIND-CLASS
