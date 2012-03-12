@@ -1440,10 +1440,11 @@ Except see also BREAK-VICIOUS-METACIRCLE.  -- CSR, 2003-05-28
           (return-from cpl-or-nil (class-precedence-list class)))
 
         ;; if we can finalize an unfinalized class, then do so
-        (when (and (not (class-finalized-p class))
-                   (not (class-has-a-forward-referenced-superclass-p class)))
-          (finalize-inheritance class)
-          (class-precedence-list class)))
+        (with-world-lock (:waitp nil)
+          (when (and (not (class-finalized-p class))
+                     (not (class-has-a-forward-referenced-superclass-p class)))
+            (finalize-inheritance class)
+            (class-precedence-list class))))
 
       (early-class-precedence-list class)))
 
