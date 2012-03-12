@@ -68,8 +68,30 @@
                  ,@body)
                (,improper-list-handler)))))
 
-;;;; Compile-or-eval
-(/show "pcl/macros.lisp ")
+;;;; Lazy compilation
+;;;;
+;;;; PCL likes to COMPILE forms at sometimes inopportune moments.
+;;;; Unfortunately, the compiler currently needs to hold the big world
+;;;; lock, which sometimes leads to deadlocks, through no fault on the
+;;;; user's part.  All the calls to COMPILE in PCL now go through
+;;;; COMPILE-PCL-LAMBDA, which punts to the interpreter when the
+;;;; world-lock isn't available.  This is only needed if we have
+;;;; threads, and only possible if we have the interpreter.
+;;;;
+;;;; That suffices to fix some deadlocks, but could result in
+;;;; atrocious performance.  That's what WRAP-FUNCTION is for.  It
+;;;; mutates interpreted functions so that, each time it's called, an
+;;;; attempt is made to compile it to native code, in
+;;;; MAYBE-COMPILE-INTERPRETED-FUNCTION.  When that's successful, the
+;;;; wrapper is overwritten with the native-code function.
+;;;;
+;;;; WRAP-FUNCTION is also used in some callers of COMPILE-PCL-LAMBDA.
+;;;; Some runtime-compiled functions are used to further generate
+;;;; closures.  If the generating function is interpreted, so will the
+;;;; generated closure be, by default.  WRAP-FUNCTION ensures that
+;;;; these closures are also lazily/opportunistically compiled.
+
+(/show "pcl/macros.lisp 72")
 #+(and sb-thread sb-eval)
 (defun maybe-compile-interpreted-function (function default)
   (or (with-world-lock (:waitp nil)
@@ -99,11 +121,14 @@
                 arguments)))))
   function)
 
+;; If we're executing compiler macros, we're compiling, and the
+;; argument will always be a compiled function.
 (define-compiler-macro wrap-function (function)
   `(the function ,function))
 
 (declaim (ftype (function (cons) function) compile-pcl-lambda))
 (defun compile-pcl-lambda (lambda-form)
+  (declare (notinline wrap-function)) ; disable the compiler macro
   (assert (typep lambda-form '(cons (member lambda named-lambda))))
   #-(and sb-thread sb-eval)
   (compile nil lambda-form)
@@ -118,7 +143,7 @@
 ;;;;
 ;;;; This is documented in the CLOS specification.
 
-(/show "pcl/macros.lisp 119")
+(/show "pcl/macros.lisp 146")
 
 (declaim (inline legal-class-name-p))
 (defun legal-class-name-p (x)
@@ -155,7 +180,7 @@
 (declaim (type (member nil early braid complete) **boot-state**))
 (defglobal **boot-state** nil)
 
-(/show "pcl/macros.lisp 187")
+(/show "pcl/macros.lisp 183")
 
 (define-compiler-macro find-class (&whole form
                                    symbol &optional (errorp t) environment)
@@ -201,7 +226,7 @@
         (t
          (error "~S is not a legal class name." name))))
 
-(/show "pcl/macros.lisp 241")
+(/show "pcl/macros.lisp 229")
 
 (defmacro function-funcall (form &rest args)
   `(funcall (the function ,form) ,@args))
@@ -209,7 +234,7 @@
 (defmacro function-apply (form &rest args)
   `(apply (the function ,form) ,@args))
 
-(/show "pcl/macros.lisp 249")
+(/show "pcl/macros.lisp 237")
 
 (defun get-setf-fun-name (name)
   `(setf ,name))
