@@ -283,7 +283,8 @@
 ;;; Used only for implementing calls to interpreted functions.
 (defun parse-arguments (arguments lambda-list)
   (multiple-value-bind (required optional rest-p rest keyword-p
-                        keyword allow-other-keys-p aux-p aux)
+                        keyword allow-other-keys-p aux-p aux
+                        more-p more more-count)
       (handler-bind ((style-warning #'muffle-warning))
         (sb!int:parse-lambda-list lambda-list))
     (let* ((original-arguments arguments)
@@ -300,7 +301,7 @@
         ((< arguments-present required-length)
          (ip-error "~@<Too few arguments in ~S to satisfy lambda list ~S.~:@>"
                    arguments lambda-list))
-        ((and (not (or rest-p keyword-p)) keywords-present-p)
+        ((and (not (or more-p rest-p keyword-p)) keywords-present-p)
          (ip-error "~@<Too many arguments in ~S to satisfy lambda list ~S.~:@>"
                    arguments lambda-list))
         ((and keyword-p keywords-present-p
@@ -325,6 +326,9 @@
       (let ((keyword-plist arguments))
         (when rest-p
           (push (cons rest (list 'quote keyword-plist)) let*-like-bindings))
+        (when more-p
+          (push (cons more (list 'quote keyword-plist)) let*-like-bindings)
+          (push (cons more-count (length keyword-plist)) let*-like-bindings))
         (when keyword-p
           (unless (or allow-other-keys-p
                       (getf keyword-plist :allow-other-keys))
@@ -984,11 +988,27 @@
 ;;; VOPs which can't be reasonably implemented in the interpreter. So
 ;;; we special-case the macro.
 (defun eval-with-pinned-objects (args env)
-  (program-destructuring-bind (values &body body) args
-    (if (null values)
-        (eval-progn body env)
-        (sb!sys:with-pinned-objects ((car values))
-          (eval-with-pinned-objects (cons (cdr values) body) env)))))
+  (program-destructuring-bind (pinned &body body) args
+    (labels ((rec (values)
+               (if (null values)
+                   (eval-progn body env)
+                   (sb!sys:with-pinned-objects ((car values))
+                     (rec (rest values))))))
+      (rec (eval-args pinned env)))))
+
+;;; &MORE contexts are represented as a pair of list/count in the
+;;; interpreter
+(defun eval-%listify-rest-args (args env)
+  (program-destructuring-bind (more count) (eval-args args env)
+    (subseq more 0 count)))
+
+(defun eval-%more-arg (args env)
+  (program-destructuring-bind (more index) (eval-args args env)
+    (nth index more)))
+
+(defun eval-%more-arg-values (args env)
+  (program-destructuring-bind (more skip num) (eval-args args env)
+    (values-list (subseq more skip (+ skip num)))))
 
 (define-condition macroexpand-hook-type-error (type-error)
   ()
@@ -1044,6 +1064,9 @@
        ;; Not a special form, but a macro whose expansion wouldn't be
        ;; handled correctly by the evaluator.
        ((sb!sys:with-pinned-objects) (eval-with-pinned-objects (cdr exp) env))
+       ((sb!c:%listify-rest-args) (eval-%listify-rest-args (cdr exp) env))
+       ((sb!c:%more-arg)          (eval-%more-arg (cdr exp) env))
+       ((sb!c:%more-arg-values)   (eval-%more-arg-values (cdr exp) env))
        (t
         (let ((dispatcher (getf *eval-dispatch-functions* (car exp))))
           (cond
