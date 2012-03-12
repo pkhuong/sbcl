@@ -157,60 +157,67 @@
 ;;; we return the valid wrapper, which is not obvious from the name
 ;;; (or the names of our callees.)
 (defun check-wrapper-validity (instance)
-  (with-world-lock ()
+  (labels
+      ((self (instance)
+         (let* ((owrapper (wrapper-of instance))
+                (state (layout-invalid owrapper)))
+           (aver (not (eq state :uninitialized)))
+           (cond ((not state)
+                  owrapper)
+                 ((not (layout-for-std-class-p owrapper))
+                  ;; Obsolete structure trap.
+                  (%obsolete-instance-trap owrapper nil instance))
+                 ((eq t state)
+                  ;; FIXME: I can't help thinking that, while this does cure
+                  ;; the symptoms observed from some class redefinitions,
+                  ;; this isn't the place to be doing this flushing.
+                  ;; Nevertheless... -- CSR, 2003-05-31
+                  ;;
+                  ;; CMUCL comment:
+                  ;;    We assume in this case, that the :INVALID is from a
+                  ;;    previous call to REGISTER-LAYOUT for a superclass of
+                  ;;    INSTANCE's class.  See also the comment above
+                  ;;    FORCE-CACHE-FLUSHES.  Paul Dietz has test cases for this.
+                  (let ((class (wrapper-class* owrapper)))
+                    (%force-cache-flushes class)
+                    ;; KLUDGE: avoid an infinite recursion, it's still better to
+                    ;; bail out with an error for server softwares. see FIXME above.
+                    ;; details: http://thread.gmane.org/gmane.lisp.steel-bank.devel/10175
+                    ;;
+                    ;; Error message here is trying to figure out a bit more about the
+                    ;; situation, since we don't have anything approaching a test-case
+                    ;; for the bug.
+                    (let ((new-state (layout-invalid (wrapper-of instance))))
+                      (unless (neq t new-state)
+                        (cerror "Nevermind and recurse." 'bug
+                                :format-control "~@<Problem forcing cache flushes. Please report ~
+                                               to sbcl-devel. Info:~% ~S~:@>"
+                                :format-arguments (mapcar (lambda (x)
+                                                            (cons x (layout-invalid x)))
+                                                          (list owrapper
+                                                                (wrapper-of instance)
+                                                                (class-wrapper class)))))))
+                  (self instance))
+                 ((consp state)
+                  (ecase (car state)
+                    (:flush
+                     (let ((new (cadr state)))
+                       (cond ((std-instance-p instance)
+                              (setf (std-instance-wrapper instance) new))
+                             ((fsc-instance-p instance)
+                              (setf (fsc-instance-wrapper instance) new))
+                             (t
+                              (bug "unrecognized instance type")))))
+                    (:obsolete
+                     (%obsolete-instance-trap owrapper (cadr state) instance))))
+                 (t
+                  (bug "Invalid LAYOUT-INVALID: ~S" state))))))
     (let* ((owrapper (wrapper-of instance))
            (state (layout-invalid owrapper)))
-      (aver (not (eq state :uninitialized)))
-      (cond ((not state)
-             owrapper)
-            ((not (layout-for-std-class-p owrapper))
-             ;; Obsolete structure trap.
-             (%obsolete-instance-trap owrapper nil instance))
-            ((eq t state)
-             ;; FIXME: I can't help thinking that, while this does cure
-             ;; the symptoms observed from some class redefinitions,
-             ;; this isn't the place to be doing this flushing.
-             ;; Nevertheless... -- CSR, 2003-05-31
-             ;;
-             ;; CMUCL comment:
-             ;;    We assume in this case, that the :INVALID is from a
-             ;;    previous call to REGISTER-LAYOUT for a superclass of
-             ;;    INSTANCE's class.  See also the comment above
-             ;;    FORCE-CACHE-FLUSHES.  Paul Dietz has test cases for this.
-             (let ((class (wrapper-class* owrapper)))
-               (%force-cache-flushes class)
-               ;; KLUDGE: avoid an infinite recursion, it's still better to
-               ;; bail out with an error for server softwares. see FIXME above.
-               ;; details: http://thread.gmane.org/gmane.lisp.steel-bank.devel/10175
-               ;;
-               ;; Error message here is trying to figure out a bit more about the
-               ;; situation, since we don't have anything approaching a test-case
-               ;; for the bug.
-               (let ((new-state (layout-invalid (wrapper-of instance))))
-                 (unless (neq t new-state)
-                   (cerror "Nevermind and recurse." 'bug
-                           :format-control "~@<Problem forcing cache flushes. Please report ~
-                                               to sbcl-devel. Info:~% ~S~:@>"
-                           :format-arguments (mapcar (lambda (x)
-                                                       (cons x (layout-invalid x)))
-                                                     (list owrapper
-                                                           (wrapper-of instance)
-                                                           (class-wrapper class)))))))
-             (check-wrapper-validity instance))
-            ((consp state)
-             (ecase (car state)
-               (:flush
-                (let ((new (cadr state)))
-                  (cond ((std-instance-p instance)
-                         (setf (std-instance-wrapper instance) new))
-                        ((fsc-instance-p instance)
-                         (setf (fsc-instance-wrapper instance) new))
-                        (t
-                         (bug "unrecognized instance type")))))
-               (:obsolete
-                (%obsolete-instance-trap owrapper (cadr state) instance))))
-            (t
-             (bug "Invalid LAYOUT-INVALID: ~S" state))))))
+      (if (not state)
+          owrapper
+          (with-world-lock ()
+            (self instance))))))
 
 (declaim (inline check-obsolete-instance))
 (defun check-obsolete-instance (instance)
