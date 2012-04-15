@@ -855,16 +855,26 @@
 (defun update-class (class finalizep)
   (without-package-locks
     (with-world-lock ()
-      (when (or finalizep (class-finalized-p class))
-        (%update-cpl class (compute-class-precedence-list class))
-        ;; This invocation of UPDATE-SLOTS, in practice, finalizes the
-        ;; class.
-        (%update-slots class (compute-slots class))
-        (update-gfs-of-class class)
-        (setf (plist-value class 'default-initargs) (compute-default-initargs class))
-        (update-ctors 'finalize-inheritance :class class))
-      (dolist (sub (class-direct-subclasses class))
-        (update-class sub nil)))))
+      (when (and (not finalizep)
+                 (not (class-finalized-p class))
+                 #+nil(not (class-has-a-forward-referenced-superclass-p
+                       class))
+                 #+nil(hash-table-p sb!c::*delayed-class-finalizations*))
+        (finalize-inheritance class)
+        #+nil
+        (setf (gethash class sb!c::*delayed-class-finalizations*) class))
+      (labels ((update (class finalizep)
+                 (when (or finalizep (class-finalized-p class))
+                   (%update-cpl class (compute-class-precedence-list class))
+                   ;; This invocation of UPDATE-SLOTS, in practice, finalizes the
+                   ;; class.
+                   (%update-slots class (compute-slots class))
+                   (update-gfs-of-class class)
+                   (setf (plist-value class 'default-initargs) (compute-default-initargs class))
+                   (update-ctors 'finalize-inheritance :class class))
+                 (dolist (sub (class-direct-subclasses class))
+                   (update sub nil))))
+        (update class finalizep)))))
 
 (define-condition cpl-protocol-violation (reference-condition error)
   ((class :initarg :class :reader cpl-protocol-violation-class)

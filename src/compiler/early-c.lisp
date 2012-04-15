@@ -134,9 +134,52 @@ the stack without triggering overflow protection.")
  (setf **world-lock** (sb!thread:make-mutex :name "World Lock")))
 (!defun-from-collected-cold-init-forms !world-lock-cold-init)
 
+(defvar *delayed-class-finalizations* 't)
+(defun execute-delayed-class-finalizations (hash)
+  (return-from execute-delayed-class-finalizations)
+  (let ((classes '())
+        (seen    (make-hash-table))
+        (forward (make-hash-table)))
+    (labels ((forward-p (class)
+               (multiple-value-bind (v foundp)
+                   (gethash class forward)
+                 (if foundp
+                     v
+                     (setf (gethash class forward)
+                           (or (sb!pcl::forward-referenced-class-p class)
+                               (some #'forward-p
+                                     (sb-pcl:class-direct-superclasses class))))))))
+      (maphash (lambda (k v) v
+                 (if (or (sb!pcl:class-finalized-p k)
+                         (forward-p k))
+                     (remhash k hash)
+                     (push k classes)))
+               hash)
+    (labels ((walk (classes)
+               (dolist (c classes)
+                 (unless (shiftf (gethash c seen) t)
+                   (remhash c hash)
+                   (walk (sb!pcl:class-direct-superclasses c))))))
+      (mapc (lambda (c)
+              (walk (sb!pcl:class-direct-superclasses c)))
+            classes)
+      (maphash (lambda (k v) v
+                 (format t "Finalize: ~A~%" k)
+                 (sb!pcl:finalize-inheritance k))
+               hash)))))
+
 (defmacro with-world-lock ((&key (waitp t)) &body body)
-  `(sb!thread:with-recursive-lock (**world-lock** :waitp ,waitp)
-     ,@body))
+  (let ((thunk (gensym "BODY")))
+    `(dx-flet ((,thunk () ,@body))
+       (if (sb-thread:holding-mutex-p **world-lock**)
+           (,thunk)
+           (sb!thread:with-recursive-lock (**world-lock**
+                                           #+nil :waitp #+nil ,waitp)
+             (let ((*delayed-class-finalizations*
+                     (make-hash-table)))
+               (unwind-protect (,thunk)
+                 (execute-delayed-class-finalizations
+                  (shiftf *delayed-class-finalizations* nil)))))))))
 
 (declaim (type fixnum *compiler-sset-counter*))
 (defvar *compiler-sset-counter* 0)
