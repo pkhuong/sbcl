@@ -1562,8 +1562,10 @@
        (eql (ea-size dst) :qword)
        (let ((base (ea-base dst)))
          (not (or (null base)
+                  (fixup-p (ea-disp dst))
                   (location= base rsp-tn)
                   (location= base rbp-tn)
+                  #!+sb-thread
                   (location= base thread-base-tn))))))
 
 (defun emit-mov (segment dst src)
