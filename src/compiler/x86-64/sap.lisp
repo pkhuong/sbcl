@@ -161,9 +161,11 @@
                                     ref-insn
                                     sc
                                     type
-                                    size)
+                                    size
+                                    &optional (unboxed t))
              (let ((ref-name-c (symbolicate ref-name "-C"))
-                   (set-name-c (symbolicate set-name "-C")))
+                   (set-name-c (symbolicate set-name "-C"))
+                   (set-insn (if unboxed 'movu 'movr)))
                `(progn
                   (define-vop (,ref-name)
                     (:translate ,ref-name)
@@ -198,7 +200,7 @@
                     (:results (result :scs (,sc)))
                     (:result-types ,type)
                     (:generator 5
-                      (inst mov (make-ea ,size :base sap :index offset)
+                      (inst ,set-insn (make-ea ,size :base sap :index offset)
                             (reg-in-size value ,size))
                       (move result value)))
                   (define-vop (,set-name-c)
@@ -212,7 +214,7 @@
                     (:results (result :scs (,sc)))
                     (:result-types ,type)
                     (:generator 4
-                      (inst mov (make-ea ,size :base sap :disp offset)
+                      (inst ,set-insn (make-ea ,size :base sap :disp offset)
                             (reg-in-size value ,size))
                       (move result value)))))))
 
@@ -235,7 +237,7 @@
   (def-system-ref-and-set sap-ref-sap %set-sap-ref-sap mov
     sap-reg system-area-pointer :qword)
   (def-system-ref-and-set sap-ref-lispobj %set-sap-ref-lispobj mov
-    descriptor-reg * :qword))
+    descriptor-reg * :qword nil))
 
 ;;;; SAP-REF-DOUBLE
 

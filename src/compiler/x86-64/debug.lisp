@@ -71,7 +71,7 @@
   (:generator 9
     (move temp offset)
     (inst neg temp)
-    (inst mov
+    (inst movu
           (make-ea :qword :base sap :disp (frame-byte-offset 0) :index temp
                    :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
           value)
@@ -87,7 +87,7 @@
   (:results (result :scs (descriptor-reg)))
   (:result-types *)
   (:generator 5
-    (inst mov (make-ea :qword :base sap :disp (frame-byte-offset index))
+    (inst movu (make-ea :qword :base sap :disp (frame-byte-offset index))
           value)
     (move result value)))
 

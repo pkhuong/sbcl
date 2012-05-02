@@ -261,10 +261,10 @@
              (unsigned-reg
               (inst or old value)))
            (inst rol old :cl)
-           (inst mov (make-ea :qword :base object :index word-index
-                              :scale n-word-bytes
-                              :disp (- (* vector-data-offset n-word-bytes)
-                                       other-pointer-lowtag))
+           (inst movu (make-ea :qword :base object :index word-index
+                               :scale n-word-bytes
+                               :disp (- (* vector-data-offset n-word-bytes)
+                                        other-pointer-lowtag))
                  old)
            (sc-case value
              (immediate
@@ -312,10 +312,10 @@
                   (inst or old value)
                   (unless (zerop shift)
                     (inst rol old shift)))))
-             (inst mov (make-ea :qword :base object
-                                :disp (- (* (+ word vector-data-offset)
-                                            n-word-bytes)
-                                         other-pointer-lowtag))
+             (inst movu (make-ea :qword :base object
+                                 :disp (- (* (+ word vector-data-offset)
+                                             n-word-bytes)
+                                          other-pointer-lowtag))
                    old)
              (sc-case value
                (immediate
