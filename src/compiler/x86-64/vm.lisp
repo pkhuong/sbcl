@@ -554,3 +554,6 @@
 (!def-vm-support-routine combination-implementation-style (node)
   (declare (type sb!c::combination node) (ignore node))
   (values :default nil))
+
+(defun emit-write-barrier (base offset)
+  (declare (ignore base offset)))
