@@ -1623,7 +1623,15 @@
   ;; immediate to register/memory
   (:printer reg/mem-imm ((op '(#b1100011 #b000))))
 
-  (:emitter (emit-mov segment dst src)))
+  (:emitter
+   (when (and (ea-p dst)
+              (eql (ea-size dst) :qword))
+     (let ((base (ea-base dst)))
+       (assert (or (null base)
+                   (location= base rsp-tn)
+                   (location= base rbp-tn)
+                   (location= base thread-base-tn)))))
+   (emit-mov segment dst src)))
 
 (define-instruction movr (segment dst src)
   (:emitter (emit-mov segment dst src)))
