@@ -1557,6 +1557,58 @@
                 (emit-byte-with-reg segment #b10111 (reg-tn-encoding dst))
                 (emit-qword segment src))))))
 
+(defun emit-mov (segment dst src)
+  (let ((size (matching-operand-size dst src)))
+    (maybe-emit-operand-size-prefix segment size)
+    (cond ((register-p dst)
+           (cond ((integerp src)
+                  (cond ((eq size :qword)
+                         (emit-immediate-move-to-qword-register segment
+                                                                dst src))
+                        (t
+                         (maybe-emit-rex-prefix segment size nil nil dst)
+                         (emit-byte-with-reg segment
+                                             (if (eq size :byte)
+                                                 #b10110
+                                                 #b10111)
+                                             (reg-tn-encoding dst))
+                         (emit-sized-immediate segment size src))))
+                 (t
+                  (maybe-emit-rex-for-ea segment src dst)
+                  (emit-byte segment
+                             (if (eq size :byte)
+                                 #b10001010
+                                 #b10001011))
+                  (emit-ea segment src (reg-tn-encoding dst) :allow-constants t))))
+          ((integerp src)
+           ;; C7 only deals with 32 bit immediates even if the
+           ;; destination is a 64-bit location. The value is
+           ;; sign-extended in this case.
+           (maybe-emit-rex-for-ea segment dst nil)
+           (emit-byte segment (if (eq size :byte) #b11000110 #b11000111))
+           (emit-ea segment dst #b000)
+           (emit-sized-immediate segment size src))
+          ((register-p src)
+           (maybe-emit-rex-for-ea segment dst src)
+           (emit-byte segment (if (eq size :byte) #b10001000 #b10001001))
+           (emit-ea segment dst (reg-tn-encoding src)))
+          ((fixup-p src)
+           ;; Generally we can't MOV a fixupped value into an EA, since
+           ;; MOV on non-registers can only take a 32-bit immediate arg.
+           ;; Make an exception for :FOREIGN fixups (pretty much just
+           ;; the runtime asm, since other foreign calls go through the
+           ;; the linkage table) and for linkage table references, since
+           ;; these should always end up in low memory.
+           (aver (or (eq (fixup-flavor src) :foreign)
+                     (eq (fixup-flavor src) :foreign-dataref)
+                     (eq (ea-size dst) :dword)))
+           (maybe-emit-rex-for-ea segment dst nil)
+           (emit-byte segment #b11000111)
+           (emit-ea segment dst #b000)
+           (emit-absolute-fixup segment src))
+          (t
+           (error "bogus arguments to MOV: ~S ~S" dst src)))))
+
 (define-instruction mov (segment dst src)
   ;; immediate to register
   (:printer reg ((op #b1011) (imm nil :type 'signed-imm-data))
@@ -1571,57 +1623,13 @@
   ;; immediate to register/memory
   (:printer reg/mem-imm ((op '(#b1100011 #b000))))
 
-  (:emitter
-   (let ((size (matching-operand-size dst src)))
-     (maybe-emit-operand-size-prefix segment size)
-     (cond ((register-p dst)
-            (cond ((integerp src)
-                   (cond ((eq size :qword)
-                          (emit-immediate-move-to-qword-register segment
-                                                                 dst src))
-                         (t
-                          (maybe-emit-rex-prefix segment size nil nil dst)
-                          (emit-byte-with-reg segment
-                                              (if (eq size :byte)
-                                                  #b10110
-                                                  #b10111)
-                                              (reg-tn-encoding dst))
-                          (emit-sized-immediate segment size src))))
-                  (t
-                   (maybe-emit-rex-for-ea segment src dst)
-                   (emit-byte segment
-                              (if (eq size :byte)
-                                  #b10001010
-                                  #b10001011))
-                   (emit-ea segment src (reg-tn-encoding dst) :allow-constants t))))
-           ((integerp src)
-            ;; C7 only deals with 32 bit immediates even if the
-            ;; destination is a 64-bit location. The value is
-            ;; sign-extended in this case.
-            (maybe-emit-rex-for-ea segment dst nil)
-            (emit-byte segment (if (eq size :byte) #b11000110 #b11000111))
-            (emit-ea segment dst #b000)
-            (emit-sized-immediate segment size src))
-           ((register-p src)
-            (maybe-emit-rex-for-ea segment dst src)
-            (emit-byte segment (if (eq size :byte) #b10001000 #b10001001))
-            (emit-ea segment dst (reg-tn-encoding src)))
-           ((fixup-p src)
-            ;; Generally we can't MOV a fixupped value into an EA, since
-            ;; MOV on non-registers can only take a 32-bit immediate arg.
-            ;; Make an exception for :FOREIGN fixups (pretty much just
-            ;; the runtime asm, since other foreign calls go through the
-            ;; the linkage table) and for linkage table references, since
-            ;; these should always end up in low memory.
-            (aver (or (eq (fixup-flavor src) :foreign)
-                      (eq (fixup-flavor src) :foreign-dataref)
-                      (eq (ea-size dst) :dword)))
-            (maybe-emit-rex-for-ea segment dst nil)
-            (emit-byte segment #b11000111)
-            (emit-ea segment dst #b000)
-            (emit-absolute-fixup segment src))
-           (t
-            (error "bogus arguments to MOV: ~S ~S" dst src))))))
+  (:emitter (emit-mov segment dst src)))
+
+(define-instruction movr (segment dst src)
+  (:emitter (emit-mov segment dst src)))
+
+(define-instruction movu (segment dst src)
+  (:emitter (emit-mov segment dst src)))
 
 ;;; Emit a sign-extending (if SIGNED-P is true) or zero-extending move.
 ;;; To achieve the shortest possible encoding zero extensions into a

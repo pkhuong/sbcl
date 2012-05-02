@@ -1206,9 +1206,6 @@
 (defmacro inst (&whole whole instruction &rest args &environment env)
   #!+sb-doc
   "Emit the specified instruction to the current segment."
-  (when (or (string-equal instruction "MOVR")
-            (string-equal instruction "MOVU"))
-    (setf instruction 'mov))
   (let ((inst (gethash (symbol-name instruction) *assem-instructions*)))
     (cond ((null inst)
            (error "unknown instruction: ~S" instruction))
