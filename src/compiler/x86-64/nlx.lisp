@@ -263,7 +263,8 @@
     (inst lea temp-reg-tn (make-fixup nil :code-object entry-label))
     (storew temp-reg-tn
             block
-            catch-block-entry-pc-slot)
+            catch-block-entry-pc-slot
+        0 temp)
 
     ;; Run any required UWPs.
     (inst lea temp-reg-tn (make-fixup 'unwind :assembly-routine))

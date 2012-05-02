@@ -1557,6 +1557,15 @@
                 (emit-byte-with-reg segment #b10111 (reg-tn-encoding dst))
                 (emit-qword segment src))))))
 
+(defun write-barrier-dest-p (dst)
+  (and (ea-p dst)
+       (eql (ea-size dst) :qword)
+       (let ((base (ea-base dst)))
+         (not (or (null base)
+                  (location= base rsp-tn)
+                  (location= base rbp-tn)
+                  (location= base thread-base-tn))))))
+
 (defun emit-mov (segment dst src)
   (let ((size (matching-operand-size dst src)))
     (maybe-emit-operand-size-prefix segment size)
@@ -1609,7 +1618,7 @@
           (t
            (error "bogus arguments to MOV: ~S ~S" dst src)))))
 
-(define-instruction mov (segment dst src)
+(define-instruction mov (segment dst src &key (checked t))
   ;; immediate to register
   (:printer reg ((op #b1011) (imm nil :type 'signed-imm-data))
             '(:name :tab reg ", " imm))
@@ -1624,20 +1633,53 @@
   (:printer reg/mem-imm ((op '(#b1100011 #b000))))
 
   (:emitter
-   (when (and (ea-p dst)
-              (eql (ea-size dst) :qword))
-     (let ((base (ea-base dst)))
-       (assert (or (null base)
-                   (location= base rsp-tn)
-                   (location= base rbp-tn)
-                   (location= base thread-base-tn)))))
+   (when checked
+     (aver (not (write-barrier-dest-p dst))))
    (emit-mov segment dst src)))
 
-(define-instruction movr (segment dst src)
-  (:emitter (emit-mov segment dst src)))
+(define-instruction-macro movr (dst src &optional scratch scratch2)
+  (once-only ((dst dst)
+              (src src)
+              (scratch  scratch)
+              (scratch2 scratch2))
+    `(if (not (write-barrier-dest-p ,dst))
+         (inst mov ,dst ,src :checked nil)
+         (let ((base   (ea-base ,dst))
+               (offset (ea-disp ,dst))
+               (index  (ea-index ,dst))
+               (scale  (ea-scale ,dst)))
+           (cond ((null index)
+                  (unless ,scratch
+                    (aver (not (location= temp-reg-tn base)))
+                    (setf ,scratch temp-reg-tn))
+                  (aver (not (and (tn-p ,src) (location= ,scratch ,src))))
+                  (emit-write-barrier base :offset offset :scratch ,scratch)
+                  (inst mov ,dst ,src :checked nil))
+                 (t
+                  (unless ,scratch
+                    (aver (not (location= temp-reg-tn base)))
+                    (aver (not (location= temp-reg-tn index)))
+                    (setf ,scratch temp-reg-tn))
+                  (cond ((or (null ,scratch2)
+                             (location= ,scratch ,scratch2))
+                         (aver (not (and (tn-p ,src) (location= ,scratch ,src))))
+                         (emit-write-barrier base
+                                             :offset  offset
+                                             :index   index
+                                             :scale   scale
+                                             :scratch ,scratch)
+                         (inst mov ,dst ,src :checked nil))
+                        (t
+                         (aver (not (and (tn-p ,src) (location= ,scratch ,src))))
+                         (aver (not (and (tn-p ,src) (location= ,scratch2 ,src))))
+                         (inst lea ,scratch ,dst)
+                         (emit-write-barrier ,scratch :scratch ,scratch2)
+                         (inst mov (make-ea :qword :base ,scratch) ,src
+                               :checked nil)))))))))
 
-(define-instruction movu (segment dst src)
-  (:emitter (emit-mov segment dst src)))
+(define-instruction-macro movu (dst src &optional scratch scratch2)
+  `(prog1 (inst mov ,dst ,src :checked nil)
+     ,scratch ,scratch2))
 
 ;;; Emit a sign-extending (if SIGNED-P is true) or zero-extending move.
 ;;; To achieve the shortest possible encoding zero extensions into a
