@@ -463,16 +463,19 @@
            `((:translate ,translate)))
        (:policy :fast-safe)
        (:args (object :scs (descriptor-reg))
-              (index :scs (any-reg))
+              (index :scs (any-reg) :to (:eval 0) :target temp)
               (value :scs ,scs :target result))
        (:arg-types ,type tagged-num ,el-type)
+       (:temporary (:sc any-reg) temp)
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
          (inst movr (make-ea :qword :base object :index index
                              :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                              :disp (- (* ,offset n-word-bytes) ,lowtag))
-               value)
+               value
+               temp
+               temp-reg-tn)
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
        ,@(when translate
@@ -501,7 +504,7 @@
            `((:translate ,translate)))
        (:policy :fast-safe)
        (:args (object :scs (descriptor-reg))
-              (index :scs (any-reg))
+              (index :scs (any-reg) :to (:eval 0) :target temp)
               (value :scs ,scs :target result))
        (:info offset)
        (:arg-types ,type tagged-num
@@ -509,13 +512,16 @@
                                                      n-word-bytes
                                                      vector-data-offset))
                    ,el-type)
+       (:temporary (:sc any-reg) temp)
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
          (inst movr (make-ea :qword :base object :index index
                              :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                              :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
-               value)
+               value
+               temp
+               temp-reg-tn)
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
        ,@(when translate

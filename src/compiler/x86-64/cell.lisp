@@ -573,7 +573,7 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
-    (inst movr (make-ea-for-raw-slot object tmp :scale (ash 1 (- word-shift n-fixnum-tag-bits))) value)
+    (inst movu (make-ea-for-raw-slot object tmp :scale (ash 1 (- word-shift n-fixnum-tag-bits))) value)
     (move result value)))
 
 (define-vop (raw-instance-set-c/word)

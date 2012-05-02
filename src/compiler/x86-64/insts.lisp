@@ -1665,6 +1665,7 @@
                   (cond ((or (null ,scratch2)
                              (location= ,scratch ,scratch2))
                          (aver (not (and (tn-p ,src) (location= ,scratch ,src))))
+                         (aver (not "Bad code shall be emitted!"))
                          (emit-write-barrier base
                                              :offset  offset
                                              :index   index
