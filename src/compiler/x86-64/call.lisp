@@ -167,9 +167,9 @@
     movupd (ea-for-cdf-data-stack variable-home-tn frame-pointer))
   (define-frame-op complex-single-float complex-single-reg complex-single-stack
     movq   (ea-for-csf-data-stack variable-home-tn frame-pointer))
-  (define-frame-op signed-byte-64 signed-reg signed-stack mov)
-  (define-frame-op unsigned-byte-64 unsigned-reg unsigned-stack mov)
-  (define-frame-op system-area-pointer sap-reg sap-stack mov))
+  (define-frame-op signed-byte-64 signed-reg signed-stack movu)
+  (define-frame-op unsigned-byte-64 unsigned-reg unsigned-stack movu)
+  (define-frame-op system-area-pointer sap-reg sap-stack movu))
 
 (defun primitive-type-indirect-cell-type (ptype)
   (declare (type primitive-type ptype))

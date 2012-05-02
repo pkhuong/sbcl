@@ -11,6 +11,11 @@
 
 (in-package "SB!VM")
 
+;;;; write-barrier support
+(defun emit-write-barrier (base
+                           &key (offset 0) index scale scratch)
+  (declare (ignore base offset index scale scratch)))
+
 ;;;; instruction-like macros
 
 (defmacro move (dst src)
@@ -37,20 +42,35 @@
 (defmacro loadw (value ptr &optional (slot 0) (lowtag 0))
   `(inst mov ,value (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
-(defmacro storew (value ptr &optional (slot 0) (lowtag 0))
-  (once-only ((value value))
-    `(cond ((and (integerp ,value)
-                 (not (typep ,value '(signed-byte 32))))
-            (inst mov temp-reg-tn ,value)
-            (inst mov (make-ea-for-object-slot ,ptr ,slot ,lowtag) temp-reg-tn))
-           (t
-            (inst mov (make-ea-for-object-slot ,ptr ,slot ,lowtag) ,value)))))
+(defmacro storew (value ptr &optional (slot 0) (lowtag 0) temp)
+  (let ((mov-inst (if (eql temp :unchecked) ;; default if lowtag is 0?
+                      'movu
+                      'movr)))
+    (once-only ((value value)
+                (temp temp)
+                (ea   `(make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+      `(cond ((and (integerp ,value)
+                   (not (typep ,value '(signed-byte 32))))
+              (inst mov temp-reg-tn ,value)
+              (inst ,mov-inst ,ea temp-reg-tn ,temp))
+             (t
+              (inst ,mov-inst ,ea ,value ,temp))))))
 
 (defmacro pushw (ptr &optional (slot 0) (lowtag 0))
   `(inst push (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
-(defmacro popw (ptr &optional (slot 0) (lowtag 0))
-  `(inst pop (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+(defmacro popw (ptr &optional (slot 0) (lowtag 0) (temp 'temp-reg-tn))
+  (let ((barrier-p (neq temp :unchecked)))
+    (once-only ((ptr ptr)
+                (temp temp)
+                (ea `(make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+      `(progn
+         (when (and ,barrier-p
+                    (write-barrier-dest-p ,ea))
+           (aver (not (location= ,ptr ,temp)))
+           (emit-write-barrier ,ptr :offset (- (* ,slot n-word-bytes) ,lowtag)
+                                    :scratch ,temp))
+         (inst pop ,ea)))))
 
 ;;;; macros to generate useful values
 
@@ -68,7 +88,7 @@
   `(inst mov ,reg (make-ea-for-symbol-value ,symbol)))
 
 (defmacro store-symbol-value (reg symbol)
-  `(inst mov (make-ea-for-symbol-value ,symbol) ,reg))
+  `(inst movu (make-ea-for-symbol-value ,symbol) ,reg))
 
 #!+sb-thread
 (defmacro make-ea-for-symbol-tls-index (symbol)
@@ -449,9 +469,9 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
-         (inst mov (make-ea :qword :base object :index index
-                            :scale (ash 1 (- word-shift n-fixnum-tag-bits))
-                            :disp (- (* ,offset n-word-bytes) ,lowtag))
+         (inst movr (make-ea :qword :base object :index index
+                             :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                             :disp (- (* ,offset n-word-bytes) ,lowtag))
                value)
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
@@ -468,9 +488,9 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 3                    ; was 5
-         (inst mov (make-ea :qword :base object
-                            :disp (- (* (+ ,offset index) n-word-bytes)
-                                     ,lowtag))
+         (inst movr (make-ea :qword :base object
+                             :disp (- (* (+ ,offset index) n-word-bytes)
+                                      ,lowtag))
                value)
          (move result value)))))
 
@@ -492,9 +512,9 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
-         (inst mov (make-ea :qword :base object :index index
-                            :scale (ash 1 (- word-shift n-fixnum-tag-bits))
-                            :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
+         (inst movr (make-ea :qword :base object :index index
+                             :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                             :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
                value)
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
@@ -514,9 +534,9 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 3                    ; was 5
-         (inst mov (make-ea :qword :base object
-                            :disp (- (* (+ ,offset index offset) n-word-bytes)
-                                     ,lowtag))
+         (inst movr (make-ea :qword :base object
+                             :disp (- (* (+ ,offset index offset) n-word-bytes)
+                                      ,lowtag))
                value)
          (move result value)))))
 

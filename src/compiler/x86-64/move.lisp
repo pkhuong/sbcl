@@ -130,11 +130,11 @@
      (inst mov target val))
     ;; Likewise if the value is small enough.
     ((typep val '(signed-byte 32))
-     (inst mov target val))
+     (inst movr target val))
     ;; Otherwise go through the temporary register
     (tmp-tn
      (inst mov tmp-tn val)
-     (inst mov target tmp-tn))
+     (inst movr target tmp-tn))
     (t
      (error "~A is not a register, no temporary given, and immediate ~A too large" target val))))
 
@@ -174,30 +174,37 @@
                  ;; C-call
                  (etypecase val
                    (integer
-                    (storew (fixnumize val) fp (tn-offset y)))
+                    (storew (fixnumize val) fp (tn-offset y)
+                        0 :unchecked))
                    (symbol
                     (storew (+ nil-value (static-symbol-offset val))
-                            fp (tn-offset y)))
+                            fp (tn-offset y)
+                        0 :unchecked))
                    (character
                     (storew (logior (ash (char-code val) n-widetag-bits)
                                     character-widetag)
-                            fp (tn-offset y))))
+                            fp (tn-offset y)
+                        0 :unchecked)))
                ;; Lisp stack
                (etypecase val
                  (integer
-                  (storew (fixnumize val) fp (frame-word-offset (tn-offset y))))
+                  (storew (fixnumize val) fp (frame-word-offset (tn-offset y))
+                      0 :unchecked))
                  (symbol
                   (storew (+ nil-value (static-symbol-offset val))
-                          fp (frame-word-offset (tn-offset y))))
+                          fp (frame-word-offset (tn-offset y))
+                      0 :unchecked))
                  (character
                   (storew (logior (ash (char-code val) n-widetag-bits)
                                   character-widetag)
-                          fp (frame-word-offset (tn-offset y)))))))
+                          fp (frame-word-offset (tn-offset y))
+                      0 :unchecked)))))
          (if (= (tn-offset fp) esp-offset)
              ;; C-call
-             (storew x fp (tn-offset y))
+             (storew x fp (tn-offset y) 0 :unchecked)
            ;; Lisp stack
-           (storew x fp (frame-word-offset (tn-offset y)))))))))
+           (storew x fp (frame-word-offset (tn-offset y))
+               0 :unchecked)))))))
 
 (define-move-vop move-arg :move-arg
   (any-reg descriptor-reg)
