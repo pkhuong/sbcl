@@ -79,7 +79,7 @@
   (:generator 4
     (move result value)
     (inst xadd
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea :dword :base object
                            :disp (- (* offset n-word-bytes) lowtag))
            value)
@@ -150,7 +150,7 @@
   (:generator 4
     (move result value)
     (inst xadd
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea :dword :base object
                            :disp (- (* (+ base offset) n-word-bytes) lowtag))
            value)
