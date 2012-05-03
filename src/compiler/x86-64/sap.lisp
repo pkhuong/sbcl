@@ -162,7 +162,7 @@
                                     sc
                                     type
                                     size
-                                    &optional (unboxed t))
+                                    &optional (unboxed nil))
              (let ((ref-name-c (symbolicate ref-name "-C"))
                    (set-name-c (symbolicate set-name "-C"))
                    (set-insn (if unboxed 'movu 'movr)))
@@ -193,10 +193,10 @@
                   (define-vop (,set-name)
                     (:translate ,set-name)
                     (:policy :fast-safe)
-                    (:args (sap :scs (sap-reg) :to (:eval 0))
+                    (:args (sap :scs (sap-reg) :to (:eval 1))
                            (offset :scs (signed-reg) :to (:eval 0)
                                    ,@(and (not unboxed) `(:target temp)))
-                           (value :scs (,sc) :target result))
+                           (value :scs (,sc) :to :result :target result))
                     (:arg-types system-area-pointer signed-num ,type)
                     ,@(and (not unboxed)
                            `((:temporary (:sc any-reg) temp)))

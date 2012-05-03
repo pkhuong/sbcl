@@ -61,8 +61,11 @@
   (:results (result :scs (descriptor-reg any-reg)))
   (:generator 5
      (move rax old)
-     (inst cmpxchg (make-ea :qword :base object
+     (inst cmpxchg
+           (emit-write-barrier-for-ea
+            (make-ea :qword :base object
                             :disp (- (* offset n-word-bytes) lowtag))
+            new)
            new :lock)
      (move result rax)))
 
@@ -96,10 +99,13 @@
         (inst cmp rax no-tls-value-marker-widetag)
         (inst jmp :ne check)
         (move rax old))
-      (inst cmpxchg (make-ea :qword :base symbol
+      (inst cmpxchg
+            (emit-write-barrier-for-ea
+             (make-ea :qword :base symbol
                              :disp (- (* symbol-value-slot n-word-bytes)
                                       other-pointer-lowtag)
                              :scale 1)
+             new)
             new :lock)
       (emit-label check)
       (move result rax)
@@ -330,8 +336,10 @@
       (inst call temp-reg-tn)
       (emit-label tls-index-valid)
       (inst push (make-ea :qword :base thread-base-tn :scale 1 :index tls-index))
-      (popw bsp (- binding-value-slot binding-size))
-      (storew symbol bsp (- binding-symbol-slot binding-size))
+      (popw bsp (- binding-value-slot binding-size)
+          0 :unchecked)
+      (storew symbol bsp (- binding-symbol-slot binding-size)
+          0 :unchecked)
       (inst mov (make-ea :qword :base thread-base-tn :scale 1 :index tls-index)
             val))))
 
@@ -362,8 +370,8 @@
     (inst mov (make-ea :qword :base thread-base-tn :scale 1 :index tls-index)
           temp)
     ;; Zero out the stack.
-    (storew 0 bsp (- binding-symbol-slot binding-size))
-    (storew 0 bsp (- binding-value-slot binding-size))
+    (storew 0 bsp (- binding-symbol-slot binding-size) 0 :unchecked)
+    (storew 0 bsp (- binding-value-slot binding-size) 0 :unchecked)
     (inst sub bsp (* binding-size n-word-bytes))
     (store-binding-stack-pointer bsp)))
 
@@ -403,10 +411,10 @@
     #!+sb-thread
     (inst mov (make-ea :qword :base thread-base-tn :scale 1 :index tls-index)
           value)
-    (storew 0 bsp (- binding-symbol-slot binding-size))
+    (storew 0 bsp (- binding-symbol-slot binding-size) 0 :unchecked)
 
     SKIP
-    (storew 0 bsp (- binding-value-slot binding-size))
+    (storew 0 bsp (- binding-value-slot binding-size) 0 :unchecked)
     (inst sub bsp (* binding-size n-word-bytes))
     (inst cmp where bsp)
     (inst jmp :ne LOOP)
@@ -419,16 +427,20 @@
   (:generator 1
      (load-binding-stack-pointer bsp)
      (inst add bsp (* binding-size n-word-bytes))
-     (storew unbound-marker-widetag bsp (- binding-symbol-slot binding-size))
-     (storew rbp-tn bsp (- binding-value-slot binding-size))
+     (storew unbound-marker-widetag bsp (- binding-symbol-slot binding-size)
+         0 :unchecked)
+     (storew rbp-tn bsp (- binding-value-slot binding-size)
+         0 :unchecked)
      (store-binding-stack-pointer bsp)))
 
 (define-vop (unbind-sentinel)
   (:temporary (:sc unsigned-reg) bsp)
   (:generator 1
      (load-binding-stack-pointer bsp)
-     (storew 0 bsp (- binding-value-slot binding-size))
-     (storew 0 bsp (- binding-symbol-slot binding-size))
+     (storew 0 bsp (- binding-value-slot binding-size)
+         0 :unchecked)
+     (storew 0 bsp (- binding-symbol-slot binding-size)
+         0 :unchecked)
      (inst sub bsp (* binding-size n-word-bytes))
      (store-binding-stack-pointer bsp)))
 
@@ -573,7 +585,8 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
-    (inst movr (make-ea-for-raw-slot object tmp :scale (ash 1 (- word-shift n-fixnum-tag-bits))) value
+    (inst movr (make-ea-for-raw-slot object tmp
+                                     :scale (ash 1 (- word-shift n-fixnum-tag-bits))) value
           tmp temp-reg-tn)
     (move result value)))
 

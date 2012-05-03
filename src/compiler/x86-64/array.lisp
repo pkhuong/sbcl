@@ -261,11 +261,12 @@
              (unsigned-reg
               (inst or old value)))
            (inst rol old :cl)
-           (inst movu (make-ea :qword :base object :index word-index
+           (inst movr (make-ea :qword :base object :index word-index
                                :scale n-word-bytes
                                :disp (- (* vector-data-offset n-word-bytes)
                                         other-pointer-lowtag))
-                 old)
+                 old
+                 word-index temp-reg-tn)
            (sc-case value
              (immediate
               (inst mov result (tn-value value)))
@@ -312,7 +313,7 @@
                   (inst or old value)
                   (unless (zerop shift)
                     (inst rol old shift)))))
-             (inst movu (make-ea :qword :base object
+             (inst movr (make-ea :qword :base object
                                  :disp (- (* (+ word vector-data-offset)
                                              n-word-bytes)
                                           other-pointer-lowtag))
@@ -395,16 +396,28 @@
                  (:constant (constant-displacement other-pointer-lowtag
                                                    4 vector-data-offset))
                   single-float)
-     ,@(when use-temp '((:temporary (:sc unsigned-reg) dword-index)))
+     ,@(when (or t use-temp) '((:temporary (:sc unsigned-reg) dword-index)))
      (:results (result :scs (single-reg)))
      (:result-types single-float)
      (:generator 5
       ,@(if use-temp
-            '((move dword-index index)
+            `((move dword-index index)
               (inst shr dword-index (1+ (- n-fixnum-tag-bits word-shift)))
-              (inst movss (make-ea-for-float-ref object dword-index offset 4) value))
-            '((inst movss (make-ea-for-float-ref object index offset 4
-                           :scale (ash 4 (- n-fixnum-tag-bits))) value)))
+              (inst movss
+                    (emit-write-barrier-for-ea
+                     (make-ea-for-float-ref object dword-index offset 4)
+                     value
+                     dword-index
+                     temp-reg-tn)
+                    value))
+            `((inst movss
+                    (emit-write-barrier-for-ea
+                     (make-ea-for-float-ref object index offset 4
+                                            :scale (ash 4 (- n-fixnum-tag-bits)))
+                     value
+                     dword-index
+                     temp-reg-tn)
+                    value)))
       (move result value))))
 
 (define-vop (data-vector-set-c-with-offset/simple-array-single-float)
@@ -421,7 +434,11 @@
   (:results (result :scs (single-reg)))
   (:result-types single-float)
   (:generator 4
-   (inst movss (make-ea-for-float-ref object index offset 4) value)
+   (inst movss
+         (emit-write-barrier-for-ea
+          (make-ea-for-float-ref object index offset 4)
+          value)
+         value)
    (move result value)))
 
 (define-vop (data-vector-ref-with-offset/simple-array-double-float)
@@ -466,11 +483,16 @@
               (:constant (constant-displacement other-pointer-lowtag
                                                 8 vector-data-offset))
               double-float)
+  (:temporary (:sc any-reg) temp)
   (:results (result :scs (double-reg)))
   (:result-types double-float)
   (:generator 20
-   (inst movsd (make-ea-for-float-ref object index offset 8
-                                      :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
+   (inst movsd
+         (emit-write-barrier-for-ea
+          (make-ea-for-float-ref object index offset 8
+                                 :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
+          value
+          temp temp-reg-tn)
          value)
    (move result value)))
 
@@ -488,7 +510,11 @@
   (:results (result :scs (double-reg)))
   (:result-types double-float)
   (:generator 19
-   (inst movsd (make-ea-for-float-ref object index offset 8) value)
+   (inst movsd
+         (emit-write-barrier-for-ea
+          (make-ea-for-float-ref object index offset 8)
+          value)
+         value)
    (move result value)))
 
 
@@ -536,12 +562,17 @@
               (:constant (constant-displacement other-pointer-lowtag
                                                 8 vector-data-offset))
               complex-single-float)
+  (:temporary (:sc any-reg) temp)
   (:results (result :scs (complex-single-reg)))
   (:result-types complex-single-float)
   (:generator 5
     (move result value)
-    (inst movq (make-ea-for-float-ref object index offset 8
-                                      :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
+    (inst movq
+          (emit-write-barrier-for-ea
+           (make-ea-for-float-ref object index offset 8
+                                  :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
+           value
+           temp temp-reg-tn)
           value)))
 
 (define-vop (data-vector-set-c-with-offset/simple-array-complex-single-float)
@@ -559,7 +590,11 @@
   (:result-types complex-single-float)
   (:generator 4
     (move result value)
-    (inst movq (make-ea-for-float-ref object index offset 8) value)))
+    (inst movq
+          (emit-write-barrier-for-ea
+           (make-ea-for-float-ref object index offset 8)
+           value)
+          value)))
 
 (define-vop (data-vector-ref-with-offset/simple-array-complex-double-float)
   (:note "inline array access")
@@ -603,11 +638,16 @@
               (:constant (constant-displacement other-pointer-lowtag
                                                 16 vector-data-offset))
               complex-double-float)
+  (:temporary (:sc any-reg) temp)
   (:results (result :scs (complex-double-reg)))
   (:result-types complex-double-float)
   (:generator 20
-    (inst movapd (make-ea-for-float-ref object index offset 16
-                                        :scale (ash 2 (- word-shift n-fixnum-tag-bits)))
+    (inst movapd
+          (emit-write-barrier-for-ea
+           (make-ea-for-float-ref object index offset 16
+                                  :scale (ash 2 (- word-shift n-fixnum-tag-bits)))
+           value
+           temp temp-reg-tn)
           value)
     (move result value)))
 
@@ -625,7 +665,11 @@
   (:results (result :scs (complex-double-reg)))
   (:result-types complex-double-float)
   (:generator 19
-    (inst movapd (make-ea-for-float-ref object index offset 16) value)
+    (inst movapd
+          (emit-write-barrier-for-ea
+           (make-ea-for-float-ref object index offset 16)
+           value)
+          value)
     (move result value)))
 
 
@@ -687,15 +731,18 @@
                        (:constant (constant-displacement other-pointer-lowtag
                                                          ,n-bytes vector-data-offset))
                        ,type)
+           (:temporary (:sc any-reg) temp)
            (:results (result :scs ,scs))
            (:result-types ,type)
            (:generator 5
-                       (inst mov (make-ea ,operand-size :base object :index index :scale ,scale
-                                          :disp (- (+ (* vector-data-offset n-word-bytes)
-                                                      (* offset ,n-bytes))
-                                                   other-pointer-lowtag))
-                             (reg-in-size value ,operand-size))
-                       (move result value)))
+             (inst movr (make-ea ,operand-size
+                                 :base object :index index :scale ,scale
+                                 :disp (- (+ (* vector-data-offset n-word-bytes)
+                                             (* offset ,n-bytes))
+                                          other-pointer-lowtag))
+                   (reg-in-size value ,operand-size)
+                   temp temp-reg-tn)
+             (move result value)))
 
          (define-vop (,(symbolicate "DATA-VECTOR-SET-C-WITH-OFFSET/" ptype))
            (:translate data-vector-set-with-offset)
@@ -710,13 +757,14 @@
            (:results (result :scs ,scs))
            (:result-types ,type)
            (:generator 4
-                       (inst mov (make-ea ,operand-size :base object
-                                          :disp (- (+ (* vector-data-offset n-word-bytes)
-                                                      (* ,n-bytes index)
-                                                      (* ,n-bytes offset))
-                                                   other-pointer-lowtag))
-                             (reg-in-size value ,operand-size))
-                       (move result value))))))))
+             (inst movr (make-ea ,operand-size
+                                 :base object
+                                 :disp (- (+ (* vector-data-offset n-word-bytes)
+                                             (* ,n-bytes index)
+                                             (* ,n-bytes offset))
+                                          other-pointer-lowtag))
+                   (reg-in-size value ,operand-size))
+             (move result value))))))))
   (define-data-vector-frobs simple-array-unsigned-byte-7 movzx :byte
     positive-fixnum unsigned-reg signed-reg)
   (define-data-vector-frobs simple-array-unsigned-byte-8 movzx :byte
@@ -760,17 +808,20 @@
 (define-vop (array-atomic-incf/word)
   (:translate %array-atomic-incf/word)
   (:policy :fast-safe)
-  (:args (array :scs (descriptor-reg))
-         (index :scs (any-reg))
-         (diff :scs (unsigned-reg) :target result))
+  (:args (array :scs (descriptor-reg) :to :eval)
+         (index :scs (any-reg) :target temp)
+         (diff :scs (unsigned-reg) :to (:result 0) :target result))
   (:arg-types * positive-fixnum unsigned-num)
+  (:temporary (:sc any-reg :from (:argument 1)) temp)
   (:results (result :scs (unsigned-reg)))
   (:result-types unsigned-num)
   (:generator 4
-    (inst xadd (make-ea :qword :base array
-                        :scale (ash 1 (- word-shift n-fixnum-tag-bits))
-                        :index index
-                        :disp (- (* vector-data-offset n-word-bytes)
-                                 other-pointer-lowtag))
+    (inst xadd (emit-write-barrier-for-ea
+                (make-ea :qword :base array
+                                :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                                :index index
+                                :disp (- (* vector-data-offset n-word-bytes)
+                                         other-pointer-lowtag))
+                diff temp temp-reg-tn)
           diff :lock)
     (move result diff)))

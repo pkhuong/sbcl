@@ -78,8 +78,11 @@
   (:policy :fast-safe)
   (:generator 4
     (move result value)
-    (inst xadd (make-ea :dword :base object
-                        :disp (- (* offset n-word-bytes) lowtag))
+    (inst xadd
+          (emit-write-barrier-for-ea
+           (make-ea :dword :base object
+                           :disp (- (* offset n-word-bytes) lowtag))
+           value)
           value)))
 
 ;;; SLOT-REF and SLOT-SET are used to define VOPs like CLOSURE-REF,
@@ -129,8 +132,10 @@
   (:generator 4
     (move eax old-value)
     (move temp new-value)
-    (inst cmpxchg (make-ea :dword :base object
-                           :disp (- (* (+ base offset) n-word-bytes) lowtag))
+    (inst cmpxchg (emit-write-barrier-for-ea
+                   (make-ea :qword :base object
+                                   :disp (- (* (+ base offset) n-word-bytes) lowtag))
+                   temp)
           temp)
     (move result eax)))
 
@@ -144,6 +149,9 @@
   (:info offset)
   (:generator 4
     (move result value)
-    (inst xadd (make-ea :dword :base object
-                        :disp (- (* (+ base offset) n-word-bytes) lowtag))
+    (inst xadd
+          (emit-write-barrier-for-ea
+           (make-ea :dword :base object
+                           :disp (- (* (+ base offset) n-word-bytes) lowtag))
+           value)
           value)))
