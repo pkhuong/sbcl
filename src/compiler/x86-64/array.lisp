@@ -404,14 +404,14 @@
             `((move dword-index index)
               (inst shr dword-index (1+ (- n-fixnum-tag-bits word-shift)))
               (inst movss
-                    (emit-write-barrier-for-ea
+                    (prog1
                      (make-ea-for-float-ref object dword-index offset 4)
                      value
                      dword-index
                      temp-reg-tn)
                     value))
             `((inst movss
-                    (emit-write-barrier-for-ea
+                    (prog1
                      (make-ea-for-float-ref object index offset 4
                                             :scale (ash 4 (- n-fixnum-tag-bits)))
                      value
@@ -435,7 +435,7 @@
   (:result-types single-float)
   (:generator 4
    (inst movss
-         (emit-write-barrier-for-ea
+         (prog1
           (make-ea-for-float-ref object index offset 4)
           value)
          value)
@@ -488,7 +488,7 @@
   (:result-types double-float)
   (:generator 20
    (inst movsd
-         (emit-write-barrier-for-ea
+         (prog1
           (make-ea-for-float-ref object index offset 8
                                  :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
           value
@@ -511,7 +511,7 @@
   (:result-types double-float)
   (:generator 19
    (inst movsd
-         (emit-write-barrier-for-ea
+         (prog1
           (make-ea-for-float-ref object index offset 8)
           value)
          value)
@@ -568,7 +568,7 @@
   (:generator 5
     (move result value)
     (inst movq
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-float-ref object index offset 8
                                   :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
            value
@@ -591,7 +591,7 @@
   (:generator 4
     (move result value)
     (inst movq
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-float-ref object index offset 8)
            value)
           value)))
@@ -643,7 +643,7 @@
   (:result-types complex-double-float)
   (:generator 20
     (inst movapd
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-float-ref object index offset 16
                                   :scale (ash 2 (- word-shift n-fixnum-tag-bits)))
            value
@@ -666,7 +666,7 @@
   (:result-types complex-double-float)
   (:generator 19
     (inst movapd
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-float-ref object index offset 16)
            value)
           value)
@@ -816,7 +816,7 @@
   (:results (result :scs (unsigned-reg)))
   (:result-types unsigned-num)
   (:generator 4
-    (inst xadd (emit-write-barrier-for-ea
+    (inst xadd (prog1
                 (make-ea :qword :base array
                                 :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                                 :index index
