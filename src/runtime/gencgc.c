@@ -361,8 +361,9 @@ os_vm_size_t gencgc_alloc_granularity = GENCGC_ALLOC_GRANULARITY;
 
 #define GENCGC_N_CARD (1024*1024*16)
 
-extern unsigned char gencgc_cards[GENCGC_N_CARD];
-unsigned char gencgc_cards[GENCGC_N_CARD];
+extern unsigned char gencgc_cards[GENCGC_N_CARD+16];
+unsigned char gencgc_cards[GENCGC_N_CARD+16];
+unsigned char gencgc_cards_copy[GENCGC_N_CARD];
 
 
 /*

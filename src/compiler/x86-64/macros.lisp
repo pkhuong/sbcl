@@ -152,17 +152,22 @@
   (aver (memq scale '(1 2 4 8)))
   (unless *emit-write-barrier*
     (return-from emit-write-barrier))
-  (if (or index (/= 0 offset))
-      (inst lea scratch (make-ea :qword
-                                 :base  base
-                                 :index index
-                                 :scale scale
-                                 :disp  offset))
-      (move scratch base))
+  (cond ((or index
+             (>= offset (* +gencgc-card-size+ 16)))
+         (inst lea scratch (make-ea :qword
+                                    :base  base
+                                    :index index
+                                    :scale scale
+                                    :disp  offset))
+         (setf offset 0))
+        (t
+         (move scratch base)))
   (inst shr scratch (integer-length (1- +gencgc-card-size+)))
   (inst and scratch (1- +gencgc-n-card+))
-  (inst mov (make-ea :byte :index scratch
-                           :disp (make-fixup "gencgc_cards" :foreign))
+  (inst mov (make-ea :byte
+                     :index scratch
+                     :disp (make-fixup "gencgc_cards" :foreign
+                                       (truncate offset +gencgc-card-size+)))
         1))
 
 
