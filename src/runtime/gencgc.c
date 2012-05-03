@@ -370,6 +370,45 @@ unsigned char gencgc_barrier_cards[GENCGC_N_CARD];
 /* same, but by mprotect page */
 unsigned char gencgc_mprotect_cards[GENCGC_N_CARD/(GENCGC_CARD_BYTES/2048)];
 
+void check_card_coherence()
+{
+        unsigned nmarks, ndiff, i, j;
+
+        for (i = 0; i < 16; i++)
+                gencgc_cards[i] |= gencgc_cards[GENCGC_N_CARD+i];
+
+        for (nmarks = 0, ndiff = 0, i = 0; i < GENCGC_N_CARD; i++) {
+                if (!gencgc_barrier_cards[i]) continue;
+                nmarks++;
+                if (!gencgc_cards[i])
+                        ndiff++;
+        }
+
+        if (ndiff)
+                printf("\nbarrier delta: %u %u\n", nmarks, ndiff);
+
+        for (nmarks = 0, ndiff = 0, i = 0;
+             i < GENCGC_N_CARD/(GENCGC_CARD_BYTES/2048); i++) {
+                if (!gencgc_mprotect_cards[i]) continue;
+                nmarks++;
+                for (j = 0; j < (GENCGC_CARD_BYTES/2048); j++) {
+                        if (gencgc_cards[i*(GENCGC_CARD_BYTES/2048)+j])
+                                goto next;
+                }
+                ndiff++;
+        next:;
+        }
+
+        if (ndiff)
+                printf("\nmprotect delta: %u %u\n", nmarks, ndiff);
+
+        bzero(gencgc_cards, sizeof(gencgc_cards));
+        bzero(gencgc_barrier_cards, sizeof(gencgc_barrier_cards));
+        bzero(gencgc_mprotect_cards, sizeof(gencgc_mprotect_cards));
+
+        return;
+}
+
 
 /*
  * miscellaneous heap functions
@@ -3762,6 +3801,8 @@ collect_garbage(generation_index_t last_gen)
     if (gencgc_verbose > 1)
         print_generation_stats();
 
+    check_card_coherence();
+
     do {
         /* Collect the generation. */
 
@@ -4298,6 +4339,10 @@ gencgc_handle_wp_violation(void* fault_addr)
         int ret;
         ret = thread_mutex_lock(&free_pages_lock);
         gc_assert(ret == 0);
+        unsigned long addr = (unsigned long)fault_addr;
+        gencgc_barrier_cards[(addr/2048)%GENCGC_N_CARD] = 1;
+        gencgc_mprotect_cards[(addr/GENCGC_CARD_BYTES)%sizeof(gencgc_mprotect_cards)]
+                = 1;
         if (page_table[page_index].write_protected) {
             /* Unprotect the page. */
             os_protect(page_address(page_index), GENCGC_CARD_BYTES, OS_VM_PROT_ALL);
