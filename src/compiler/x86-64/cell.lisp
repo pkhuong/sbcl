@@ -585,7 +585,7 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
-    (inst movr (make-ea-for-raw-slot object tmp
+    (inst movu (make-ea-for-raw-slot object tmp
                                      :scale (ash 1 (- word-shift n-fixnum-tag-bits))) value
           tmp temp-reg-tn)
     (move result value)))
@@ -606,7 +606,7 @@
   (:generator 4
     (loadw tmp object 0 instance-pointer-lowtag)
     (inst shr tmp n-widetag-bits)
-    (inst movr (make-ea-for-raw-slot object tmp :index index) value
+    (inst movu (make-ea-for-raw-slot object tmp :index index) value
           tmp temp-reg-tn)
     (move result value)))
 
@@ -616,7 +616,7 @@
   (:arg-types * unsigned-num)
   (:info instance-length index)
   (:generator 4
-    (inst movr (make-ea-for-raw-slot object instance-length :index index) value)))
+    (inst movu (make-ea-for-raw-slot object instance-length :index index) value)))
 
 (define-vop (raw-instance-atomic-incf-c/word)
   (:translate %raw-instance-atomic-incf/word)
