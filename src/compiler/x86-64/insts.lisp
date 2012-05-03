@@ -1644,7 +1644,7 @@
               (src src)
               (scratch  scratch)
               (scratch2 scratch2))
-    `(if (not (write-barrier-dest-p ,dst t))
+    `(if (not (write-barrier-dest-p ,dst))
          (inst mov ,dst ,src :checked nil)
          ((lambda (dst src scratch scratch2)
             (inst mov (emit-write-barrier-for-ea dst src scratch scratch2) src
