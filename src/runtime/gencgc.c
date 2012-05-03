@@ -364,15 +364,16 @@ os_vm_size_t gencgc_alloc_granularity = GENCGC_ALLOC_GRANULARITY;
 extern unsigned char gencgc_cards[GENCGC_N_CARD+16];
 unsigned char gencgc_cards[GENCGC_N_CARD+16];
 /* at beginning of GC, copy all here */
-unsigned char gencgc_cards_copy[GENCGC_N_CARD];
+unsigned char gencgc_cards_copy[GENCGC_N_CARD+1];
 /* marked by mprotect w/ address */
 unsigned char gencgc_barrier_cards[GENCGC_N_CARD];
 /* same, but by mprotect page */
 unsigned char gencgc_mprotect_cards[GENCGC_N_CARD/(GENCGC_CARD_BYTES/2048)];
 
-void check_card_coherence()
+int check_card_coherence()
 {
         unsigned nmarks, ndiff, i, j;
+        int delta = 0;
 
         for (i = 0; i < 16; i++)
                 gencgc_cards[i] |= gencgc_cards[GENCGC_N_CARD+i];
@@ -380,33 +381,37 @@ void check_card_coherence()
         for (nmarks = 0, ndiff = 0, i = 0; i < GENCGC_N_CARD; i++) {
                 if (!gencgc_barrier_cards[i]) continue;
                 nmarks++;
-                if (!gencgc_cards[i])
+                if (!(gencgc_cards[i] || gencgc_cards[(i-1)%GENCGC_N_CARD]))
                         ndiff++;
         }
 
-        if (ndiff)
+        if (ndiff) {
                 printf("\nbarrier delta: %u %u\n", nmarks, ndiff);
+                delta = 1;
+        }
 
         for (nmarks = 0, ndiff = 0, i = 0;
              i < GENCGC_N_CARD/(GENCGC_CARD_BYTES/2048); i++) {
                 if (!gencgc_mprotect_cards[i]) continue;
                 nmarks++;
-                for (j = 0; j < (GENCGC_CARD_BYTES/2048); j++) {
-                        if (gencgc_cards[i*(GENCGC_CARD_BYTES/2048)+j])
+                for (j = 0; j <= (GENCGC_CARD_BYTES/2048); j++) {
+                        if (gencgc_cards[(i*(GENCGC_CARD_BYTES/2048)+j-1)%GENCGC_N_CARD])
                                 goto next;
                 }
                 ndiff++;
         next:;
         }
 
-        if (ndiff)
+        if (ndiff) {
                 printf("\nmprotect delta: %u %u\n", nmarks, ndiff);
+                delta = 1;
+        }
 
         bzero(gencgc_cards, sizeof(gencgc_cards));
         bzero(gencgc_barrier_cards, sizeof(gencgc_barrier_cards));
         bzero(gencgc_mprotect_cards, sizeof(gencgc_mprotect_cards));
 
-        return;
+        return delta;
 }
 
 
@@ -3767,6 +3772,9 @@ generation_index_t small_generation_limit = 1;
  *
  * We stop collecting at gencgc_oldest_gen_to_gc, even if this is less than
  * last_gen (oh, and note that by default it is NUM_GENERATIONS-1) */
+
+int gencgc_in_gc = 0;
+
 void
 collect_garbage(generation_index_t last_gen)
 {
@@ -3779,6 +3787,7 @@ collect_garbage(generation_index_t last_gen)
 
     FSHOW((stderr, "/entering collect_garbage(%d)\n", last_gen));
     log_generation_stats(gc_logfile, "=== GC Start ===");
+    gencgc_in_gc = 1;
 
     gc_active_p = 1;
 
@@ -3922,8 +3931,10 @@ collect_garbage(generation_index_t last_gen)
     gc_active_p = 0;
     large_allocation = 0;
 
+    gencgc_in_gc = 0;
     log_generation_stats(gc_logfile, "=== GC End ===");
     SHOW("returning from collect_garbage");
+    gc_assert(!check_card_coherence());
 }
 
 /* This is called by Lisp PURIFY when it is finished. All live objects
@@ -4337,12 +4348,15 @@ gencgc_handle_wp_violation(void* fault_addr)
 
     } else {
         int ret;
+        unsigned long addr;
         ret = thread_mutex_lock(&free_pages_lock);
         gc_assert(ret == 0);
-        unsigned long addr = (unsigned long)fault_addr;
-        gencgc_barrier_cards[(addr/2048)%GENCGC_N_CARD] = 1;
-        gencgc_mprotect_cards[(addr/GENCGC_CARD_BYTES)%sizeof(gencgc_mprotect_cards)]
+        if ((!gencgc_in_gc) && (!page_unboxed_p(page_index))) {
+                addr = (unsigned long)fault_addr;
+                gencgc_barrier_cards[(addr/2048)%GENCGC_N_CARD] = 1;
+                gencgc_mprotect_cards[(addr/GENCGC_CARD_BYTES)%sizeof(gencgc_mprotect_cards)]
                 = 1;
+        }
         if (page_table[page_index].write_protected) {
             /* Unprotect the page. */
             os_protect(page_address(page_index), GENCGC_CARD_BYTES, OS_VM_PROT_ALL);
