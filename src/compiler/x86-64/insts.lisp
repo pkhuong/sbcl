@@ -1646,39 +1646,10 @@
               (scratch2 scratch2))
     `(if (not (write-barrier-dest-p ,dst))
          (inst mov ,dst ,src :checked nil)
-         (let ((base   (ea-base ,dst))
-               (offset (ea-disp ,dst))
-               (index  (ea-index ,dst))
-               (scale  (ea-scale ,dst)))
-           (cond ((null index)
-                  (unless ,scratch
-                    (aver (not (location= temp-reg-tn base)))
-                    (setf ,scratch temp-reg-tn))
-                  (aver (not (and (tn-p ,src) (location= ,scratch ,src))))
-                  (emit-write-barrier base :offset offset :scratch ,scratch)
-                  (inst mov ,dst ,src :checked nil))
-                 (t
-                  (unless ,scratch
-                    (aver (not (location= temp-reg-tn base)))
-                    (aver (not (location= temp-reg-tn index)))
-                    (setf ,scratch temp-reg-tn))
-                  (cond ((or (null ,scratch2)
-                             (location= ,scratch ,scratch2))
-                         (aver (not (and (tn-p ,src) (location= ,scratch ,src))))
-                         (aver (not "Bad code shall be emitted!"))
-                         (emit-write-barrier base
-                                             :offset  offset
-                                             :index   index
-                                             :scale   scale
-                                             :scratch ,scratch)
-                         (inst mov ,dst ,src :checked nil))
-                        (t
-                         (aver (not (and (tn-p ,src) (location= ,scratch ,src))))
-                         (aver (not (and (tn-p ,src) (location= ,scratch2 ,src))))
-                         (inst lea ,scratch ,dst)
-                         (emit-write-barrier ,scratch :scratch ,scratch2)
-                         (inst mov (make-ea :qword :base ,scratch) ,src
-                               :checked nil)))))))))
+         ((lambda (dst src scratch scratch2)
+            (inst mov (emit-write-barrier-for-ea dst src scratch scratch2) src
+                  :checked nil))
+          ,dst ,src ,scratch ,scratch2))))
 
 (define-instruction-macro movu (dst src &optional scratch scratch2)
   `(prog1 (inst mov ,dst ,src :checked nil)

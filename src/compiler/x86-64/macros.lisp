@@ -170,6 +170,43 @@
                                        (truncate offset +gencgc-card-size+)))
         1))
 
+(defun emit-write-barrier-for-ea (ea src &optional scratch scratch2)
+  (unless *emit-write-barrier*
+    (return-from emit-write-barrier-for-ea ea))
+  (let ((base   (ea-base ea))
+        (offset (ea-disp ea))
+        (index  (ea-index ea))
+        (scale  (ea-scale ea)))
+    (cond ((null index)
+           (unless scratch
+             (aver (not (location= temp-reg-tn base)))
+             (setf scratch temp-reg-tn))
+           (aver (not (and (tn-p src) (location= scratch src))))
+           (emit-write-barrier base :offset offset :scratch scratch)
+           ea)
+          (t
+           (unless scratch
+             (aver (not (location= temp-reg-tn base)))
+             (aver (not (location= temp-reg-tn index)))
+             (setf scratch temp-reg-tn))
+           (cond ((or (null scratch2)
+                      (location= scratch scratch2))
+                  (aver (not (and (tn-p src) (location= scratch src))))
+                  (aver (not "Bad code shall be emitted!"))
+                  (emit-write-barrier base
+                                      :offset  offset
+                                      :index   index
+                                      :scale   scale
+                                      :scratch scratch)
+                  ea)
+                 (t
+                  (aver (not (and (tn-p src) (location= scratch src))))
+                  (aver (not (and (tn-p src) (location= scratch2 src))))
+                  (inst lea scratch ea)
+                  (emit-write-barrier scratch :scratch scratch2)
+                  (make-ea :qword :base scratch)))))))
+
+
 
 ;;;; allocation helpers
 
