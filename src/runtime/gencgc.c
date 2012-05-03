@@ -363,7 +363,12 @@ os_vm_size_t gencgc_alloc_granularity = GENCGC_ALLOC_GRANULARITY;
 
 extern unsigned char gencgc_cards[GENCGC_N_CARD+16];
 unsigned char gencgc_cards[GENCGC_N_CARD+16];
+/* at beginning of GC, copy all here */
 unsigned char gencgc_cards_copy[GENCGC_N_CARD];
+/* marked by mprotect w/ address */
+unsigned char gencgc_barrier_cards[GENCGC_N_CARD];
+/* same, but by mprotect page */
+unsigned char gencgc_mprotect_cards[GENCGC_N_CARD/(GENCGC_CARD_BYTES/2048)];
 
 
 /*
