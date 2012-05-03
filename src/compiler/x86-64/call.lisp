@@ -1282,7 +1282,8 @@
       (move rcx count)
       ;; Check to see whether there are no args, and just return NIL if so.
       (inst mov result nil-value)
-      (inst jrcxz done)
+      (inst test rcx rcx)
+      (inst jmp :z done)
       (inst lea dst (make-ea :qword :index rcx :scale (ash 2 (- word-shift n-fixnum-tag-bits))))
       (maybe-pseudo-atomic stack-allocate-p
        (allocation dst dst node stack-allocate-p list-pointer-lowtag)
@@ -1297,17 +1298,20 @@
        ;; Compute a pointer to the next cons.
        (inst add dst (* cons-size n-word-bytes))
        ;; Store a pointer to this cons in the CDR of the previous cons.
-       (storew dst dst -1 list-pointer-lowtag)
+       (storew dst dst -1 list-pointer-lowtag
+               (and stack-allocate-p :unchecked))
        (emit-label enter)
        ;; Grab one value and stash it in the car of this cons.
        (inst mov rax (make-ea :qword :base src))
        (inst sub src n-word-bytes)
-       (storew rax dst 0 list-pointer-lowtag)
+       (storew rax dst 0 list-pointer-lowtag
+               (and stack-allocate-p :unchecked))
        ;; Go back for more.
        (inst sub rcx (fixnumize 1))
        (inst jmp :nz loop)
        ;; NIL out the last cons.
-       (storew nil-value dst 1 list-pointer-lowtag)
+       (storew nil-value dst 1 list-pointer-lowtag
+               (and stack-allocate-p :unchecked))
        (inst cld))
       (emit-label done))))
 

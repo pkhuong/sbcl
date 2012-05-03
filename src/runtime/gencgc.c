@@ -359,6 +359,11 @@ os_vm_size_t gencgc_release_granularity = GENCGC_RELEASE_GRANULARITY;
 extern os_vm_size_t gencgc_alloc_granularity;
 os_vm_size_t gencgc_alloc_granularity = GENCGC_ALLOC_GRANULARITY;
 
+#define GENCGC_N_CARD (1024*1024*16)
+
+extern unsigned char gencgc_cards[GENCGC_N_CARD];
+unsigned char gencgc_cards[GENCGC_N_CARD];
+
 
 /*
  * miscellaneous heap functions

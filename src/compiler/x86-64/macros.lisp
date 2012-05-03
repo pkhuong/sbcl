@@ -11,11 +11,6 @@
 
 (in-package "SB!VM")
 
-;;;; write-barrier support
-(defun emit-write-barrier (base
-                           &key (offset 0) index scale scratch)
-  (declare (ignore base offset index scale scratch)))
-
 ;;;; instruction-like macros
 
 (defmacro move (dst src)
@@ -43,34 +38,34 @@
   `(inst mov ,value (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 (defmacro storew (value ptr &optional (slot 0) (lowtag 0) temp)
-  (let ((mov-inst (if (eql temp :unchecked) ;; default if lowtag is 0?
-                      'movu
-                      'movr)))
-    (once-only ((value value)
-                (temp temp)
-                (ea   `(make-ea-for-object-slot ,ptr ,slot ,lowtag)))
-      `(cond ((and (integerp ,value)
-                   (not (typep ,value '(signed-byte 32))))
-              (inst mov temp-reg-tn ,value)
-              (inst ,mov-inst ,ea temp-reg-tn ,temp))
-             (t
-              (inst ,mov-inst ,ea ,value ,temp))))))
+  (once-only ((value value)
+              (temp temp)
+              (ea   `(make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+    `(cond ((and (integerp ,value)
+                 (not (typep ,value '(signed-byte 32))))
+            (inst mov temp-reg-tn ,value)
+            (if (eql ,temp :unchecked)
+                (inst movu ,ea temp-reg-tn)
+                (inst movr ,ea temp-reg-tn ,temp)))
+           ((eql ,temp :unchecked)
+            (inst movu ,ea ,value))
+           (t
+            (inst movr ,ea ,value ,temp)))))
 
 (defmacro pushw (ptr &optional (slot 0) (lowtag 0))
   `(inst push (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 (defmacro popw (ptr &optional (slot 0) (lowtag 0) (temp 'temp-reg-tn))
-  (let ((barrier-p (neq temp :unchecked)))
-    (once-only ((ptr ptr)
-                (temp temp)
-                (ea `(make-ea-for-object-slot ,ptr ,slot ,lowtag)))
-      `(progn
-         (when (and ,barrier-p
-                    (write-barrier-dest-p ,ea))
-           (aver (not (location= ,ptr ,temp)))
-           (emit-write-barrier ,ptr :offset (- (* ,slot n-word-bytes) ,lowtag)
-                                    :scratch ,temp))
-         (inst pop ,ea)))))
+  (once-only ((ptr ptr)
+              (temp temp)
+              (ea `(make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+    `(progn
+       (when (and (neq ,temp :unchecked)
+                  (write-barrier-dest-p ,ea))
+         (aver (not (location= ,ptr ,temp)))
+         (emit-write-barrier ,ptr :offset (- (* ,slot n-word-bytes) ,lowtag)
+                                  :scratch ,temp))
+       (inst pop ,ea))))
 
 ;;;; macros to generate useful values
 
@@ -146,6 +141,30 @@
        `(inst mov ,n-target
               (make-ea :byte :base ,n-source
                              :disp (+ ,n-offset (1- n-word-bytes))))))))
+
+
+;;;; write-barrier support
+(defconstant +gencgc-n-card+ (* 16 1024 1024))
+(defconstant +gencgc-card-size+ 2048)
+(defvar *emit-write-barrier* t)
+(defun emit-write-barrier (base
+                           &key (offset 0) index (scale 1) scratch)
+  (aver (memq scale '(1 2 4 8)))
+  (unless *emit-write-barrier*
+    (return-from emit-write-barrier))
+  (if (or index (/= 0 offset))
+      (inst lea scratch (make-ea :qword
+                                 :base  base
+                                 :index index
+                                 :scale scale
+                                 :disp  offset))
+      (move scratch base))
+  (inst shr scratch (integer-length (1- +gencgc-card-size+)))
+  (inst and scratch (1- +gencgc-n-card+))
+  (inst mov (make-ea :byte :index scratch
+                           :disp (make-fixup "gencgc_cards" :foreign))
+        1))
+
 
 ;;;; allocation helpers
 
