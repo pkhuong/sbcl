@@ -373,6 +373,7 @@ unsigned char gencgc_mprotect_cards[GENCGC_N_CARD/(GENCGC_CARD_BYTES/2048)];
 int check_card_coherence()
 {
         unsigned nmarks, ndiff, i, j;
+        unsigned long addr;
         int delta = 0;
 
         for (i = 0; i < 16; i++)
@@ -407,6 +408,22 @@ int check_card_coherence()
                 delta = 1;
         }
 
+        for (i = 0; i <= last_free_page; i++) {
+                if (page_free_p(i))
+                        continue;
+                if (!page_boxed_no_region_p(i)) continue;
+                if (page_table[i].bytes_used == 0) continue;
+
+                addr = ((unsigned long)page_address(i)/2048)%GENCGC_N_CARD;
+                for (j = 0; j <= (GENCGC_CARD_BYTES/2048); j++) {
+                        if (gencgc_cards[(addr+j-1)%GENCGC_N_CARD]) {
+                                page_table[i].write_protected_cleared = 1;
+                                page_table[i].write_protected = 0;
+                                os_protect(page_address(i), npage_bytes(1), OS_VM_PROT_ALL);
+                                break;
+                        }
+                }
+        }
         bzero(gencgc_cards, sizeof(gencgc_cards));
         bzero(gencgc_barrier_cards, sizeof(gencgc_barrier_cards));
         bzero(gencgc_mprotect_cards, sizeof(gencgc_mprotect_cards));
@@ -2442,9 +2459,9 @@ update_page_write_prot(page_index_t page)
         /* Write-protect the page. */
         /*FSHOW((stderr, "/write-protecting page %d gen %d\n", page, gen));*/
 
-        os_protect((void *)page_addr,
-                   GENCGC_CARD_BYTES,
-                   OS_VM_PROT_READ|OS_VM_PROT_EXECUTE);
+        /* os_protect((void *)page_addr, */
+        /*            GENCGC_CARD_BYTES, */
+        /*            OS_VM_PROT_READ|OS_VM_PROT_EXECUTE); */
 
         /* Note the page as protected in the page tables. */
         page_table[page].write_protected = 1;
@@ -3340,9 +3357,9 @@ write_protect_generation_pages(generation_index_t generation)
 
             page_start = (void *)page_address(start);
 
-            os_protect(page_start,
-                       npage_bytes(last - start),
-                       OS_VM_PROT_READ | OS_VM_PROT_EXECUTE);
+            /* os_protect(page_start, */
+            /*            npage_bytes(last - start), */
+            /*            OS_VM_PROT_READ | OS_VM_PROT_EXECUTE); */
 
             start = last;
         }
@@ -4359,6 +4376,7 @@ gencgc_handle_wp_violation(void* fault_addr)
         }
         if (page_table[page_index].write_protected) {
             /* Unprotect the page. */
+            gc_assert(0);
             os_protect(page_address(page_index), GENCGC_CARD_BYTES, OS_VM_PROT_ALL);
             page_table[page_index].write_protected_cleared = 1;
             page_table[page_index].write_protected = 0;
