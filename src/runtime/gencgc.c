@@ -368,7 +368,7 @@ unsigned char gencgc_cards_copy[GENCGC_N_CARD+1];
 /* marked by mprotect w/ address */
 unsigned char gencgc_barrier_cards[GENCGC_N_CARD];
 /* same, but by mprotect page */
-unsigned char gencgc_mprotect_cards[GENCGC_N_CARD/(GENCGC_CARD_BYTES/2048)];
+unsigned char gencgc_mprotect_cards[GENCGC_N_CARD/(GENCGC_CARD_BYTES/1024)];
 
 int check_card_coherence()
 {
@@ -392,11 +392,11 @@ int check_card_coherence()
         }
 
         for (nmarks = 0, ndiff = 0, i = 0;
-             i < GENCGC_N_CARD/(GENCGC_CARD_BYTES/2048); i++) {
+             i < GENCGC_N_CARD/(GENCGC_CARD_BYTES/1024); i++) {
                 if (!gencgc_mprotect_cards[i]) continue;
                 nmarks++;
-                for (j = 0; j <= (GENCGC_CARD_BYTES/2048); j++) {
-                        if (gencgc_cards[(i*(GENCGC_CARD_BYTES/2048)+j-1)%GENCGC_N_CARD])
+                for (j = 0; j <= (GENCGC_CARD_BYTES/1024); j++) {
+                        if (gencgc_cards[(i*(GENCGC_CARD_BYTES/1024)+j-1)%GENCGC_N_CARD])
                                 goto next;
                 }
                 ndiff++;
@@ -414,8 +414,8 @@ int check_card_coherence()
                 if (!page_boxed_no_region_p(i)) continue;
                 if (page_table[i].bytes_used == 0) continue;
 
-                addr = ((unsigned long)page_address(i)/2048)%GENCGC_N_CARD;
-                for (j = 0; j <= (GENCGC_CARD_BYTES/2048); j++) {
+                addr = ((unsigned long)page_address(i)/1024)%GENCGC_N_CARD;
+                for (j = 0; j <= (GENCGC_CARD_BYTES/1024); j++) {
                         if (gencgc_cards[(addr+j-1)%GENCGC_N_CARD]) {
                                 page_table[i].write_protected_cleared = 1;
                                 page_table[i].write_protected = 0;
@@ -4370,7 +4370,7 @@ gencgc_handle_wp_violation(void* fault_addr)
         gc_assert(ret == 0);
         if ((!gencgc_in_gc) && (!page_unboxed_p(page_index))) {
                 addr = (unsigned long)fault_addr;
-                gencgc_barrier_cards[(addr/2048)%GENCGC_N_CARD] = 1;
+                gencgc_barrier_cards[(addr/1024)%GENCGC_N_CARD] = 1;
                 gencgc_mprotect_cards[(addr/GENCGC_CARD_BYTES)%sizeof(gencgc_mprotect_cards)]
                 = 1;
         }

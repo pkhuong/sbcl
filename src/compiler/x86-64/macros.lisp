@@ -145,7 +145,7 @@
 
 ;;;; write-barrier support
 (defconstant +gencgc-n-card+ (* 16 1024 1024))
-(defconstant +gencgc-card-size+ 2048)
+(defconstant +gencgc-card-size+ 1024)
 (defvar *emit-write-barrier* t)
 (defun emit-write-barrier (base
                            &key (offset 0) index (scale 1) scratch)
