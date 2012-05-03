@@ -634,7 +634,7 @@
   (:generator 4
     (loadw tmp object 0 instance-pointer-lowtag)
     (inst shr tmp n-widetag-bits)
-    (inst xadd (emit-write-barrier-for-ea
+    (inst xadd (prog1
                 (make-ea-for-raw-slot object tmp :index index) diff
                 tmp temp-reg-tn)
           diff :lock)
@@ -688,7 +688,7 @@
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
     (inst movss
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object tmp :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
            value
            tmp temp-reg-tn)
@@ -712,7 +712,7 @@
     (loadw tmp object 0 instance-pointer-lowtag)
     (inst shr tmp n-widetag-bits)
     (inst movss
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object tmp :index index) value
            tmp temp-reg-tn)
           value)
@@ -725,7 +725,7 @@
   (:info instance-length index)
   (:generator 4
     (inst movss
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object instance-length :index index) value)
           value)))
 
@@ -777,7 +777,7 @@
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
     (inst movsd
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object tmp :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
            value
            tmp temp-reg-tn)
@@ -801,7 +801,7 @@
     (loadw tmp object 0 instance-pointer-lowtag)
     (inst shr tmp n-widetag-bits)
     (inst movsd
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object tmp :index index) value
            tmp temp-reg-tn)
           value)
@@ -814,7 +814,7 @@
   (:info instance-length index)
   (:generator 4
     (inst movsd
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object instance-length :index index) value)
           value)))
 
@@ -867,7 +867,7 @@
     (inst sub tmp index)
     (move result value)
     (inst movq
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object tmp :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
            value
            tmp temp-reg-tn)
@@ -891,7 +891,7 @@
     (inst shr tmp n-widetag-bits)
     (move result value)
     (inst movq
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object tmp :index index) value
            tmp temp-reg-tn)
           value)))
@@ -903,7 +903,7 @@
   (:info instance-length index)
   (:generator 4
     (inst movq
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object instance-length :index index) value)
           value)))
 
@@ -956,7 +956,7 @@
     (inst sub tmp index)
     (move result value)
     (inst movdqu
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object tmp :scale (ash 1 (- word-shift n-fixnum-tag-bits)) :adjustment -8)
            value
            tmp temp-reg-tn)
@@ -980,7 +980,7 @@
     (inst shr tmp n-widetag-bits)
     (move result value)
     (inst movdqu
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object tmp :index index :adjustment -8) value
            tmp temp-reg-tn)
           value)))
@@ -992,7 +992,7 @@
   (:info instance-length index)
   (:generator 4
     (inst movdqu
-          (emit-write-barrier-for-ea
+          (prog1
            (make-ea-for-raw-slot object instance-length :index index :adjustment -8)
            value)
           value)))
