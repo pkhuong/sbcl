@@ -261,7 +261,7 @@
              (unsigned-reg
               (inst or old value)))
            (inst rol old :cl)
-           (inst movr (make-ea :qword :base object :index word-index
+           (inst movu (make-ea :qword :base object :index word-index
                                :scale n-word-bytes
                                :disp (- (* vector-data-offset n-word-bytes)
                                         other-pointer-lowtag))
@@ -313,7 +313,7 @@
                   (inst or old value)
                   (unless (zerop shift)
                     (inst rol old shift)))))
-             (inst movr (make-ea :qword :base object
+             (inst movu (make-ea :qword :base object
                                  :disp (- (* (+ word vector-data-offset)
                                              n-word-bytes)
                                           other-pointer-lowtag))
@@ -735,7 +735,7 @@
            (:results (result :scs ,scs))
            (:result-types ,type)
            (:generator 5
-             (inst movr (make-ea ,operand-size
+             (inst movu (make-ea ,operand-size
                                  :base object :index index :scale ,scale
                                  :disp (- (+ (* vector-data-offset n-word-bytes)
                                              (* offset ,n-bytes))
@@ -757,7 +757,7 @@
            (:results (result :scs ,scs))
            (:result-types ,type)
            (:generator 4
-             (inst movr (make-ea ,operand-size
+             (inst movu (make-ea ,operand-size
                                  :base object
                                  :disp (- (+ (* vector-data-offset n-word-bytes)
                                              (* ,n-bytes index)
