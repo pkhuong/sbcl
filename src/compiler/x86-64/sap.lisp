@@ -162,7 +162,7 @@
                                     sc
                                     type
                                     size
-                                    &optional (unboxed nil))
+                                    &optional (unboxed t))
              (let ((ref-name-c (symbolicate ref-name "-C"))
                    (set-name-c (symbolicate set-name "-C"))
                    (set-insn (if unboxed 'movu 'movr)))
