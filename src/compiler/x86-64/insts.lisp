@@ -1557,9 +1557,9 @@
                 (emit-byte-with-reg segment #b10111 (reg-tn-encoding dst))
                 (emit-qword segment src))))))
 
-(defun write-barrier-dest-p (dst)
+(defun write-barrier-dest-p (dst &optional any-size)
   (and (ea-p dst)
-       (eql (ea-size dst) :qword)
+       (or any-size (eql (ea-size dst) :qword))
        (let ((base (ea-base dst)))
          (not (or (null base)
                   (fixup-p (ea-disp dst))
@@ -1644,7 +1644,7 @@
               (src src)
               (scratch  scratch)
               (scratch2 scratch2))
-    `(if (not (write-barrier-dest-p ,dst))
+    `(if (not (write-barrier-dest-p ,dst t))
          (inst mov ,dst ,src :checked nil)
          ((lambda (dst src scratch scratch2)
             (inst mov (emit-write-barrier-for-ea dst src scratch scratch2) src

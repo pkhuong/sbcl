@@ -204,7 +204,7 @@
                   (aver (not (and (tn-p src) (location= scratch2 src))))
                   (inst lea scratch ea)
                   (emit-write-barrier scratch :scratch scratch2)
-                  (make-ea :qword :base scratch)))))))
+                  (make-ea (ea-size ea) :base scratch)))))))
 
 
 
@@ -431,20 +431,28 @@
      (define-vop (,name)
          ,@(when translate `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg) :to :eval)
-              (index :scs (any-reg) :to :result)
-              (old-value :scs ,scs :target rax)
-              (new-value :scs ,scs))
+       (:args (object :scs (descriptor-reg) :to (:eval 1))
+              (index :scs (any-reg) :to :eval
+                     :target temp)
+              (old-value :scs ,scs :target rax
+                         :to :result)
+              (new-value :scs ,scs
+                         :to :result))
        (:arg-types ,type tagged-num ,el-type ,el-type)
        (:temporary (:sc descriptor-reg :offset rax-offset
                         :from (:argument 2) :to :result :target value)  rax)
+       (:temporary (:sc any-reg) temp)
        (:results (value :scs ,scs))
        (:result-types ,el-type)
        (:generator 5
          (move rax old-value)
-         (inst cmpxchg (make-ea :qword :base object :index index
+         (inst cmpxchg
+               (emit-write-barrier-for-ea
+                (make-ea :qword :base object :index index
                                 :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                                 :disp (- (* ,offset n-word-bytes) ,lowtag))
+                new-value
+                temp temp-reg-tn)
                new-value :lock)
          (move value rax)))))
 
@@ -523,9 +531,9 @@
        ,@(when translate
            `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg))
+       (:args (object :scs (descriptor-reg) :to (:eval 1))
               (index :scs (any-reg) :to (:eval 0) :target temp)
-              (value :scs ,scs :target result))
+              (value :scs ,scs :target result :to :result))
        (:arg-types ,type tagged-num ,el-type)
        (:temporary (:sc any-reg) temp)
        (:results (result :scs ,scs))
