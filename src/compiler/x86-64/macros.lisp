@@ -37,9 +37,16 @@
 (defmacro loadw (value ptr &optional (slot 0) (lowtag 0))
   `(inst mov ,value (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
-(defmacro storew (value ptr &optional (slot 0) (lowtag 0) temp)
+(defmacro storew (value ptr &optional (slot 0) (lowtag 0)
+                              (temp nil temp-p))
   (once-only ((value value)
-              (temp temp)
+              (lowtag lowtag)
+              (temp   (if temp-p
+                          temp
+                          `(if (and nil
+                                    (zerop ,lowtag))
+                               :unchecked
+                               nil)))
               (ea   `(make-ea-for-object-slot ,ptr ,slot ,lowtag)))
     `(cond ((and (integerp ,value)
                  (not (typep ,value '(signed-byte 32))))
@@ -55,17 +62,23 @@
 (defmacro pushw (ptr &optional (slot 0) (lowtag 0))
   `(inst push (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
-(defmacro popw (ptr &optional (slot 0) (lowtag 0) (temp 'temp-reg-tn))
+(defmacro popw (ptr &optional (slot 0) (lowtag 0) (temp nil temp-p))
   (once-only ((ptr ptr)
-              (temp temp)
+              (lowtag lowtag)
+              (temp (if temp-p
+                        temp
+                        `(if (zerop ,lowtag)
+                             :unchecked
+                             nil)))
               (ea `(make-ea-for-object-slot ,ptr ,slot ,lowtag)))
-    `(progn
-       (when (and (neq ,temp :unchecked)
-                  (write-barrier-dest-p ,ea))
-         (aver (not (location= ,ptr ,temp)))
-         (emit-write-barrier ,ptr :offset (- (* ,slot n-word-bytes) ,lowtag)
-                                  :scratch ,temp))
-       (inst pop ,ea))))
+    `(inst pop
+           (cond
+             ((and (neq ,temp :unchecked)
+                   (write-barrier-dest-p ,ea))
+              (aver (not (and ,temp
+                              (location= ,ptr ,temp))))
+              (emit-write-barrier-for-ea ,ea rsp-tn ,temp))
+             (t ,ea)))))
 
 ;;;; macros to generate useful values
 
