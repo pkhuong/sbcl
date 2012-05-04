@@ -264,7 +264,7 @@
     (storew temp-reg-tn
             block
             catch-block-entry-pc-slot
-        0 temp)
+        0 :unchecked)
 
     ;; Run any required UWPs.
     (inst lea temp-reg-tn (make-fixup 'unwind :assembly-routine))
