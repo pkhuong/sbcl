@@ -33,7 +33,7 @@
 ;;; compatible systems to return different values for getpagesize().
 ;;; -- JES, 2007-01-06
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (setf *backend-page-bytes* 32768))
+  (setf *backend-page-bytes* 4096))
 
 ;;; The size in bytes of GENCGC cards, i.e. the granularity at which
 ;;; writes to old generations are logged.  With mprotect-based write

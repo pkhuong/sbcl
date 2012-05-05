@@ -110,7 +110,7 @@
   (def!constant static-space-start        #x20100000)
   (def!constant static-space-end          #x201ff000)
 
-  (def!constant dynamic-space-start       #x1000000000)
+  (def!constant dynamic-space-start       #x1400000000)
   #!-openbsd
   (def!constant dynamic-space-end         (!configure-dynamic-space-end))
   #!+openbsd
