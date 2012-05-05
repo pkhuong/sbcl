@@ -42,15 +42,17 @@
     `(cond ((and (integerp ,value)
                  (not (typep ,value '(signed-byte 32))))
             (inst mov temp-reg-tn ,value)
-            (inst mov (make-ea-for-object-slot ,ptr ,slot ,lowtag) temp-reg-tn))
+            (inst mov/obj (make-ea-for-object-slot ,ptr ,slot ,lowtag)
+                  temp-reg-tn))
            (t
-            (inst mov (make-ea-for-object-slot ,ptr ,slot ,lowtag) ,value)))))
+            (inst mov/obj (make-ea-for-object-slot ,ptr ,slot ,lowtag)
+                  ,value)))))
 
 (defmacro pushw (ptr &optional (slot 0) (lowtag 0))
   `(inst push (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 (defmacro popw (ptr &optional (slot 0) (lowtag 0))
-  `(inst pop (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+  `(inst pop/obj (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 ;;;; Write barrier stuff
 (defun write-barrier-dest-p (dst &optional any-size)
@@ -446,9 +448,10 @@
        (:result-types ,el-type)
        (:generator 5
          (move rax old-value)
-         (inst cmpxchg (make-ea :qword :base object :index index
-                                :scale (ash 1 (- word-shift n-fixnum-tag-bits))
-                                :disp (- (* ,offset n-word-bytes) ,lowtag))
+         (inst cmpxchg/obj
+               (make-ea :qword :base object :index index
+                               :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                               :disp (- (* ,offset n-word-bytes) ,lowtag))
                new-value :lock)
          (move value rax)))))
 
@@ -534,9 +537,10 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
-         (inst mov (make-ea :qword :base object :index index
-                            :scale (ash 1 (- word-shift n-fixnum-tag-bits))
-                            :disp (- (* ,offset n-word-bytes) ,lowtag))
+         (inst mov/obj
+               (make-ea :qword :base object :index index
+                        :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                        :disp (- (* ,offset n-word-bytes) ,lowtag))
                value)
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
@@ -553,9 +557,10 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 3                    ; was 5
-         (inst mov (make-ea :qword :base object
-                            :disp (- (* (+ ,offset index) n-word-bytes)
-                                     ,lowtag))
+         (inst mov/obj
+               (make-ea :qword :base object
+                        :disp (- (* (+ ,offset index) n-word-bytes)
+                                 ,lowtag))
                value)
          (move result value)))))
 
@@ -577,9 +582,10 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
-         (inst mov (make-ea :qword :base object :index index
-                            :scale (ash 1 (- word-shift n-fixnum-tag-bits))
-                            :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
+         (inst mov/obj
+               (make-ea :qword :base object :index index
+                               :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                               :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
                value)
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
@@ -599,9 +605,11 @@
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 3                    ; was 5
-         (inst mov (make-ea :qword :base object
-                            :disp (- (* (+ ,offset index offset) n-word-bytes)
-                                     ,lowtag))
+         (inst mov/obj
+               (make-ea :qword :base object
+                               :disp (- (* (+ ,offset index offset)
+                                           n-word-bytes)
+                                        ,lowtag))
                value)
          (move result value)))))
 

@@ -1162,7 +1162,16 @@
                                              (+ posn 4 remaining-bytes))))))
   (values))
 
-(defun emit-ea (segment thing reg &key allow-constants (remaining-bytes 0))
+(defvar *check-ea-for-barrier* t)
+
+(defmacro without-ea-check ((&optional value) &body body)
+  `(let ((*check-ea-for-barrier* ,value))
+     ,@body))
+
+(defun emit-ea (segment thing reg
+                &key allow-constants
+                     (remaining-bytes 0)
+                     (check *check-ea-for-barrier*))
   (etypecase thing
     (tn
      ;; this would be eleganter if we had a function that would create
@@ -1186,6 +1195,9 @@
            "Constant TNs can only be directly used in MOV, PUSH, and CMP."))
         (emit-constant-tn-rip segment thing reg remaining-bytes))))
     (ea
+     (when check
+       (aver (and "EA not annotated"
+                  (not (write-barrier-dest-p thing)))))
      (let* ((base (ea-base thing))
             (index (ea-index thing))
             (scale (ea-scale thing))
@@ -1207,7 +1219,8 @@
          (aver (null index))
          (return-from emit-ea (emit-ea segment disp reg
                                        :allow-constants allow-constants
-                                       :remaining-bytes remaining-bytes)))
+                                       :remaining-bytes remaining-bytes
+                                       :check check)))
        (when (and (= mod 0) (= r/m #b101))
          ;; this is rip-relative in amd64, so we'll use a sib instead
          (setf r/m #b100 scale 1))
@@ -1593,7 +1606,9 @@
                               (if (eq size :byte)
                                   #b10001010
                                   #b10001011))
-                   (emit-ea segment src (reg-tn-encoding dst) :allow-constants t))))
+                   (emit-ea segment src (reg-tn-encoding dst)
+                            :allow-constants t
+                            :check nil))))
            ((integerp src)
             ;; C7 only deals with 32 bit immediates even if the
             ;; destination is a 64-bit location. The value is
@@ -1623,13 +1638,15 @@
            (t
             (error "bogus arguments to MOV: ~S ~S" dst src))))))
 
-(define-instruction-macro movr (dst src &optional scratch scratch2)
+(define-instruction-macro mov/obj (dst src &optional scratch scratch2)
   (declare (ignore scratch scratch2))
-  `(inst mov ,dst ,src))
+  `(without-ea-check ()
+     (inst mov ,dst ,src)))
 
-(define-instruction-macro movu (dst src &optional scratch scratch2)
+(define-instruction-macro mov/raw (dst src &optional scratch scratch2)
   (declare (ignore scratch scratch2))
-  `(inst mov ,dst ,src))
+  `(without-ea-check ()
+     (inst mov ,dst ,src)))
 
 ;;; Emit a sign-extending (if SIGNED-P is true) or zero-extending move.
 ;;; To achieve the shortest possible encoding zero extensions into a
@@ -1650,7 +1667,8 @@
                    ,@(mapcar (lambda (byte)
                                `(emit-byte segment ,byte))
                              bytes)
-                   (emit-ea segment src (reg-tn-encoding dst)))))
+                   (emit-ea segment src (reg-tn-encoding dst)
+                            :check nil))))
       (ecase dst-size
         (:word
          (aver (eq src-size :byte))
@@ -1731,7 +1749,8 @@
                    (emit-byte-with-reg segment #b01010 (reg-tn-encoding src)))
                   (t
                    (emit-byte segment #b11111111)
-                   (emit-ea segment src #b110 :allow-constants t))))))))
+                   (emit-ea segment src #b110 :allow-constants t
+                            :check nil))))))))
 
 (define-instruction pop (segment dst)
   (:printer reg-no-width-default-qword ((op #b01011)))
@@ -1746,6 +1765,14 @@
            (t
             (emit-byte segment #b10001111)
             (emit-ea segment dst #b000))))))
+
+(define-instruction-macro pop/obj (dst)
+  `(without-ea-check ()
+     (inst pop ,dst)))
+
+(define-instruction-macro pop/raw (dst)
+  `(without-ea-check ()
+     (inst pop ,dst)))
 
 (define-instruction xchg (segment operand1 operand2)
   ;; Register with accumulator.
@@ -1778,6 +1805,14 @@
              (t
               (error "bogus args to XCHG: ~S ~S" operand1 operand2)))))))
 
+(define-instruction-macro xchg/obj (x y)
+  `(without-ea-check ()
+     (inst xchg ,x ,y)))
+
+(define-instruction-macro xchg/raw (x y)
+  `(without-ea-check ()
+     (inst xchg ,x ,y)))
+
 (define-instruction lea (segment dst src)
   (:printer reg-reg/mem ((op #b1000110) (width 1)))
   (:emitter
@@ -1785,7 +1820,8 @@
    (maybe-emit-rex-for-ea segment src dst
                           :operand-size :qword)
    (emit-byte segment #b10001101)
-   (emit-ea segment src (reg-tn-encoding dst))))
+   (emit-ea segment src (reg-tn-encoding dst)
+            :check nil)))
 
 (define-instruction cmpxchg (segment dst src &optional prefix)
   ;; Register/Memory with Register.
@@ -1800,6 +1836,13 @@
      (emit-byte segment (if (eq size :byte) #b10110000 #b10110001))
      (emit-ea segment dst (reg-tn-encoding src)))))
 
+(define-instruction-macro cmpxchg/obj (dst src &optional prefix)
+  `(without-ea-check ()
+     (inst cmpxchg ,dst ,src ,prefix)))
+
+(define-instruction-macro cmpxchg/raw (dst src &optional prefix)
+  `(without-ea-check ()
+     (inst cmpxchg ,dst ,src ,prefix)))
 
 ;;;; flag control instructions
 
@@ -1872,7 +1915,8 @@
 ;;;; arithmetic
 
 (defun emit-random-arith-inst (name segment dst src opcode
-                                    &optional allow-constants)
+                                    &optional allow-constants
+                                      (check *check-ea-for-barrier*))
   (let ((size (matching-operand-size dst src)))
     (maybe-emit-operand-size-prefix segment size)
     (cond
@@ -1880,7 +1924,9 @@
       (cond ((and (not (eq size :byte)) (<= -128 src 127))
              (maybe-emit-rex-for-ea segment dst nil)
              (emit-byte segment #b10000011)
-             (emit-ea segment dst opcode :allow-constants allow-constants)
+             (emit-ea segment dst opcode
+                      :allow-constants allow-constants
+                      :check check)
              (emit-byte segment src))
             ((accumulator-p dst)
              (maybe-emit-rex-for-ea segment dst nil)
@@ -1894,7 +1940,9 @@
             (t
              (maybe-emit-rex-for-ea segment dst nil)
              (emit-byte segment (if (eq size :byte) #b10000000 #b10000001))
-             (emit-ea segment dst opcode :allow-constants allow-constants)
+             (emit-ea segment dst opcode
+                      :allow-constants allow-constants
+                      :check check)
              (emit-sized-immediate segment size src))))
      ((register-p src)
       (maybe-emit-rex-for-ea segment dst src)
@@ -1902,14 +1950,18 @@
                  (dpb opcode
                       (byte 3 3)
                       (if (eq size :byte) #b00000000 #b00000001)))
-      (emit-ea segment dst (reg-tn-encoding src) :allow-constants allow-constants))
+      (emit-ea segment dst (reg-tn-encoding src)
+               :allow-constants allow-constants
+               :check check))
      ((register-p dst)
       (maybe-emit-rex-for-ea segment src dst)
       (emit-byte segment
                  (dpb opcode
                       (byte 3 3)
                       (if (eq size :byte) #b00000010 #b00000011)))
-      (emit-ea segment src (reg-tn-encoding dst) :allow-constants allow-constants))
+      (emit-ea segment src (reg-tn-encoding dst)
+               :allow-constants allow-constants
+               :check nil))
      (t
       (error "bogus operands to ~A" name)))))
 
@@ -1943,7 +1995,7 @@
 
 (define-instruction cmp (segment dst src)
   (:printer-list (arith-inst-printer-list #b111))
-  (:emitter (emit-random-arith-inst "CMP" segment dst src #b111 t)))
+  (:emitter (emit-random-arith-inst "CMP" segment dst src #b111 t nil)))
 
 ;;; The one-byte encodings for INC and DEC are used as REX prefixes
 ;;; in 64-bit mode so we always use the two-byte form.
@@ -1982,7 +2034,8 @@
      (maybe-emit-operand-size-prefix segment size)
      (maybe-emit-rex-for-ea segment src nil)
      (emit-byte segment (if (eq size :byte) #b11110110 #b11110111))
-     (emit-ea segment src #b100))))
+     (emit-ea segment src #b100
+              :check nil))))
 
 (define-instruction imul (segment dst &optional src1 src2)
   (:printer accum-reg/mem ((op '(#b1111011 #b101))))
@@ -2030,7 +2083,8 @@
      (maybe-emit-operand-size-prefix segment size)
      (maybe-emit-rex-for-ea segment src nil)
      (emit-byte segment (if (eq size :byte) #b11110110 #b11110111))
-     (emit-ea segment src #b110))))
+     (emit-ea segment src #b110
+              :check nil))))
 
 (define-instruction idiv (segment dst src)
   (:printer accum-reg/mem ((op '(#b1111011 #b111))))
@@ -2040,7 +2094,8 @@
      (maybe-emit-operand-size-prefix segment size)
      (maybe-emit-rex-for-ea segment src nil)
      (emit-byte segment (if (eq size :byte) #b11110110 #b11110111))
-     (emit-ea segment src #b111))))
+     (emit-ea segment src #b111
+              :check nil))))
 
 (define-instruction bswap (segment dst)
   (:printer ext-reg-no-width ((op #b11001)))
@@ -2105,6 +2160,13 @@
      (emit-byte segment (if (eq size :byte) #b11000000 #b11000001))
      (emit-ea segment dst (reg-tn-encoding src)))))
 
+(define-instruction-macro xadd/obj (dst src &optional prefix)
+  `(without-ea-check ()
+     (inst xadd ,dst ,src ,prefix)))
+
+(define-instruction-macro xadd/raw (dst src &optional prefix)
+  `(without-ea-check ()
+     (inst xadd ,dst ,src ,prefix)))
 
 ;;;; logic
 
@@ -2229,12 +2291,14 @@
                      (maybe-emit-rex-for-ea segment something nil)
                      (emit-byte segment
                                 (if (eq size :byte) #b11110110 #b11110111))
-                     (emit-ea segment something #b000)
+                     (emit-ea segment something #b000
+                              :check nil)
                      (emit-sized-immediate segment size immed))))
             (test-reg-and-something (reg something)
               (maybe-emit-rex-for-ea segment something reg)
               (emit-byte segment (if (eq size :byte) #b10000100 #b10000101))
-              (emit-ea segment something (reg-tn-encoding reg))))
+              (emit-ea segment something (reg-tn-encoding reg)
+                       :check nil)))
        (cond ((integerp that)
               (test-immed-and-something that this))
              ((integerp this)
@@ -2346,7 +2410,8 @@
      (maybe-emit-rex-for-ea segment src dst)
      (emit-byte segment #b00001111)
      (emit-byte segment #b10111100)
-     (emit-ea segment src (reg-tn-encoding dst)))))
+     (emit-ea segment src (reg-tn-encoding dst)
+              :check nil))))
 
 (define-instruction bsr (segment dst src)
   (:printer ext-reg-reg/mem-no-width ((op #b10111101)))
@@ -2358,9 +2423,11 @@
      (maybe-emit-rex-for-ea segment src dst)
      (emit-byte segment #b00001111)
      (emit-byte segment #b10111101)
-     (emit-ea segment src (reg-tn-encoding dst)))))
+     (emit-ea segment src (reg-tn-encoding dst)
+              :check nil))))
 
-(defun emit-bit-test-and-mumble (segment src index opcode)
+(defun emit-bit-test-and-mumble (segment src index opcode
+                                 &optional (check t))
   (let ((size (operand-size src)))
     (when (eq size :byte)
       (error "can't scan bytes: ~S" src))
@@ -2369,13 +2436,14 @@
            (maybe-emit-rex-for-ea segment src nil)
            (emit-byte segment #b00001111)
            (emit-byte segment #b10111010)
-           (emit-ea segment src opcode)
+           (emit-ea segment src opcode :check check)
            (emit-byte segment index))
           (t
            (maybe-emit-rex-for-ea segment src index)
            (emit-byte segment #b00001111)
            (emit-byte segment (dpb opcode (byte 3 3) #b10000011))
-           (emit-ea segment src (reg-tn-encoding index))))))
+           (emit-ea segment src (reg-tn-encoding index)
+                    :check check)))))
 
 (eval-when (:compile-toplevel :execute)
   (defun bit-test-inst-printer-list (subop)
@@ -2390,7 +2458,7 @@
 (define-instruction bt (segment src index)
   (:printer-list (bit-test-inst-printer-list #b100))
   (:emitter
-   (emit-bit-test-and-mumble segment src index #b100)))
+   (emit-bit-test-and-mumble segment src index #b100 nil)))
 
 (define-instruction btc (segment src index)
   (:printer-list (bit-test-inst-printer-list #b111))
@@ -2429,7 +2497,7 @@
      (t
       (maybe-emit-rex-for-ea segment where nil :operand-size :do-not-set)
       (emit-byte segment #b11111111)
-      (emit-ea segment where #b010)))))
+      (emit-ea segment where #b010 :check nil)))))
 
 (defun emit-byte-displacement-backpatch (segment target)
   (emit-back-patch segment
@@ -2493,7 +2561,8 @@
           ;; w-bit in rex prefix is unnecessary
           (maybe-emit-rex-for-ea segment where nil :operand-size :do-not-set)
           (emit-byte segment #b11111111)
-          (emit-ea segment where #b100)))))
+          (emit-ea segment where #b100
+                   :check nil)))))
 
 (define-instruction ret (segment &optional stack-delta)
   (:printer byte ((op #b11000011)))
@@ -2541,7 +2610,7 @@
    (maybe-emit-rex-for-ea segment src dst)
    (emit-byte segment #b00001111)
    (emit-byte segment (dpb (conditional-opcode cond) (byte 4 0) #b01000000))
-   (emit-ea segment src (reg-tn-encoding dst))))
+   (emit-ea segment src (reg-tn-encoding dst) :check nil)))
 
 ;;;; conditional byte set
 
@@ -2779,7 +2848,9 @@
       (maybe-emit-rex-for-ea segment src dst))
   (emit-byte segment #x0f)
   (emit-byte segment opcode)
-  (emit-ea segment src (reg-tn-encoding dst) :remaining-bytes remaining-bytes))
+  (emit-ea segment src (reg-tn-encoding dst)
+           :remaining-bytes remaining-bytes
+           :check nil))
 
 ;; 0110 0110:0000 1111:0111 00gg: 11 010 xmmreg:imm8
 
@@ -3209,7 +3280,8 @@
    (maybe-emit-rex-for-ea segment src dst)
    (emit-byte segment #x0f)
    (emit-byte segment #xc3)
-   (emit-ea segment dst (reg-tn-encoding src))))
+   (emit-ea segment dst (reg-tn-encoding src)
+            :check nil)))
 
 (define-instruction prefetch (segment type src)
   (:printer ext-reg/mem-no-width ((op '(#x18 0)))
@@ -3229,7 +3301,8 @@
      (maybe-emit-rex-for-ea segment src nil)
      (emit-byte segment #x0f)
      (emit-byte segment #x18)
-     (emit-ea segment src type))))
+     (emit-ea segment src type
+              :check nil))))
 
 (define-instruction clflush (segment src)
   (:printer ext-reg/mem-no-width ((op '(#xae 7))))
@@ -3240,7 +3313,8 @@
    (maybe-emit-rex-for-ea segment src nil)
    (emit-byte segment #x0f)
    (emit-byte segment #xae)
-   (emit-ea segment src 7)))
+   (emit-ea segment src 7
+            :check nil)))
 
 (macrolet ((define-fence-instruction (name last-byte)
                `(define-instruction ,name (segment)
@@ -3268,7 +3342,7 @@
    (maybe-emit-rex-for-ea segment src nil)
    (emit-byte segment #x0f)
    (emit-byte segment #xae)
-   (emit-ea segment src 2)))
+   (emit-ea segment src 2 :check nil)))
 
 (define-instruction stmxcsr (segment dst)
   (:printer ext-reg/mem-no-width ((op '(#xae 3))))
