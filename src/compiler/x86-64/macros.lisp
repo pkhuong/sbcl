@@ -91,6 +91,8 @@
         1))
 
 (defun emit-write-barrier-for-ea (ea src &optional scratch scratch2)
+  (unless (write-barrier-dest-p ea)
+    (return-from emit-write-barrier-for-ea ea))
   (let ((base   (ea-base ea))
         (offset (ea-disp ea))
         (index  (ea-index ea))

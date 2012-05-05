@@ -1285,7 +1285,8 @@
       (move rcx count)
       ;; Check to see whether there are no args, and just return NIL if so.
       (inst mov result nil-value)
-      (inst jrcxz done)
+      (inst test rcx rcx)
+      (inst jmp :z done)
       (inst lea dst (make-ea :qword :index rcx :scale (ash 2 (- word-shift n-fixnum-tag-bits))))
       (maybe-pseudo-atomic stack-allocate-p
        (allocation dst dst node stack-allocate-p list-pointer-lowtag)
