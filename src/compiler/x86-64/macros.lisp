@@ -68,12 +68,10 @@
 
 (defconstant +gencgc-n-card+ (* 32 1024 1024))
 (defconstant +gencgc-card-size+ 1024)
-(defvar *emit-write-barrier* t)
+
 (defun emit-write-barrier (base
                            &key (offset 0) index (scale 1) scratch)
   (aver (memq scale '(1 2 4 8)))
-  (unless *emit-write-barrier*
-    (return-from emit-write-barrier))
   (cond ((or index
              (>= offset (* +gencgc-card-size+ 16)))
          (inst lea scratch (make-ea :qword
@@ -93,8 +91,6 @@
         1))
 
 (defun emit-write-barrier-for-ea (ea src &optional scratch scratch2)
-  (unless *emit-write-barrier*
-    (return-from emit-write-barrier-for-ea ea))
   (let ((base   (ea-base ea))
         (offset (ea-disp ea))
         (index  (ea-index ea))
