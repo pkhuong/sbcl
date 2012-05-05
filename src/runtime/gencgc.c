@@ -108,10 +108,11 @@ boolean gencgc_verbose = 0;
 /* We hunt for pointers to old-space, when GCing generations >= verify_gen.
  * Set verify_gens to HIGHEST_NORMAL_GENERATION + 1 to disable this kind of
  * check. */
-generation_index_t verify_gens = HIGHEST_NORMAL_GENERATION + 1;
+generation_index_t verify_gens = 0;
 
 /* Should we do a pre-scan verify of generation 0 before it's GCed? */
-boolean pre_verify_gen_0 = 0;
+boolean pre_verify_gen_0 = 1;
+boolean pre_verify_all_gens = 1;
 
 /* Should we check for bad pointers after gc_free_heap is called
  * from Lisp PURIFY? */
@@ -2897,6 +2898,7 @@ verify_space(lispobj *start, size_t words)
     while (words > 0) {
         size_t count = 1;
         lispobj thing = *(lispobj*)start;
+        page_index_t current_page = find_page_index((void*)start);
 
         if (is_lisp_pointer(thing)) {
             page_index_t page_index = find_page_index((void*)thing);
@@ -2933,19 +2935,29 @@ verify_space(lispobj *start, size_t words)
                  *
                  *   FIXME: Add a variable to enable this
                  * dynamically. */
-                /*
+#ifdef VERIFY_FOR_VALID_POINTER
                 if (!possibly_valid_dynamic_space_pointer((lispobj *)thing)) {
                     lose("ptr %p to invalid object %p\n", thing, start);
                 }
-                */
+#endif
+                if ((current_page != -1)
+                    && page_table[current_page].write_protected
+                    && (page_table[current_page].gen
+                        > page_table[page_index].gen)) {
+                        lose("ptr %p @ %p to younger data\n",
+                             thing, start);
+                }
             } else {
                 extern void funcallable_instance_tramp;
                 /* Verify that it points to another valid space. */
+#if 0
+                /* broken w/ debugger */
                 if (!to_readonly_space && !to_static_space
                     && (thing != (lispobj)&funcallable_instance_tramp)
                     && !is_in_stack_space(thing)) {
                     lose("Ptr %p @ %p sees junk.\n", thing, start);
                 }
+#endif
             }
         } else {
             if (!(fixnump(thing))) {
@@ -3743,7 +3755,10 @@ collect_garbage(generation_index_t last_gen)
     gc_alloc_update_all_page_tables();
 
     /* Verify the new objects created by Lisp code. */
-    if (pre_verify_gen_0) {
+    if (pre_verify_all_gens) {
+        FSHOW((stderr, "pre-checking all generations\n"));
+        verify_dynamic_space();
+    } else if (pre_verify_gen_0) {
         FSHOW((stderr, "pre-checking generation 0\n"));
         verify_generation(0);
     }
