@@ -61,8 +61,9 @@
   (:results (result :scs (descriptor-reg any-reg)))
   (:generator 5
      (move rax old)
-     (inst cmpxchg (make-ea :qword :base object
-                            :disp (- (* offset n-word-bytes) lowtag))
+     (inst cmpxchg/obj
+           (make-ea :qword :base object
+                    :disp (- (* offset n-word-bytes) lowtag))
            new :lock)
      (move result rax)))
 
@@ -90,16 +91,18 @@
       (progn
         (loadw tls symbol symbol-tls-index-slot other-pointer-lowtag)
         ;; Thread-local area, no LOCK needed.
-        (inst cmpxchg (make-ea :qword :base thread-base-tn
-                               :index tls :scale 1)
+        (inst cmpxchg/raw
+              (make-ea :qword :base thread-base-tn
+                       :index tls :scale 1)
               new)
         (inst cmp rax no-tls-value-marker-widetag)
         (inst jmp :ne check)
         (move rax old))
-      (inst cmpxchg (make-ea :qword :base symbol
-                             :disp (- (* symbol-value-slot n-word-bytes)
-                                      other-pointer-lowtag)
-                             :scale 1)
+      (inst cmpxchg/obj
+            (make-ea :qword :base symbol
+                     :disp (- (* symbol-value-slot n-word-bytes)
+                              other-pointer-lowtag)
+                     :scale 1)
             new :lock)
       (emit-label check)
       (move result rax)
@@ -573,7 +576,9 @@
     (inst shr tmp n-widetag-bits)
     (inst shl tmp n-fixnum-tag-bits)
     (inst sub tmp index)
-    (inst mov (make-ea-for-raw-slot object tmp :scale (ash 1 (- word-shift n-fixnum-tag-bits))) value)
+    (inst mov/obj
+          (make-ea-for-raw-slot object tmp :scale (ash 1 (- word-shift n-fixnum-tag-bits)))
+          value)
     (move result value)))
 
 (define-vop (raw-instance-set-c/word)
@@ -592,7 +597,9 @@
   (:generator 4
     (loadw tmp object 0 instance-pointer-lowtag)
     (inst shr tmp n-widetag-bits)
-    (inst mov (make-ea-for-raw-slot object tmp :index index) value)
+    (inst mov/obj
+          (make-ea-for-raw-slot object tmp :index index)
+          value)
     (move result value)))
 
 (define-vop (raw-instance-init/word)
@@ -601,7 +608,9 @@
   (:arg-types * unsigned-num)
   (:info instance-length index)
   (:generator 4
-    (inst mov (make-ea-for-raw-slot object instance-length :index index) value)))
+    (inst mov/obj
+          (make-ea-for-raw-slot object instance-length :index index)
+          value)))
 
 (define-vop (raw-instance-atomic-incf-c/word)
   (:translate %raw-instance-atomic-incf/word)
@@ -619,7 +628,8 @@
   (:generator 4
     (loadw tmp object 0 instance-pointer-lowtag)
     (inst shr tmp n-widetag-bits)
-    (inst xadd (make-ea-for-raw-slot object tmp :index index) diff :lock)
+    (inst xadd/obj (make-ea-for-raw-slot object tmp :index index)
+          diff :lock)
     (move result diff)))
 
 (define-vop (raw-instance-ref/single)

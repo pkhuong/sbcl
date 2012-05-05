@@ -261,10 +261,11 @@
              (unsigned-reg
               (inst or old value)))
            (inst rol old :cl)
-           (inst mov (make-ea :qword :base object :index word-index
-                              :scale n-word-bytes
-                              :disp (- (* vector-data-offset n-word-bytes)
-                                       other-pointer-lowtag))
+           (inst mov/raw
+                 (make-ea :qword :base object :index word-index
+                                 :scale n-word-bytes
+                                 :disp (- (* vector-data-offset n-word-bytes)
+                                          other-pointer-lowtag))
                  old)
            (sc-case value
              (immediate
@@ -312,10 +313,11 @@
                   (inst or old value)
                   (unless (zerop shift)
                     (inst rol old shift)))))
-             (inst mov (make-ea :qword :base object
-                                :disp (- (* (+ word vector-data-offset)
-                                            n-word-bytes)
-                                         other-pointer-lowtag))
+             (inst mov/raw
+                   (make-ea :qword :base object
+                                   :disp (- (* (+ word vector-data-offset)
+                                               n-word-bytes)
+                                            other-pointer-lowtag))
                    old)
              (sc-case value
                (immediate
@@ -767,10 +769,11 @@
   (:results (result :scs (unsigned-reg)))
   (:result-types unsigned-num)
   (:generator 4
-    (inst xadd (make-ea :qword :base array
-                        :scale (ash 1 (- word-shift n-fixnum-tag-bits))
-                        :index index
-                        :disp (- (* vector-data-offset n-word-bytes)
-                                 other-pointer-lowtag))
+    (inst xadd/raw
+          (make-ea :qword :base array
+                          :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                          :index index
+                          :disp (- (* vector-data-offset n-word-bytes)
+                                   other-pointer-lowtag))
           diff :lock)
     (move result diff)))

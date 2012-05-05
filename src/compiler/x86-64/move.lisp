@@ -130,11 +130,11 @@
      (inst mov target val))
     ;; Likewise if the value is small enough.
     ((typep val '(signed-byte 32))
-     (inst mov target val))
+     (inst mov/obj target val))
     ;; Otherwise go through the temporary register
     (tmp-tn
      (inst mov tmp-tn val)
-     (inst mov target tmp-tn))
+     (inst mov/obj target tmp-tn))
     (t
      (error "~A is not a register, no temporary given, and immediate ~A too large" target val))))
 

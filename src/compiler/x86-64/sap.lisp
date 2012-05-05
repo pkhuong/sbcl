@@ -161,7 +161,8 @@
                                     ref-insn
                                     sc
                                     type
-                                    size)
+                                    size
+                                    &optional lispobj-p)
              (let ((ref-name-c (symbolicate ref-name "-C"))
                    (set-name-c (symbolicate set-name "-C")))
                `(progn
@@ -198,7 +199,10 @@
                     (:results (result :scs (,sc)))
                     (:result-types ,type)
                     (:generator 5
-                      (inst mov (make-ea ,size :base sap :index offset)
+                      (inst ,(if lispobj-p
+                                 'mov/obj
+                                 'mov/raw)
+                            (make-ea ,size :base sap :index offset)
                             (reg-in-size value ,size))
                       (move result value)))
                   (define-vop (,set-name-c)
@@ -212,7 +216,10 @@
                     (:results (result :scs (,sc)))
                     (:result-types ,type)
                     (:generator 4
-                      (inst mov (make-ea ,size :base sap :disp offset)
+                      (inst ,(if lispobj-p
+                                 'mov/obj
+                                 'mov/raw)
+                            (make-ea ,size :base sap :disp offset)
                             (reg-in-size value ,size))
                       (move result value)))))))
 

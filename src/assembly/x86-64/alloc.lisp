@@ -95,7 +95,9 @@
                (let ((not-rax ,(if (eql 'rax reg) 'other 'target)))
                  (inst mov not-rax 1)
                  (zeroize rax-tn)
-                 (inst cmpxchg (make-ea-for-symbol-value *tls-index-lock*)
+
+                 (inst cmpxchg/raw
+                       (make-ea-for-symbol-value *tls-index-lock*)
                        not-rax :lock)
                  (inst jmp :ne get-tls-index-lock))
                ;; The symbol is now in OTHER.
