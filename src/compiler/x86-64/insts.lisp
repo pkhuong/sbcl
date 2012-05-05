@@ -1623,6 +1623,14 @@
            (t
             (error "bogus arguments to MOV: ~S ~S" dst src))))))
 
+(define-instruction-macro movr (dst src &optional scratch scratch2)
+  (declare (ignore scratch scratch2))
+  `(inst mov ,dst ,src))
+
+(define-instruction-macro movu (dst src &optional scratch scratch2)
+  (declare (ignore scratch scratch2))
+  `(inst mov ,dst ,src))
+
 ;;; Emit a sign-extending (if SIGNED-P is true) or zero-extending move.
 ;;; To achieve the shortest possible encoding zero extensions into a
 ;;; 64-bit destination are assembled as a straight 32-bit MOV (if the
