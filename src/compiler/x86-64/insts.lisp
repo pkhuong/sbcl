@@ -1640,8 +1640,11 @@
 
 (define-instruction-macro mov/obj (dst src &optional scratch scratch2)
   (declare (ignore scratch scratch2))
-  `(without-ea-check ()
-     (inst mov ,dst ,src)))
+  (once-only ((dst dst)
+              (src src))
+    `(without-ea-check ()
+       (inst mov (emit-write-barrier-for-ea ,dst ,src)
+             ,src))))
 
 (define-instruction-macro mov/raw (dst src &optional scratch scratch2)
   (declare (ignore scratch scratch2))
@@ -1768,7 +1771,7 @@
 
 (define-instruction-macro pop/obj (dst)
   `(without-ea-check ()
-     (inst pop ,dst)))
+     (inst pop (emit-write-barrier-for-ea ,dst nil))))
 
 (define-instruction-macro pop/raw (dst)
   `(without-ea-check ()
@@ -1806,8 +1809,11 @@
               (error "bogus args to XCHG: ~S ~S" operand1 operand2)))))))
 
 (define-instruction-macro xchg/obj (x y)
-  `(without-ea-check ()
-     (inst xchg ,x ,y)))
+  (once-only ((x x)
+              (y y))
+    `(without-ea-check ()
+       (inst xchg (emit-write-barrier-for-ea ,x ,y)
+                  (emit-write-barrier-for-ea ,y ,x)))))
 
 (define-instruction-macro xchg/raw (x y)
   `(without-ea-check ()
@@ -1837,8 +1843,11 @@
      (emit-ea segment dst (reg-tn-encoding src)))))
 
 (define-instruction-macro cmpxchg/obj (dst src &optional prefix)
-  `(without-ea-check ()
-     (inst cmpxchg ,dst ,src ,prefix)))
+  (once-only ((dst dst)
+              (src src))
+    `(without-ea-check ()
+       (inst cmpxchg (emit-write-barrier-for-ea ,dst ,src)
+             ,src ,prefix))))
 
 (define-instruction-macro cmpxchg/raw (dst src &optional prefix)
   `(without-ea-check ()
@@ -2161,8 +2170,11 @@
      (emit-ea segment dst (reg-tn-encoding src)))))
 
 (define-instruction-macro xadd/obj (dst src &optional prefix)
-  `(without-ea-check ()
-     (inst xadd ,dst ,src ,prefix)))
+  (once-only ((dst dst)
+              (src src))
+    `(without-ea-check ()
+       (inst xadd (emit-write-barrier-for-ea ,dst ,src)
+             ,src ,prefix))))
 
 (define-instruction-macro xadd/raw (dst src &optional prefix)
   `(without-ea-check ()
