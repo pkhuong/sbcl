@@ -108,10 +108,10 @@ boolean gencgc_verbose = 0;
 /* We hunt for pointers to old-space, when GCing generations >= verify_gen.
  * Set verify_gens to HIGHEST_NORMAL_GENERATION + 1 to disable this kind of
  * check. */
-generation_index_t verify_gens = HIGHEST_NORMAL_GENERATION + 1;
+generation_index_t verify_gens = 0;
 
 /* Should we do a pre-scan verify of generation 0 before it's GCed? */
-boolean pre_verify_gen_0 = 0;
+boolean pre_verify_gen_0 = 1;
 
 /* Should we check for bad pointers after gc_free_heap is called
  * from Lisp PURIFY? */
@@ -3015,7 +3015,9 @@ verify_space(lispobj *start, size_t words)
                 /* Verify that it points to another valid space. */
                 if (!to_readonly_space && !to_static_space
                     && (thing != (lispobj)&funcallable_instance_tramp)
-                    && !is_in_stack_space(thing)) {
+                    && !is_in_stack_space(thing)
+                    && ((unsigned long)thing < DYNAMIC_SPACE_END)
+                    && ((unsigned long)thing >= DYNAMIC_SPACE_START)) {
                     lose("Ptr %p @ %p sees junk.\n", thing, start);
                 }
             }

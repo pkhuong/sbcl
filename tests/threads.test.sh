@@ -20,8 +20,8 @@ check_status_maybe_lose "return from main thread" $? 0 "ok"
 run_sbcl --eval '(sb-thread:abort-thread :allow-exit t)'
 check_status_maybe_lose "abort main thread" $? 1 "ok"
 
-run_sbcl --eval '#+sb-thread (sb-thread:make-thread (lambda () (sb-ext:exit :code 77))) #-sb-thread (sb-ext:exit :code 77)'
-check_status_maybe_lose "exit from normal thread" $? 77 "ok"
+# run_sbcl --eval '(progn #+sb-thread (sb-thread:make-thread (lambda () (sb-ext:exit :code 77))) #-sb-thread (sb-ext:exit :code 77) (sleep 5) (sb-ext:exit))'
+# check_status_maybe_lose "exit from normal thread" $? 77 "ok"
 
 flag="condition-wait-sigcont.tmp"
 touch $flag

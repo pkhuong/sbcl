@@ -64,8 +64,10 @@
        (move y x))
       (sap-stack
        (if (= (tn-offset fp) esp-offset)
-           (storew x fp (tn-offset y))  ; c-call
-           (storew x fp (frame-word-offset (tn-offset y))))))))
+           (storew x fp (tn-offset y)
+               0 :unchecked)  ; c-call
+           (storew x fp (frame-word-offset (tn-offset y))
+               0 :unchecked))))))
 (define-move-vop move-sap-arg :move-arg
   (descriptor-reg sap-reg) (sap-reg))
 
@@ -207,7 +209,7 @@
                             (reg-in-size value ,size)
                             ,@(and (not unboxed)
                                    `(temp
-                                     temp-reg-tn)))
+                                     barrier-reg-tn)))
                       (move result value)))
                   (define-vop (,set-name-c)
                     (:translate ,set-name)

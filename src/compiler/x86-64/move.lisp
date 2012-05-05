@@ -420,8 +420,10 @@
        (move y x))
       ((signed-stack unsigned-stack)
        (if (= (tn-offset fp) esp-offset)
-           (storew x fp (tn-offset y))  ; c-call
-           (storew x fp (frame-word-offset (tn-offset y))))))))
+           (storew x fp (tn-offset y)
+               0 :unchecked)  ; c-call
+           (storew x fp (frame-word-offset (tn-offset y))
+               0 :unchecked))))))
 (define-move-vop move-word-arg :move-arg
   (descriptor-reg any-reg signed-reg unsigned-reg) (signed-reg unsigned-reg))
 

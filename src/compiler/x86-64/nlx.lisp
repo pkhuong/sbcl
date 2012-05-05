@@ -77,10 +77,13 @@
   (:generator 22
     (inst lea block (catch-block-ea tn))
     (load-tl-symbol-value temp *current-unwind-protect-block*)
-    (storew temp block unwind-block-current-uwp-slot)
-    (storew rbp-tn block unwind-block-current-cont-slot)
+    (storew temp block unwind-block-current-uwp-slot
+        0 :unchecked)
+    (storew rbp-tn block unwind-block-current-cont-slot
+        0 :unchecked)
     (inst lea temp (make-fixup nil :code-object entry-label))
-    (storew temp block catch-block-entry-pc-slot)))
+    (storew temp block catch-block-entry-pc-slot
+        0 :unchecked)))
 
 ;;; like MAKE-UNWIND-BLOCK, except that we also store in the specified
 ;;; tag, and link the block into the CURRENT-CATCH list
@@ -93,13 +96,18 @@
   (:generator 44
     (inst lea block (catch-block-ea tn))
     (load-tl-symbol-value temp *current-unwind-protect-block*)
-    (storew temp block  unwind-block-current-uwp-slot)
-    (storew rbp-tn block  unwind-block-current-cont-slot)
+    (storew temp block  unwind-block-current-uwp-slot
+        0 :unchecked)
+    (storew rbp-tn block  unwind-block-current-cont-slot
+        0 :unchecked)
     (inst lea temp (make-fixup nil :code-object entry-label))
-    (storew temp block catch-block-entry-pc-slot)
-    (storew tag block catch-block-tag-slot)
+    (storew temp block catch-block-entry-pc-slot
+        0 :unchecked)
+    (storew tag block catch-block-tag-slot
+        0 :unchecked)
     (load-tl-symbol-value temp *current-catch-block*)
-    (storew temp block catch-block-previous-catch-slot)
+    (storew temp block catch-block-previous-catch-slot
+        0 :unchecked)
     (store-tl-symbol-value block *current-catch-block* temp)))
 
 ;;; Just set the current unwind-protect to TN's address. This instantiates an
@@ -256,9 +264,11 @@
     ;; Set up magic catch / UWP block.
     (move block rsp-tn)
     (loadw temp uwp sap-pointer-slot other-pointer-lowtag)
-    (storew temp block unwind-block-current-uwp-slot)
+    (storew temp block unwind-block-current-uwp-slot
+        0 :unchecked)
     (loadw temp ofp sap-pointer-slot other-pointer-lowtag)
-    (storew temp block unwind-block-current-cont-slot)
+    (storew temp block unwind-block-current-cont-slot
+        0 :unchecked)
 
     (inst lea temp-reg-tn (make-fixup nil :code-object entry-label))
     (storew temp-reg-tn

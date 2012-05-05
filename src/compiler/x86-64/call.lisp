@@ -137,7 +137,8 @@
   (:generator 4
     (aver (sc-is variable-home-tn control-stack))
     (storew value frame-pointer
-            (frame-word-offset (tn-offset variable-home-tn)))))
+            (frame-word-offset (tn-offset variable-home-tn))
+        0 :unchecked))) ; :unchecked
 
 (macrolet ((define-frame-op
                (suffix sc stack-sc instruction
@@ -299,7 +300,8 @@
             ;; The function never returns, it may happen that the code
             ;; ends right here leavig the :SINGLE-VALUE-RETURN note
             ;; dangling. Let's emit a NOP.
-            (inst nop)))
+            (inst nop)
+            (inst break halt-trap)))
          ((not (sb!kernel:values-type-may-be-single-value-p type))
           (inst mov rsp-tn rbx-tn))
          (t
@@ -365,7 +367,8 @@
                (when first-stack-arg-p
                  ;; There are stack args so the frame of the callee is
                  ;; still there, save RDX in its first slot temporalily.
-                 (storew rdx-tn rbx-tn (frame-word-offset sp->fp-offset)))
+                 (storew rdx-tn rbx-tn (frame-word-offset sp->fp-offset)
+                     0 :unchecked)) ; :unchecked
                (loadw rdx-tn rbx-tn (frame-word-offset (+ sp->fp-offset i)))
                (inst mov tn rdx-tn)))
            (emit-label defaulting-done)
@@ -424,7 +427,8 @@
          (inst sub rcx-tn (fixnumize register-arg-count))
          (inst jmp :le no-stack-args)
          ;; Save EDI.
-         (storew rdi-tn rbx-tn (frame-word-offset (+ sp->fp-offset 1)))
+         (storew rdi-tn rbx-tn (frame-word-offset (+ sp->fp-offset 1))
+             0 :unchecked) ; :unchecked
          ;; Throw away any unwanted args.
          (inst cmp rcx-tn (fixnumize (- nvals register-arg-count)))
          (inst jmp :be count-okay)
@@ -437,7 +441,8 @@
                (make-ea :qword :base rbp-tn
                         :disp (frame-byte-offset register-arg-count)))
          ;; Save ESI, and compute a pointer to where the args come from.
-         (storew rsi-tn rbx-tn (frame-word-offset (+ sp->fp-offset 2)))
+         (storew rsi-tn rbx-tn (frame-word-offset (+ sp->fp-offset 2))
+             0 :unchecked) ; :unchecked
          (inst lea rsi-tn
                (make-ea :qword :base rbx-tn
                         :disp (frame-byte-offset
@@ -527,7 +532,7 @@
       for arg in *register-arg-tns*
       for i downfrom -1
       for j below (sb!kernel:values-type-max-value-count type)
-      do (storew arg args i))
+      do (storew arg args i 0 :unchecked)) ; :unchecked
     (move start args)
     (move count nargs)
 
@@ -893,7 +898,8 @@
 
                           ;; Save the fp
                           (storew rbp-tn new-fp
-                                  (frame-word-offset ocfp-save-offset))
+                                  (frame-word-offset ocfp-save-offset)
+                              0 :unchecked) ; :unchecked
 
                           (move rbp-tn new-fp) ; NB - now on new stack frame.
                           )))

@@ -71,7 +71,7 @@
   (defreg r15b 30 :byte)
   (defregset *byte-regs*
       al cl dl bl sil dil r8b r9b r10b
-      #+nil r11b #+nil r12b r13b r14b r15b)
+      #+nil r11b #+nil r12b #+nil r13b r14b r15b)
 
   ;; word registers
   (defreg ax 0 :word)
@@ -91,7 +91,7 @@
   (defreg r14w 28 :word)
   (defreg r15w 30 :word)
   (defregset *word-regs* ax cx dx bx si di r8w r9w r10w
-             #+nil r11w #+nil r12w r13w r14w r15w)
+             #+nil r11w #+nil r12w #+nil r13w r14w r15w)
 
   ;; double word registers
   (defreg eax 0 :dword)
@@ -111,7 +111,7 @@
   (defreg r14d 28 :dword)
   (defreg r15d 30 :dword)
   (defregset *dword-regs* eax ecx edx ebx esi edi r8d r9d r10d
-             #+nil r11d #+nil r12w r13d r14d r15d)
+             #+nil r11d #+nil r12w #+nil r13d r14d r15d)
 
   ;; quadword registers
   (defreg rax 0 :qword)
@@ -140,7 +140,7 @@
   ;; the temporary gets used more than the other registers that are never
   ;; wired. -- JES, 2005-11-02
   (defregset *qword-regs* rax rcx rdx rbx rsi rdi
-             r8 r9 r10 #+nil r11 #+nil r12 r13  r14 r15)
+             r8 r9 r10 #+nil r11 #+nil r12 #+nil r13  r14 r15)
 
   ;; floating point registers
   (defreg float0 0 :float)
@@ -439,6 +439,7 @@
 ;; be used as an assembly temporary in cases where a VOP :TEMPORARY can't
 ;; be used.
 (defparameter temp-reg-tn r11-tn)
+(defparameter barrier-reg-tn r13-tn)
 
 ;;; TNs for registers used to pass arguments
 (defparameter *register-arg-tns*

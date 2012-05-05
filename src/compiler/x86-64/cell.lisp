@@ -45,7 +45,8 @@
                                      character-widetag)))
                           temp))
         ;; Else, value not immediate.
-        (storew value object offset lowtag))))
+        (storew value object offset lowtag
+                temp))))
 
 (define-vop (init-slot set-slot))
 

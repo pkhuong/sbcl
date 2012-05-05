@@ -41,13 +41,15 @@
                               (temp nil temp-p))
   (once-only ((value value)
               (lowtag lowtag)
+              (ea   `(make-ea-for-object-slot ,ptr ,slot ,lowtag))
               (temp   (if temp-p
                           temp
-                          `(if (and nil
+                          `(if (and t
                                     (zerop ,lowtag))
-                               :unchecked
-                               nil)))
-              (ea   `(make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+                               (if (write-barrier-dest-p ,ea)
+                                   (aver (not "Not-explicitly marked storew with 0 lowtag"))
+                                   :unchecked)
+                               nil))))
     `(cond ((and (integerp ,value)
                  (not (typep ,value '(signed-byte 32))))
             (inst mov temp-reg-tn ,value)
@@ -192,16 +194,16 @@
         (scale  (ea-scale ea)))
     (cond ((null index)
            (unless scratch
-             (aver (not (location= temp-reg-tn base)))
-             (setf scratch temp-reg-tn))
+             (aver (not (location= barrier-reg-tn base)))
+             (setf scratch barrier-reg-tn))
            (aver (not (and (tn-p src) (location= scratch src))))
            (emit-write-barrier base :offset offset :scratch scratch)
            ea)
           (t
            (unless scratch
-             (aver (not (location= temp-reg-tn base)))
-             (aver (not (location= temp-reg-tn index)))
-             (setf scratch temp-reg-tn))
+             (aver (not (location= barrier-reg-tn base)))
+             (aver (not (location= barrier-reg-tn index)))
+             (setf scratch barrier-reg-tn))
            (cond ((or (null scratch2)
                       (location= scratch scratch2))
                   (aver (not (and (tn-p src) (location= scratch src))))
@@ -465,7 +467,7 @@
                                 :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                                 :disp (- (* ,offset n-word-bytes) ,lowtag))
                 new-value
-                temp temp-reg-tn)
+                temp barrier-reg-tn)
                new-value :lock)
          (move value rax)))))
 
@@ -557,7 +559,7 @@
                              :disp (- (* ,offset n-word-bytes) ,lowtag))
                value
                temp
-               temp-reg-tn)
+               barrier-reg-tn)
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
        ,@(when translate
@@ -603,7 +605,7 @@
                              :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
                value
                temp
-               temp-reg-tn)
+               barrier-reg-tn)
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
        ,@(when translate
