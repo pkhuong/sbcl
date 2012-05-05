@@ -52,6 +52,80 @@
 (defmacro popw (ptr &optional (slot 0) (lowtag 0))
   `(inst pop (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
+;;;; Write barrier stuff
+(defun write-barrier-dest-p (dst &optional any-size)
+  (and (ea-p dst)
+       (or any-size (eql (ea-size dst) :qword))
+       (let ((base (ea-base dst)))
+         (not (or (null base)
+                  (fixup-p (ea-disp dst))
+                  (location= base rsp-tn)
+                  (location= base rbp-tn)
+                  #!+sb-thread
+                  (location= base thread-base-tn))))))
+
+(defconstant +gencgc-n-card+ (* 32 1024 1024))
+(defconstant +gencgc-card-size+ 1024)
+(defvar *emit-write-barrier* t)
+(defun emit-write-barrier (base
+                           &key (offset 0) index (scale 1) scratch)
+  (aver (memq scale '(1 2 4 8)))
+  (unless *emit-write-barrier*
+    (return-from emit-write-barrier))
+  (cond ((or index
+             (>= offset (* +gencgc-card-size+ 16)))
+         (inst lea scratch (make-ea :qword
+                                    :base  base
+                                    :index index
+                                    :scale scale
+                                    :disp  offset))
+         (setf offset 0))
+        (t
+         (move scratch base)))
+  (inst shr scratch (integer-length (1- +gencgc-card-size+)))
+  (inst and scratch (1- +gencgc-n-card+))
+  (inst mov (make-ea :byte
+                     :index scratch
+                     :disp (make-fixup "gencgc_cards" :foreign
+                                       (truncate offset +gencgc-card-size+)))
+        1))
+
+(defun emit-write-barrier-for-ea (ea src &optional scratch scratch2)
+  (unless *emit-write-barrier*
+    (return-from emit-write-barrier-for-ea ea))
+  (let ((base   (ea-base ea))
+        (offset (ea-disp ea))
+        (index  (ea-index ea))
+        (scale  (ea-scale ea)))
+    (cond ((null index)
+           (unless scratch
+             (aver (not (location= barrier-reg-tn base)))
+             (setf scratch barrier-reg-tn))
+           (aver (not (and (tn-p src) (location= scratch src))))
+           (emit-write-barrier base :offset offset :scratch scratch)
+           ea)
+          (t
+           (unless scratch
+             (aver (not (location= barrier-reg-tn base)))
+             (aver (not (location= barrier-reg-tn index)))
+             (setf scratch barrier-reg-tn))
+           (cond ((or (null scratch2)
+                      (location= scratch scratch2))
+                  (aver (not (and (tn-p src) (location= scratch src))))
+                  (emit-write-barrier base
+                                      :offset  offset
+                                      :index   index
+                                      :scale   scale
+                                      :scratch scratch)
+                  ea)
+                 (t
+                  (aver (not (and (tn-p src) (location= scratch src))))
+                  (aver (not (and (tn-p src) (location= scratch2 src))))
+                  (inst lea scratch ea)
+                  (emit-write-barrier scratch :scratch scratch2)
+                  (make-ea (ea-size ea) :base scratch)))))))
+
+
 ;;;; macros to generate useful values
 
 (defmacro load-symbol (reg symbol)
