@@ -380,6 +380,7 @@ int check_card_coherence()
         for (i = 0; i < 16; i++)
                 gencgc_cards[i] |= gencgc_cards[GENCGC_N_CARD+i];
 
+#if 0
         for (nmarks = 0, ndiff = 0, i = 0; i < GENCGC_N_CARD; i++) {
                 if (!gencgc_barrier_cards[i]) continue;
                 nmarks++;
@@ -408,8 +409,7 @@ int check_card_coherence()
                 printf("\nmprotect delta: %u %u\n", nmarks, ndiff);
                 ok = 0;
         }
-
-#if 0
+#else
         for (i = 0; i <= last_free_page; i++) {
                 if (page_free_p(i))
                         continue;
@@ -2462,10 +2462,11 @@ update_page_write_prot(page_index_t page)
         /* Write-protect the page. */
         /*FSHOW((stderr, "/write-protecting page %d gen %d\n", page, gen));*/
 
+#if 0
         os_protect((void *)page_addr,
                    GENCGC_CARD_BYTES,
                    OS_VM_PROT_READ|OS_VM_PROT_EXECUTE);
-
+#endif
         /* Note the page as protected in the page tables. */
         page_table[page].write_protected = 1;
     }
@@ -3370,11 +3371,11 @@ write_protect_generation_pages(generation_index_t generation)
             }
 
             page_start = (void *)page_address(start);
-
+#if 0
             os_protect(page_start,
                        npage_bytes(last - start),
                        OS_VM_PROT_READ | OS_VM_PROT_EXECUTE);
-
+#endif
             start = last;
         }
     }
@@ -3825,10 +3826,10 @@ collect_garbage(generation_index_t last_gen)
         last_gen = 0;
     }
 
+    gc_assert(check_card_coherence());
+
     /* Flush the alloc regions updating the tables. */
     gc_alloc_update_all_page_tables();
-
-    /* gc_assert(check_card_coherence()); */
 
     /* Verify the new objects created by Lisp code. */
     if (pre_verify_all_gens) {
@@ -4386,6 +4387,7 @@ gencgc_handle_wp_violation(void* fault_addr)
         }
         if (page_table[page_index].write_protected) {
             /* Unprotect the page. */
+            gc_assert(0);
             os_protect(page_address(page_index), GENCGC_CARD_BYTES, OS_VM_PROT_ALL);
             page_table[page_index].write_protected_cleared = 1;
             page_table[page_index].write_protected = 0;
