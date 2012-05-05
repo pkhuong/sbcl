@@ -371,6 +371,69 @@ unsigned char gencgc_barrier_cards[GENCGC_N_CARD];
 /* same, but by mprotect page */
 unsigned char gencgc_mprotect_cards[GENCGC_N_CARD/(GENCGC_CARD_BYTES/1024)];
 
+int check_card_coherence()
+{
+        unsigned nmarks, ndiff, i, j;
+        unsigned long addr;
+        int ok = 1;
+
+        for (i = 0; i < 16; i++)
+                gencgc_cards[i] |= gencgc_cards[GENCGC_N_CARD+i];
+
+        for (nmarks = 0, ndiff = 0, i = 0; i < GENCGC_N_CARD; i++) {
+                if (!gencgc_barrier_cards[i]) continue;
+                nmarks++;
+                if (!(gencgc_cards[i] || gencgc_cards[(i-1)%GENCGC_N_CARD]))
+                        ndiff++;
+        }
+
+        if (ndiff) {
+                printf("\nbarrier delta: %u %u\n", nmarks, ndiff);
+                ok = 0;
+        }
+
+        for (nmarks = 0, ndiff = 0, i = 0;
+             i < GENCGC_N_CARD/(GENCGC_CARD_BYTES/1024); i++) {
+                if (!gencgc_mprotect_cards[i]) continue;
+                nmarks++;
+                for (j = 0; j <= (GENCGC_CARD_BYTES/1024); j++) {
+                        if (gencgc_cards[(i*(GENCGC_CARD_BYTES/1024)+j-1)%GENCGC_N_CARD])
+                                goto next;
+                }
+                ndiff++;
+        next:;
+        }
+
+        if (ndiff) {
+                printf("\nmprotect delta: %u %u\n", nmarks, ndiff);
+                ok = 0;
+        }
+
+#if 0
+        for (i = 0; i <= last_free_page; i++) {
+                if (page_free_p(i))
+                        continue;
+                if (!page_boxed_no_region_p(i)) continue;
+                if (page_table[i].bytes_used == 0) continue;
+
+                addr = ((unsigned long)page_address(i)/1024)%GENCGC_N_CARD;
+                for (j = 0; j <= (GENCGC_CARD_BYTES/1024); j++) {
+                        if (gencgc_cards[(addr+j-1)%GENCGC_N_CARD]) {
+                                page_table[i].write_protected_cleared = 1;
+                                page_table[i].write_protected = 0;
+                                os_protect(page_address(i), npage_bytes(1), OS_VM_PROT_ALL);
+                                break;
+                        }
+                }
+        }
+#endif
+        bzero(gencgc_cards, sizeof(gencgc_cards));
+        bzero(gencgc_barrier_cards, sizeof(gencgc_barrier_cards));
+        bzero(gencgc_mprotect_cards, sizeof(gencgc_mprotect_cards));
+
+        return ok;
+}
+
 
 /*
  * miscellaneous heap functions
@@ -3801,6 +3864,8 @@ collect_garbage(generation_index_t last_gen)
 
     /* Flush the alloc regions updating the tables. */
     gc_alloc_update_all_page_tables();
+
+    /* gc_assert(check_card_coherence()); */
 
     /* Verify the new objects created by Lisp code. */
     if (pre_verify_all_gens) {
