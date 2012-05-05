@@ -360,6 +360,17 @@ os_vm_size_t gencgc_release_granularity = GENCGC_RELEASE_GRANULARITY;
 extern os_vm_size_t gencgc_alloc_granularity;
 os_vm_size_t gencgc_alloc_granularity = GENCGC_ALLOC_GRANULARITY;
 
+#define GENCGC_N_CARD (1024*1024*32)
+
+extern unsigned char gencgc_cards[GENCGC_N_CARD+16];
+unsigned char gencgc_cards[GENCGC_N_CARD+16];
+/* at beginning of GC, copy all here */
+unsigned char gencgc_cards_copy[GENCGC_N_CARD+1];
+/* marked by mprotect w/ address */
+unsigned char gencgc_barrier_cards[GENCGC_N_CARD];
+/* same, but by mprotect page */
+unsigned char gencgc_mprotect_cards[GENCGC_N_CARD/(GENCGC_CARD_BYTES/1024)];
+
 
 /*
  * miscellaneous heap functions
@@ -4302,6 +4313,12 @@ gencgc_handle_wp_violation(void* fault_addr)
         int ret;
         ret = thread_mutex_lock(&free_pages_lock);
         gc_assert(ret == 0);
+        if (!page_unboxed_p(page_index)) {
+                unsigned long addr = (unsigned long)fault_addr;
+                gencgc_barrier_cards[(addr/1024)%GENCGC_N_CARD] = 1;
+                gencgc_mprotect_cards[(addr/GENCGC_CARD_BYTES)%sizeof(gencgc_mprotect_cards)]
+                = 1;
+        }
         if (page_table[page_index].write_protected) {
             /* Unprotect the page. */
             os_protect(page_address(page_index), GENCGC_CARD_BYTES, OS_VM_PROT_ALL);
