@@ -95,7 +95,6 @@
                (let ((not-rax ,(if (eql 'rax reg) 'other 'target)))
                  (inst mov not-rax 1)
                  (zeroize rax-tn)
-
                  (inst cmpxchg/raw
                        (make-ea-for-symbol-value *tls-index-lock*)
                        not-rax :lock)
