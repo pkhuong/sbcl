@@ -26,7 +26,7 @@
             ((:temp number unsigned-reg ,(symbolicate reg "-OFFSET")))
           (inst push number)
           (with-fixed-allocation (number bignum-widetag (+ bignum-digits-offset 1))
-            (popw number bignum-digits-offset other-pointer-lowtag))
+            (popw/obj number bignum-digits-offset other-pointer-lowtag))
           (inst ret))))
   (def rax)
   (def rcx)
@@ -51,11 +51,11 @@
           (inst jmp :ns one-word-bignum)
           ;; Two word bignum
           (with-fixed-allocation (number bignum-widetag (+ bignum-digits-offset 2))
-            (popw number bignum-digits-offset other-pointer-lowtag))
+            (popw/obj number bignum-digits-offset other-pointer-lowtag))
           (inst ret)
           ONE-WORD-BIGNUM
           (with-fixed-allocation (number bignum-widetag (+ bignum-digits-offset 1))
-            (popw number bignum-digits-offset other-pointer-lowtag))
+            (popw/obj number bignum-digits-offset other-pointer-lowtag))
           (inst ret))))
   (def rax)
   (def rcx)

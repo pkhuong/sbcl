@@ -52,7 +52,13 @@
   `(inst push (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 (defmacro popw (ptr &optional (slot 0) (lowtag 0))
+  `(inst pop (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+
+(defmacro popw/obj (ptr &optional (slot 0) (lowtag 0))
   `(inst pop/obj (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+
+(defmacro popw/raw (ptr &optional (slot 0) (lowtag 0))
+  `(inst pop/raw (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 ;;;; Write barrier stuff
 (defun write-barrier-dest-p (dst &optional any-size)

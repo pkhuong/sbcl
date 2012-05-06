@@ -333,7 +333,7 @@
       (inst call temp-reg-tn)
       (emit-label tls-index-valid)
       (inst push (make-ea :qword :base thread-base-tn :scale 1 :index tls-index))
-      (popw bsp (- binding-value-slot binding-size))
+      (popw/raw bsp (- binding-value-slot binding-size))
       (storew symbol bsp (- binding-symbol-slot binding-size))
       (inst mov (make-ea :qword :base thread-base-tn :scale 1 :index tls-index)
             val))))
