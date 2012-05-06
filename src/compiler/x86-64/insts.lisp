@@ -1639,17 +1639,23 @@
             (error "bogus arguments to MOV: ~S ~S" dst src))))))
 
 (define-instruction-macro mov/obj (dst src &optional scratch scratch2)
-  (declare (ignore scratch scratch2))
   (once-only ((dst dst)
-              (src src))
+              (src src)
+              (scratch scratch)
+              (scratch2 scratch2))
     `(without-ea-check ()
-       (inst mov (emit-write-barrier-for-ea ,dst ,src)
+       (inst mov (emit-write-barrier-for-ea ,dst ,src
+                                            ,scratch ,scratch2)
              ,src))))
 
 (define-instruction-macro mov/raw (dst src &optional scratch scratch2)
-  (declare (ignore scratch scratch2))
-  `(without-ea-check ()
-     (inst mov ,dst ,src)))
+  (once-only ((dst dst)
+              (src src)
+              (scratch scratch)
+              (scratch2 scratch2))
+    `(without-ea-check ()
+       ,scratch ,scratch2
+       (inst mov ,dst ,src))))
 
 ;;; Emit a sign-extending (if SIGNED-P is true) or zero-extending move.
 ;;; To achieve the shortest possible encoding zero extensions into a
@@ -1769,13 +1775,18 @@
             (emit-byte segment #b10001111)
             (emit-ea segment dst #b000))))))
 
-(define-instruction-macro pop/obj (dst)
+(define-instruction-macro pop/obj (dst &optional scratch scratch2)
   `(without-ea-check ()
-     (inst pop (emit-write-barrier-for-ea ,dst nil))))
+     (inst pop (emit-write-barrier-for-ea ,dst rsp-tn
+                                          ,scratch ,scratch2))))
 
-(define-instruction-macro pop/raw (dst)
-  `(without-ea-check ()
-     (inst pop ,dst)))
+(define-instruction-macro pop/raw (dst &optional scratch scratch2)
+  (once-only ((dst dst)
+              (scratch scratch)
+              (scratch2 scratch2))
+    `(without-ea-check ()
+       ,scratch ,scratch2
+       (inst pop ,dst))))
 
 (define-instruction xchg (segment operand1 operand2)
   ;; Register with accumulator.
@@ -1808,16 +1819,29 @@
              (t
               (error "bogus args to XCHG: ~S ~S" operand1 operand2)))))))
 
-(define-instruction-macro xchg/obj (x y)
+(define-instruction-macro xchg/obj (x y &optional
+                                      scratch scratch2 scratch3)
   (once-only ((x x)
-              (y y))
+              (y y)
+              (scratch scratch)
+              (scratch2 scratch2)
+              (scratch3 scratch3))
     `(without-ea-check ()
-       (inst xchg (emit-write-barrier-for-ea ,x ,y)
-                  (emit-write-barrier-for-ea ,y ,x)))))
+       (inst xchg (emit-write-barrier-for-ea ,x ,y
+                                             ,scratch ,scratch2)
+                  (emit-write-barrier-for-ea ,y ,x
+                                             ,scratch2 ,scratch3)))))
 
-(define-instruction-macro xchg/raw (x y)
-  `(without-ea-check ()
-     (inst xchg ,x ,y)))
+(define-instruction-macro xchg/raw (x y &optional
+                                      scratch scratch2 scratch3)
+  (once-only ((x x)
+              (y y)
+              (scratch scratch)
+              (scratch2 scratch2)
+              (scratch3 scratch3))
+    `(without-ea-check ()
+       ,scratch ,scratch2 ,scratch3
+       (inst xchg ,x ,y))))
 
 (define-instruction lea (segment dst src)
   (:printer reg-reg/mem ((op #b1000110) (width 1)))
@@ -1842,16 +1866,29 @@
      (emit-byte segment (if (eq size :byte) #b10110000 #b10110001))
      (emit-ea segment dst (reg-tn-encoding src)))))
 
-(define-instruction-macro cmpxchg/obj (dst src &optional prefix)
+(define-instruction-macro cmpxchg/obj (dst src
+                                           &optional prefix
+                                           scratch scratch2)
   (once-only ((dst dst)
-              (src src))
+              (src src)
+              (prefix prefix)
+              (scratch scratch)
+              (scratch2 scratch2))
     `(without-ea-check ()
-       (inst cmpxchg (emit-write-barrier-for-ea ,dst ,src)
+       (inst cmpxchg (emit-write-barrier-for-ea ,dst ,src
+                                                ,scratch ,scratch2)
              ,src ,prefix))))
 
-(define-instruction-macro cmpxchg/raw (dst src &optional prefix)
-  `(without-ea-check ()
-     (inst cmpxchg ,dst ,src ,prefix)))
+(define-instruction-macro cmpxchg/raw (dst src &optional prefix
+                                           scratch scratch2)
+  (once-only ((dst dst)
+              (src src)
+              (prefix prefix)
+              (scratch scratch)
+              (scratch2 scratch2))
+    `(without-ea-check ()
+       ,scratch ,scratch2
+       (inst cmpxchg ,dst ,src ,prefix))))
 
 ;;;; flag control instructions
 
@@ -2169,16 +2206,28 @@
      (emit-byte segment (if (eq size :byte) #b11000000 #b11000001))
      (emit-ea segment dst (reg-tn-encoding src)))))
 
-(define-instruction-macro xadd/obj (dst src &optional prefix)
+(define-instruction-macro xadd/obj (dst src &optional prefix
+                                        scratch scratch2)
   (once-only ((dst dst)
-              (src src))
+              (src src)
+              (prefix prefix)
+              (scratch scratch)
+              (scratch2 scratch2))
     `(without-ea-check ()
-       (inst xadd (emit-write-barrier-for-ea ,dst ,src)
+       (inst xadd (emit-write-barrier-for-ea ,dst ,src
+                                             ,scratch ,scratch2)
              ,src ,prefix))))
 
-(define-instruction-macro xadd/raw (dst src &optional prefix)
-  `(without-ea-check ()
-     (inst xadd ,dst ,src ,prefix)))
+(define-instruction-macro xadd/raw (dst src &optional prefix
+                                        scratch scratch2)
+  (once-only ((dst dst)
+              (src src)
+              (prefix prefix)
+              (scratch scratch)
+              (scratch2 scratch2))
+    `(without-ea-check ()
+       ,scratch ,scratch2
+       (inst xadd ,dst ,src ,prefix))))
 
 ;;;; logic
 
