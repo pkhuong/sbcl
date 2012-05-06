@@ -36,7 +36,7 @@
                             ((control-stack)
                              (move temp ,tn)
                              temp))))
-                     (storew/obj reg ,list ,slot list-pointer-lowtag))))
+                     (storew/raw reg ,list ,slot list-pointer-lowtag))))
              (let ((cons-cells (if star (1- num) num))
                    (stack-allocate-p (awhen (sb!c::node-lvar node)
                                        (sb!c::lvar-dynamic-extent it))))
@@ -48,14 +48,14 @@
                   (store-car (tn-ref-tn things) ptr)
                   (setf things (tn-ref-across things))
                   (inst add ptr (pad-data-block cons-size))
-                  (storew/obj ptr ptr (- cons-cdr-slot cons-size)
+                  (storew/raw ptr ptr (- cons-cdr-slot cons-size)
                               list-pointer-lowtag))
                 (store-car (tn-ref-tn things) ptr)
                 (cond (star
                        (setf things (tn-ref-across things))
                        (store-car (tn-ref-tn things) ptr cons-cdr-slot))
                       (t
-                       (storew/obj nil-value ptr cons-cdr-slot
+                       (storew/raw nil-value ptr cons-cdr-slot
                                    list-pointer-lowtag)))
                 (aver (null (tn-ref-across things)))))
              (move result res))))))
@@ -87,8 +87,8 @@
     (pseudo-atomic
       (allocation result result)
       (inst lea result (make-ea :byte :base result :disp other-pointer-lowtag))
-      (storew/obj type result 0 other-pointer-lowtag)
-      (storew/obj length result vector-length-slot
+      (storew/raw type result 0 other-pointer-lowtag)
+      (storew/raw length result vector-length-slot
                   other-pointer-lowtag))))
 
 (define-vop (allocate-vector-on-stack)
@@ -134,9 +134,9 @@
   (:node-var node)
   (:generator 37
     (with-fixed-allocation (result fdefn-widetag fdefn-size node)
-      (storew/obj name result fdefn-name-slot other-pointer-lowtag)
-      (storew/obj nil-value result fdefn-fun-slot other-pointer-lowtag)
-      (storew/obj (make-fixup "undefined_tramp" :foreign)
+      (storew/raw name result fdefn-name-slot other-pointer-lowtag)
+      (storew/raw nil-value result fdefn-fun-slot other-pointer-lowtag)
+      (storew/raw (make-fixup "undefined_tramp" :foreign)
                   result fdefn-raw-addr-slot other-pointer-lowtag))))
 
 (define-vop (make-closure)
@@ -150,11 +150,11 @@
     (let ((size (+ length closure-info-offset)))
       (allocation result (pad-data-block size) node stack-allocate-p
                   fun-pointer-lowtag)
-      (storew/obj (logior (ash (1- size) n-widetag-bits)
+      (storew/raw (logior (ash (1- size) n-widetag-bits)
                           closure-header-widetag)
                   result 0 fun-pointer-lowtag))
     (loadw temp function closure-fun-slot fun-pointer-lowtag)
-    (storew/obj temp result closure-fun-slot fun-pointer-lowtag))))
+    (storew/raw temp result closure-fun-slot fun-pointer-lowtag))))
 
 ;;; The compiler likes to be able to directly make value cells.
 (define-vop (make-value-cell)
@@ -165,7 +165,7 @@
   (:generator 10
     (with-fixed-allocation
         (result value-cell-header-widetag value-cell-size node stack-allocate-p)
-      (storew/obj value result value-cell-value-slot other-pointer-lowtag))))
+      (storew/raw value result value-cell-value-slot other-pointer-lowtag))))
 
 ;;;; automatic allocators for primitive objects
 
@@ -191,7 +191,7 @@
     (maybe-pseudo-atomic stack-allocate-p
      (allocation result (pad-data-block words) node stack-allocate-p lowtag)
      (when type
-       (storew/obj (logior (ash (1- words) n-widetag-bits) type)
+       (storew/raw (logior (ash (1- words) n-widetag-bits) type)
                    result
                    0
                    lowtag)))))
@@ -218,7 +218,7 @@
     (pseudo-atomic
      (allocation result bytes node)
      (inst lea result (make-ea :byte :base result :disp lowtag))
-     (storew/obj header result 0 lowtag))))
+     (storew/raw header result 0 lowtag))))
 
 (define-vop (%make-symbol)
   (:policy :fast-safe)
@@ -229,8 +229,8 @@
   (:node-var node)
   (:generator 37
     (with-fixed-allocation (result symbol-header-widetag symbol-size node)
-      (storew/obj name result symbol-name-slot other-pointer-lowtag)
-      (storew/obj unbound-marker-widetag
+      (storew/raw name result symbol-name-slot other-pointer-lowtag)
+      (storew/raw unbound-marker-widetag
                   result
                   symbol-value-slot
                   other-pointer-lowtag)
@@ -253,6 +253,6 @@
       ;; difference in behaviour really matter?
       (inst shr temp 1)
       (inst and temp #xfffffffc)
-      (storew/obj temp result symbol-hash-slot other-pointer-lowtag)
-      (storew/obj nil-value result symbol-plist-slot other-pointer-lowtag)
-      (storew/obj nil-value result symbol-package-slot other-pointer-lowtag))))
+      (storew/raw temp result symbol-hash-slot other-pointer-lowtag)
+      (storew/raw nil-value result symbol-plist-slot other-pointer-lowtag)
+      (storew/raw nil-value result symbol-package-slot other-pointer-lowtag))))
