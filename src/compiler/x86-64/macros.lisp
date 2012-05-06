@@ -37,31 +37,47 @@
 (defmacro loadw (value ptr &optional (slot 0) (lowtag 0))
   `(inst mov ,value (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
+(defmacro storew (value ptr &optional (slot 0) (lowtag 0))
+  (once-only ((value     value))
+    `(cond ((and (integerp ,value)
+                 (not (typep ,value '(signed-byte 32))))
+            (inst mov temp-reg-tn ,value)
+            (inst mov (make-ea-for-object-slot ,ptr ,slot ,lowtag)
+                  temp-reg-tn))
+           (t
+            (inst mov (make-ea-for-object-slot ,ptr ,slot ,lowtag)
+                  ,value)))))
+
 (macrolet
     ((def (name inst)
-       `(defmacro ,name (value ptr &optional (slot 0) (lowtag 0))
-          (once-only ((value value))
+       `(defmacro ,name (value ptr
+                         &optional (slot 0) (lowtag 0) scratch)
+          (once-only ((value     value))
             `(cond ((and (integerp ,value)
                          (not (typep ,value '(signed-byte 32))))
                     (inst mov temp-reg-tn ,value)
                     (inst ,',inst (make-ea-for-object-slot ,ptr ,slot ,lowtag)
-                          temp-reg-tn))
+                          temp-reg-tn
+                          ,scratch))
                    (t
                     (inst ,',inst (make-ea-for-object-slot ,ptr ,slot ,lowtag)
-                          ,value)))))))
-  (def storew mov)
+                          ,value
+                          ,scratch)))))))
   (def storew/obj mov/obj)
   (def storew/raw mov/raw))
 
 (defmacro pushw (ptr &optional (slot 0) (lowtag 0))
   `(inst push (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
+(defmacro popw (ptr &optional (slot 0) (lowtag 0))
+  `(inst pop (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 (macrolet
     ((def (name inst)
-       `(defmacro ,name (ptr &optional (slot 0) (lowtag 0))
-          `(inst ,',inst (make-ea-for-object-slot ,ptr ,slot ,lowtag)))))
-  (def popw pop)
+       `(defmacro ,name (ptr &optional (slot 0) (lowtag 0)
+                               scratch)
+          `(inst ,',inst (make-ea-for-object-slot ,ptr ,slot ,lowtag)
+                 ,scratch))))
   (def popw/obj pop/obj)
   (def popw/raw pop/raw))
 
