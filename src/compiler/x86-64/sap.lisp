@@ -31,7 +31,7 @@
   (:node-var node)
   (:generator 20
     (with-fixed-allocation (res sap-widetag sap-size node)
-      (storew/obj sap res sap-pointer-slot other-pointer-lowtag))))
+      (storew/raw sap res sap-pointer-slot other-pointer-lowtag))))
 (define-move-vop move-from-sap :move
   (sap-reg) (descriptor-reg))
 
