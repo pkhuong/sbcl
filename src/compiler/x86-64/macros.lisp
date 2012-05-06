@@ -37,28 +37,34 @@
 (defmacro loadw (value ptr &optional (slot 0) (lowtag 0))
   `(inst mov ,value (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
-(defmacro storew (value ptr &optional (slot 0) (lowtag 0))
-  (once-only ((value value))
-    `(cond ((and (integerp ,value)
-                 (not (typep ,value '(signed-byte 32))))
-            (inst mov temp-reg-tn ,value)
-            (inst mov/obj (make-ea-for-object-slot ,ptr ,slot ,lowtag)
-                  temp-reg-tn))
-           (t
-            (inst mov/obj (make-ea-for-object-slot ,ptr ,slot ,lowtag)
-                  ,value)))))
+(macrolet
+    ((def (name inst)
+       `(defmacro ,name (value ptr &optional (slot 0) (lowtag 0))
+          (once-only ((value value))
+            `(cond ((and (integerp ,value)
+                         (not (typep ,value '(signed-byte 32))))
+                    (inst mov temp-reg-tn ,value)
+                    (inst ,',inst (make-ea-for-object-slot ,ptr ,slot ,lowtag)
+                          temp-reg-tn))
+                   (t
+                    (inst ,',inst (make-ea-for-object-slot ,ptr ,slot ,lowtag)
+                          ,value)))))))
+  (def storew mov)
+  (def storew/obj mov/obj)
+  (def storew/raw mov/raw))
 
 (defmacro pushw (ptr &optional (slot 0) (lowtag 0))
   `(inst push (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
-(defmacro popw (ptr &optional (slot 0) (lowtag 0))
-  `(inst pop (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
-(defmacro popw/obj (ptr &optional (slot 0) (lowtag 0))
-  `(inst pop/obj (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
+(macrolet
+    ((def (name inst)
+       `(defmacro ,name (ptr &optional (slot 0) (lowtag 0))
+          `(inst ,',inst (make-ea-for-object-slot ,ptr ,slot ,lowtag)))))
+  (def popw pop)
+  (def popw/obj pop/obj)
+  (def popw/raw pop/raw))
 
-(defmacro popw/raw (ptr &optional (slot 0) (lowtag 0))
-  `(inst pop/raw (make-ea-for-object-slot ,ptr ,slot ,lowtag)))
 
 ;;;; Write barrier stuff
 (defun write-barrier-dest-p (dst &optional any-size)
@@ -306,8 +312,8 @@
     `(maybe-pseudo-atomic ,stack-allocate-p
       (allocation ,result-tn (pad-data-block ,size) ,inline ,stack-allocate-p
                   other-pointer-lowtag)
-      (storew (logior (ash (1- ,size) n-widetag-bits) ,widetag)
-              ,result-tn 0 other-pointer-lowtag)
+      (storew/obj (logior (ash (1- ,size) n-widetag-bits) ,widetag)
+                  ,result-tn 0 other-pointer-lowtag)
       ,@forms)))
 
 ;;;; error code

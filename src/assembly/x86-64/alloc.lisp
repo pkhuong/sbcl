@@ -118,7 +118,8 @@
                  (emit-label not-error))
                (inst add (make-ea-for-symbol-value *free-tls-index*)
                      n-word-bytes)
-               (storew target other symbol-tls-index-slot other-pointer-lowtag)
+               (storew/raw target other symbol-tls-index-slot
+                           other-pointer-lowtag)
                (emit-label release-tls-index-lock)
                ;; No need for barriers on x86/x86-64 on unlock.
                (store-symbol-value 0 *tls-index-lock*)

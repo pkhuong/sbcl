@@ -36,7 +36,7 @@
                             ((control-stack)
                              (move temp ,tn)
                              temp))))
-                     (storew reg ,list ,slot list-pointer-lowtag))))
+                     (storew/obj reg ,list ,slot list-pointer-lowtag))))
              (let ((cons-cells (if star (1- num) num))
                    (stack-allocate-p (awhen (sb!c::node-lvar node)
                                        (sb!c::lvar-dynamic-extent it))))
@@ -48,15 +48,15 @@
                   (store-car (tn-ref-tn things) ptr)
                   (setf things (tn-ref-across things))
                   (inst add ptr (pad-data-block cons-size))
-                  (storew ptr ptr (- cons-cdr-slot cons-size)
-                          list-pointer-lowtag))
+                  (storew/obj ptr ptr (- cons-cdr-slot cons-size)
+                              list-pointer-lowtag))
                 (store-car (tn-ref-tn things) ptr)
                 (cond (star
                        (setf things (tn-ref-across things))
                        (store-car (tn-ref-tn things) ptr cons-cdr-slot))
                       (t
-                       (storew nil-value ptr cons-cdr-slot
-                               list-pointer-lowtag)))
+                       (storew/obj nil-value ptr cons-cdr-slot
+                                   list-pointer-lowtag)))
                 (aver (null (tn-ref-across things)))))
              (move result res))))))
 
@@ -87,8 +87,9 @@
     (pseudo-atomic
       (allocation result result)
       (inst lea result (make-ea :byte :base result :disp other-pointer-lowtag))
-      (storew type result 0 other-pointer-lowtag)
-      (storew length result vector-length-slot other-pointer-lowtag))))
+      (storew/obj type result 0 other-pointer-lowtag)
+      (storew/obj length result vector-length-slot
+                  other-pointer-lowtag))))
 
 (define-vop (allocate-vector-on-stack)
   (:args (type :scs (unsigned-reg) :to :save)
@@ -118,8 +119,8 @@
     (inst lea res
           (make-ea :byte :base result :disp (- (* vector-data-offset n-word-bytes)
                                                other-pointer-lowtag)))
-    (storew type result 0 other-pointer-lowtag)
-    (storew length result vector-length-slot other-pointer-lowtag)
+    (storew/raw type result 0 other-pointer-lowtag)
+    (storew/raw length result vector-length-slot other-pointer-lowtag)
     (zeroize zero)
     (inst rep)
     (inst stos zero)))
@@ -133,10 +134,10 @@
   (:node-var node)
   (:generator 37
     (with-fixed-allocation (result fdefn-widetag fdefn-size node)
-      (storew name result fdefn-name-slot other-pointer-lowtag)
-      (storew nil-value result fdefn-fun-slot other-pointer-lowtag)
-      (storew (make-fixup "undefined_tramp" :foreign)
-              result fdefn-raw-addr-slot other-pointer-lowtag))))
+      (storew/obj name result fdefn-name-slot other-pointer-lowtag)
+      (storew/obj nil-value result fdefn-fun-slot other-pointer-lowtag)
+      (storew/obj (make-fixup "undefined_tramp" :foreign)
+                  result fdefn-raw-addr-slot other-pointer-lowtag))))
 
 (define-vop (make-closure)
   (:args (function :to :save :scs (descriptor-reg)))
@@ -149,10 +150,11 @@
     (let ((size (+ length closure-info-offset)))
       (allocation result (pad-data-block size) node stack-allocate-p
                   fun-pointer-lowtag)
-      (storew (logior (ash (1- size) n-widetag-bits) closure-header-widetag)
-              result 0 fun-pointer-lowtag))
+      (storew/obj (logior (ash (1- size) n-widetag-bits)
+                          closure-header-widetag)
+                  result 0 fun-pointer-lowtag))
     (loadw temp function closure-fun-slot fun-pointer-lowtag)
-    (storew temp result closure-fun-slot fun-pointer-lowtag))))
+    (storew/obj temp result closure-fun-slot fun-pointer-lowtag))))
 
 ;;; The compiler likes to be able to directly make value cells.
 (define-vop (make-value-cell)
@@ -163,7 +165,7 @@
   (:generator 10
     (with-fixed-allocation
         (result value-cell-header-widetag value-cell-size node stack-allocate-p)
-      (storew value result value-cell-value-slot other-pointer-lowtag))))
+      (storew/obj value result value-cell-value-slot other-pointer-lowtag))))
 
 ;;;; automatic allocators for primitive objects
 
@@ -189,10 +191,10 @@
     (maybe-pseudo-atomic stack-allocate-p
      (allocation result (pad-data-block words) node stack-allocate-p lowtag)
      (when type
-       (storew (logior (ash (1- words) n-widetag-bits) type)
-               result
-               0
-               lowtag)))))
+       (storew/obj (logior (ash (1- words) n-widetag-bits) type)
+                   result
+                   0
+                   lowtag)))))
 
 (define-vop (var-alloc)
   (:args (extra :scs (any-reg)))
@@ -216,7 +218,7 @@
     (pseudo-atomic
      (allocation result bytes node)
      (inst lea result (make-ea :byte :base result :disp lowtag))
-     (storew header result 0 lowtag))))
+     (storew/obj header result 0 lowtag))))
 
 (define-vop (%make-symbol)
   (:policy :fast-safe)
@@ -227,11 +229,11 @@
   (:node-var node)
   (:generator 37
     (with-fixed-allocation (result symbol-header-widetag symbol-size node)
-      (storew name result symbol-name-slot other-pointer-lowtag)
-      (storew unbound-marker-widetag
-              result
-              symbol-value-slot
-              other-pointer-lowtag)
+      (storew/obj name result symbol-name-slot other-pointer-lowtag)
+      (storew/obj unbound-marker-widetag
+                  result
+                  symbol-value-slot
+                  other-pointer-lowtag)
       ;; Set up a random hash value for the symbol. Perhaps the object
       ;; address could be used for even faster and smaller code!
       ;; FIXME: We don't mind the symbol hash not being repeatable, so
@@ -251,6 +253,6 @@
       ;; difference in behaviour really matter?
       (inst shr temp 1)
       (inst and temp #xfffffffc)
-      (storew temp result symbol-hash-slot other-pointer-lowtag)
-      (storew nil-value result symbol-plist-slot other-pointer-lowtag)
-      (storew nil-value result symbol-package-slot other-pointer-lowtag))))
+      (storew/obj temp result symbol-hash-slot other-pointer-lowtag)
+      (storew/obj nil-value result symbol-plist-slot other-pointer-lowtag)
+      (storew/obj nil-value result symbol-package-slot other-pointer-lowtag))))
