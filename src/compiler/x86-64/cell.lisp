@@ -45,7 +45,8 @@
                                      character-widetag)))
                           temp))
         ;; Else, value not immediate.
-        (storew/obj value object offset lowtag))))
+        (storew/obj value object offset lowtag
+                    temp))))
 
 (define-vop (init-slot set-slot))
 
@@ -64,7 +65,8 @@
      (inst cmpxchg/obj
            (make-ea :qword :base object
                     :disp (- (* offset n-word-bytes) lowtag))
-           new :lock)
+           new :lock
+           temp-reg-tn)
      (move result rax)))
 
 ;;;; symbol hacking VOPs
@@ -103,7 +105,8 @@
                      :disp (- (* symbol-value-slot n-word-bytes)
                               other-pointer-lowtag)
                      :scale 1)
-            new :lock)
+            new :lock
+            temp-reg-tn)
       (emit-label check)
       (move result rax)
       (inst cmp result unbound-marker-widetag)
@@ -147,7 +150,8 @@
               value)
         (inst jmp done)
         (emit-label global-val)
-        (storew/obj value symbol symbol-value-slot other-pointer-lowtag)
+        (storew/obj value symbol symbol-value-slot other-pointer-lowtag
+                    temp-reg-tn)
         (emit-label done))))
 
   ;; With Symbol-Value, we check that the value isn't the trap object. So
@@ -278,8 +282,10 @@
     (inst jmp :e NORMAL-FUN)
     (inst lea raw (make-fixup "closure_tramp" :foreign))
     NORMAL-FUN
-    (storew/obj function fdefn fdefn-fun-slot other-pointer-lowtag)
-    (storew/obj raw fdefn fdefn-raw-addr-slot other-pointer-lowtag)
+    (storew/obj function fdefn fdefn-fun-slot other-pointer-lowtag
+                temp-reg-tn)
+    (storew/obj raw fdefn fdefn-raw-addr-slot other-pointer-lowtag
+                temp-reg-tn)
     (move result function)))
 
 (define-vop (fdefn-makunbound)
@@ -288,9 +294,11 @@
   (:args (fdefn :scs (descriptor-reg) :target result))
   (:results (result :scs (descriptor-reg)))
   (:generator 38
-    (storew/obj nil-value fdefn fdefn-fun-slot other-pointer-lowtag)
+    (storew/obj nil-value fdefn fdefn-fun-slot other-pointer-lowtag
+                temp-reg-tn)
     (storew/obj (make-fixup "undefined_tramp" :foreign)
-                fdefn fdefn-raw-addr-slot other-pointer-lowtag)
+                fdefn fdefn-raw-addr-slot other-pointer-lowtag
+                temp-reg-tn)
     (move result fdefn)))
 
 ;;;; binding and unbinding
@@ -350,7 +358,8 @@
     (store-symbol-value bsp *binding-stack-pointer*)
     (storew/raw temp bsp (- binding-value-slot binding-size))
     (storew/raw symbol bsp (- binding-symbol-slot binding-size))
-    (storew/obj val symbol symbol-value-slot other-pointer-lowtag)))
+    (storew/obj val symbol symbol-value-slot other-pointer-lowtag
+                temp)))
 
 #!+sb-thread
 (define-vop (unbind)
@@ -377,7 +386,8 @@
     (load-symbol-value bsp *binding-stack-pointer*)
     (loadw symbol bsp (- binding-symbol-slot binding-size))
     (loadw value bsp (- binding-value-slot binding-size))
-    (storew/obj value symbol symbol-value-slot other-pointer-lowtag)
+    (storew/obj value symbol symbol-value-slot other-pointer-lowtag
+                temp-reg-tn)
     (storew/raw 0 bsp (- binding-symbol-slot binding-size))
     (storew/raw 0 bsp (- binding-value-slot binding-size))
     (inst sub bsp (* binding-size n-word-bytes))
@@ -400,7 +410,8 @@
     (inst jmp :eq SKIP)
     (loadw value bsp (- binding-value-slot binding-size))
     #!-sb-thread
-    (storew/obj value symbol symbol-value-slot other-pointer-lowtag)
+    (storew/obj value symbol symbol-value-slot other-pointer-lowtag
+                temp-reg-tn)
     #!+sb-thread
     (loadw tls-index symbol symbol-tls-index-slot other-pointer-lowtag)
     #!+sb-thread
@@ -466,7 +477,8 @@
   (:generator 4
     ;; FIXME: this object is always DX, right?
     (storew/obj rbp-tn object (+ closure-info-offset offset)
-                fun-pointer-lowtag)))
+                fun-pointer-lowtag
+                temp-reg-tn)))
 
 ;;;; value cell hackery
 
