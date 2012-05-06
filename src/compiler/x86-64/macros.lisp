@@ -312,7 +312,7 @@
     `(maybe-pseudo-atomic ,stack-allocate-p
       (allocation ,result-tn (pad-data-block ,size) ,inline ,stack-allocate-p
                   other-pointer-lowtag)
-      (storew/obj (logior (ash (1- ,size) n-widetag-bits) ,widetag)
+      (storew/raw (logior (ash (1- ,size) n-widetag-bits) ,widetag)
                   ,result-tn 0 other-pointer-lowtag)
       ,@forms)))
 
