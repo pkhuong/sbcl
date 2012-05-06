@@ -118,7 +118,7 @@
                                        (truncate offset +gencgc-card-size+)))
         1))
 
-(defun emit-write-barrier-for-ea (ea src &optional scratch scratch2)
+(defun emit-write-barrier-for-ea (ea src scratch &optional scratch2)
   (unless (write-barrier-dest-p ea)
     (return-from emit-write-barrier-for-ea ea))
   (let ((base   (ea-base ea))
@@ -126,17 +126,10 @@
         (index  (ea-index ea))
         (scale  (ea-scale ea)))
     (cond ((null index)
-           (unless scratch
-             (aver (not (location= barrier-reg-tn base)))
-             (setf scratch barrier-reg-tn))
            (aver (not (and (tn-p src) (location= scratch src))))
            (emit-write-barrier base :offset offset :scratch scratch)
            ea)
           (t
-           (unless scratch
-             (aver (not (location= barrier-reg-tn base)))
-             (aver (not (location= barrier-reg-tn index)))
-             (setf scratch barrier-reg-tn))
            (cond ((or (null scratch2)
                       (location= scratch scratch2))
                   (aver (not (and (tn-p src) (location= scratch src))))

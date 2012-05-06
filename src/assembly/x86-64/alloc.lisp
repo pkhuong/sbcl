@@ -38,7 +38,7 @@
   (def r9)
   (def r10)
   (def r12)
-  #+nil(def r13)
+  (def r13)
   (def r14)
   (def r15))
 
@@ -67,7 +67,7 @@
   (def r9)
   (def r10)
   (def r12)
-  #+nil(def r13)
+  (def r13)
   (def r14)
   (def r15))
 
@@ -136,6 +136,6 @@
   (def r9)
   (def r10)
   (def r12)
-  #+nil(def r13)
+  (def r13)
   (def r14)
   (def r15))
