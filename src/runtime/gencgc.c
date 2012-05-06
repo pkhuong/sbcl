@@ -108,11 +108,11 @@ boolean gencgc_verbose = 0;
 /* We hunt for pointers to old-space, when GCing generations >= verify_gen.
  * Set verify_gens to HIGHEST_NORMAL_GENERATION + 1 to disable this kind of
  * check. */
-generation_index_t verify_gens = 0;
+generation_index_t verify_gens = HIGHEST_NORMAL_GENERATION+1;
 
 /* Should we do a pre-scan verify of generation 0 before it's GCed? */
-boolean pre_verify_gen_0 = 1;
-boolean pre_verify_all_gens = 1;
+boolean pre_verify_gen_0 = 0;
+boolean pre_verify_all_gens = 0;
 
 /* Should we check for bad pointers after gc_free_heap is called
  * from Lisp PURIFY? */
@@ -364,74 +364,33 @@ os_vm_size_t gencgc_alloc_granularity = GENCGC_ALLOC_GRANULARITY;
 
 extern unsigned char gencgc_cards[GENCGC_N_CARD+16];
 unsigned char gencgc_cards[GENCGC_N_CARD+16];
-/* at beginning of GC, copy all here */
-unsigned char gencgc_cards_copy[GENCGC_N_CARD+1];
-/* marked by mprotect w/ address */
-unsigned char gencgc_barrier_cards[GENCGC_N_CARD];
-/* same, but by mprotect page */
-unsigned char gencgc_mprotect_cards[GENCGC_N_CARD/(GENCGC_CARD_BYTES/1024)];
 
-int check_card_coherence()
+void update_write_protection_flags(void)
 {
-        unsigned nmarks, ndiff, i, j;
-        unsigned long addr;
-        int ok = 1;
+    unsigned long i, j;
+    unsigned long addr;
 
-        for (i = 0; i < 16; i++)
-                gencgc_cards[i] |= gencgc_cards[GENCGC_N_CARD+i];
+    for (i = 0; i < 16; i++)
+        gencgc_cards[i] |= gencgc_cards[GENCGC_N_CARD+i];
 
-#if 0
-        for (nmarks = 0, ndiff = 0, i = 0; i < GENCGC_N_CARD; i++) {
-                if (!gencgc_barrier_cards[i]) continue;
-                nmarks++;
-                if (!(gencgc_cards[i] || gencgc_cards[(i-1)%GENCGC_N_CARD]))
-                        ndiff++;
+    for (i = 0; i <= last_free_page; i++) {
+        if (page_free_p(i)
+            || (page_table[i].bytes_used == 0)
+            || !page_boxed_no_region_p(i))
+            continue;
+
+        addr = ((unsigned long)page_address(i)/1024)%GENCGC_N_CARD;
+        for (j = 0; j <= (GENCGC_CARD_BYTES/1024); j++) {
+            if (gencgc_cards[(addr+j-1)%GENCGC_N_CARD]) {
+                page_table[i].write_protected_cleared
+                    = page_table[i].write_protected;
+                page_table[i].write_protected = 0;
+                break;
+            }
         }
+    }
 
-        if (ndiff) {
-                printf("\nbarrier delta: %u %u\n", nmarks, ndiff);
-                ok = 0;
-        }
-
-        for (nmarks = 0, ndiff = 0, i = 0;
-             i < GENCGC_N_CARD/(GENCGC_CARD_BYTES/1024); i++) {
-                if (!gencgc_mprotect_cards[i]) continue;
-                nmarks++;
-                for (j = 0; j <= (GENCGC_CARD_BYTES/1024); j++) {
-                        if (gencgc_cards[(i*(GENCGC_CARD_BYTES/1024)+j-1)%GENCGC_N_CARD])
-                                goto next;
-                }
-                ndiff++;
-        next:;
-        }
-
-        if (ndiff) {
-                printf("\nmprotect delta: %u %u\n", nmarks, ndiff);
-                ok = 0;
-        }
-#else
-        for (i = 0; i <= last_free_page; i++) {
-                if (page_free_p(i))
-                        continue;
-                if (!page_boxed_no_region_p(i)) continue;
-                if (page_table[i].bytes_used == 0) continue;
-
-                addr = ((unsigned long)page_address(i)/1024)%GENCGC_N_CARD;
-                for (j = 0; j <= (GENCGC_CARD_BYTES/1024); j++) {
-                        if (gencgc_cards[(addr+j-1)%GENCGC_N_CARD]) {
-                                page_table[i].write_protected_cleared = 1;
-                                page_table[i].write_protected = 0;
-                                os_protect(page_address(i), npage_bytes(1), OS_VM_PROT_ALL);
-                                break;
-                        }
-                }
-        }
-#endif
-        bzero(gencgc_cards, sizeof(gencgc_cards));
-        bzero(gencgc_barrier_cards, sizeof(gencgc_barrier_cards));
-        bzero(gencgc_mprotect_cards, sizeof(gencgc_mprotect_cards));
-
-        return ok;
+    bzero(gencgc_cards, sizeof(gencgc_cards));
 }
 
 
@@ -3826,7 +3785,7 @@ collect_garbage(generation_index_t last_gen)
         last_gen = 0;
     }
 
-    gc_assert(check_card_coherence());
+    update_write_protection_flags();
 
     /* Flush the alloc regions updating the tables. */
     gc_alloc_update_all_page_tables();
@@ -4379,15 +4338,9 @@ gencgc_handle_wp_violation(void* fault_addr)
         int ret;
         ret = thread_mutex_lock(&free_pages_lock);
         gc_assert(ret == 0);
-        if (!page_unboxed_p(page_index)) {
-                unsigned long addr = (unsigned long)fault_addr;
-                gencgc_barrier_cards[(addr/1024)%GENCGC_N_CARD] = 1;
-                gencgc_mprotect_cards[(addr/GENCGC_CARD_BYTES)%sizeof(gencgc_mprotect_cards)]
-                = 1;
-        }
+        gc_assert(0 && "Write protection in software write barrier build?");
         if (page_table[page_index].write_protected) {
             /* Unprotect the page. */
-            gc_assert(0);
             os_protect(page_address(page_index), GENCGC_CARD_BYTES, OS_VM_PROT_ALL);
             page_table[page_index].write_protected_cleared = 1;
             page_table[page_index].write_protected = 0;
