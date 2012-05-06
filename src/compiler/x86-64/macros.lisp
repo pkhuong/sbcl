@@ -459,6 +459,7 @@
        (:arg-types ,type tagged-num ,el-type ,el-type)
        (:temporary (:sc descriptor-reg :offset rax-offset
                         :from (:argument 2) :to :result :target value)  rax)
+       (:temporary (:sc unsigned-reg) barrier-temp)
        (:results (value :scs ,scs))
        (:result-types ,el-type)
        (:generator 5
@@ -467,7 +468,8 @@
                (make-ea :qword :base object :index index
                                :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                                :disp (- (* ,offset n-word-bytes) ,lowtag))
-               new-value :lock)
+               new-value :lock
+               barrier-temp temp-reg-tn)
          (move value rax)))))
 
 (defmacro define-full-reffer (name type offset lowtag scs el-type &optional translate)
@@ -549,6 +551,7 @@
               (index :scs (any-reg))
               (value :scs ,scs :target result))
        (:arg-types ,type tagged-num ,el-type)
+       (:temporary (:sc unsigned-reg) barrier-temp)
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
@@ -556,7 +559,7 @@
                (make-ea :qword :base object :index index
                         :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                         :disp (- (* ,offset n-word-bytes) ,lowtag))
-               value)
+               value barrier-temp temp-reg-tn)
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
        ,@(when translate
@@ -576,7 +579,7 @@
                (make-ea :qword :base object
                         :disp (- (* (+ ,offset index) n-word-bytes)
                                  ,lowtag))
-               value)
+               value temp-reg-tn)
          (move result value)))))
 
 (defmacro define-full-setter+offset (name type offset lowtag scs el-type &optional translate)
@@ -594,6 +597,7 @@
                                                      n-word-bytes
                                                      vector-data-offset))
                    ,el-type)
+       (:temporary (:sc unsigned-reg) barrier-temp)
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
@@ -601,7 +605,7 @@
                (make-ea :qword :base object :index index
                                :scale (ash 1 (- word-shift n-fixnum-tag-bits))
                                :disp (- (* (+ ,offset offset) n-word-bytes) ,lowtag))
-               value)
+               value barrier-temp temp-reg-tn)
          (move result value)))
      (define-vop (,(symbolicate name "-C"))
        ,@(when translate
@@ -625,7 +629,7 @@
                                :disp (- (* (+ ,offset index offset)
                                            n-word-bytes)
                                         ,lowtag))
-               value)
+               value temp-reg-tn)
          (move result value)))))
 
 ;;; helper for alien stuff.

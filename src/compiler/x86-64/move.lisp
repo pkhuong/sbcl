@@ -122,7 +122,7 @@
 ;;; few of the values in a continuation to fall out.
 (primitive-type-vop move (:check) t)
 
-(defun move-immediate (target val &optional tmp-tn)
+(defun move-immediate (target val &optional tmp-tn barrier-temp)
   (cond
     ;; If target is a register, we can just mov it there directly
     ((and (tn-p target)
@@ -130,11 +130,11 @@
      (inst mov target val))
     ;; Likewise if the value is small enough.
     ((typep val '(signed-byte 32))
-     (inst mov/obj target val))
+     (inst mov/obj target val barrier-temp))
     ;; Otherwise go through the temporary register
     (tmp-tn
      (inst mov tmp-tn val)
-     (inst mov/obj target tmp-tn))
+     (inst mov/obj target tmp-tn barrier-temp))
     (t
      (error "~A is not a register, no temporary given, and immediate ~A too large" target val))))
 

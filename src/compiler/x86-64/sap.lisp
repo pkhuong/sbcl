@@ -203,7 +203,8 @@
                                  'mov/obj
                                  'mov/raw)
                             (make-ea ,size :base sap :index offset)
-                            (reg-in-size value ,size))
+                            (reg-in-size value ,size)
+                            temp-reg-tn)
                       (move result value)))
                   (define-vop (,set-name-c)
                     (:translate ,set-name)
@@ -220,7 +221,8 @@
                                  'mov/obj
                                  'mov/raw)
                             (make-ea ,size :base sap :disp offset)
-                            (reg-in-size value ,size))
+                            (reg-in-size value ,size)
+                            temp-reg-tn)
                       (move result value)))))))
 
   (def-system-ref-and-set sap-ref-8 %set-sap-ref-8 movzx

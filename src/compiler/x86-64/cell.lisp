@@ -43,10 +43,11 @@
                             (character
                              (logior (ash (char-code val) n-widetag-bits)
                                      character-widetag)))
-                          temp))
+                          temp
+                          temp-reg-tn))
         ;; Else, value not immediate.
         (storew/obj value object offset lowtag
-                    temp))))
+                    temp-reg-tn))))
 
 (define-vop (init-slot set-slot))
 
