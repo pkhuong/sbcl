@@ -78,7 +78,7 @@
   (:policy :fast-safe)
   (:generator 4
     (move result value)
-    (inst xadd/obj (make-ea :dword :base object
+    (inst xadd/raw (make-ea :dword :base object
                             :disp (- (* offset n-word-bytes) lowtag))
           value)))
 
@@ -145,7 +145,7 @@
   (:info offset)
   (:generator 4
     (move result value)
-    (inst xadd/obj (make-ea :dword :base object
+    (inst xadd/raw (make-ea :dword :base object
                             :disp (- (* (+ base offset) n-word-bytes)
                                      lowtag))
           value)))
