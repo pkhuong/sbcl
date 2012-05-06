@@ -21,35 +21,45 @@
   (:generator 1
    (loadw result object offset lowtag)))
 
-(define-vop (set-slot)
+(define-vop (init-or-set-slot)
   (:args (object :scs (descriptor-reg))
          (value :scs (descriptor-reg any-reg immediate)))
   (:temporary (:sc descriptor-reg) temp)
   (:info name offset lowtag)
   (:ignore name)
   (:results)
+  (:variant-vars init)
   (:generator 1
-    (if (sc-is value immediate)
-        (let ((val (tn-value value)))
-          (move-immediate (make-ea :qword
-                                   :base object
-                                   :disp (- (* offset n-word-bytes)
-                                            lowtag))
-                          (etypecase val
-                            (integer
-                             (fixnumize val))
-                            (symbol
-                             (+ nil-value (static-symbol-offset val)))
-                            (character
-                             (logior (ash (char-code val) n-widetag-bits)
-                                     character-widetag)))
-                          temp
-                          temp-reg-tn))
-        ;; Else, value not immediate.
-        (storew/obj value object offset lowtag
-                    temp-reg-tn))))
+    (cond ((sc-is value immediate)
+           (let ((val (tn-value value)))
+             (move-immediate (make-ea :qword
+                                      :base object
+                                      :disp (- (* offset n-word-bytes)
+                                               lowtag))
+                             (etypecase val
+                               (integer
+                                (fixnumize val))
+                               (symbol
+                                (+ nil-value (static-symbol-offset val)))
+                               (character
+                                (logior (ash (char-code val) n-widetag-bits)
+                                        character-widetag)))
+                             temp
+                             (if init
+                                 :raw
+                                 temp-reg-tn))))
+          ;; Else, value not immediate.
+          (init
+           (storew/raw value object offset lowtag))
+          (t
+           (storew/obj value object offset lowtag
+                       temp-reg-tn)))))
 
-(define-vop (init-slot set-slot))
+(define-vop (init-slot init-or-set-slot)
+  (:variant t))
+
+(define-vop (set-slot  init-or-set-slot)
+  (:variant nil))
 
 (define-vop (compare-and-swap-slot)
   (:args (object :scs (descriptor-reg) :to :eval)
