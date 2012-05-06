@@ -123,7 +123,8 @@
     (move eax data)
     (inst shl eax (- n-widetag-bits n-fixnum-tag-bits))
     (inst mov al-tn (make-ea :byte :base x :disp (- other-pointer-lowtag)))
-    (storew/obj eax x 0 other-pointer-lowtag)
+    (storew/obj eax x 0 other-pointer-lowtag
+                temp-reg-tn)
     (move res x)))
 
 (define-vop (pointer-hash)
@@ -248,7 +249,8 @@
           (make-ea :byte :base new-self
                    :disp (- (ash simple-fun-code-offset word-shift)
                             fun-pointer-lowtag)))
-    (storew/obj temp function simple-fun-self-slot fun-pointer-lowtag)
+    (storew/obj temp function simple-fun-self-slot fun-pointer-lowtag
+                temp-reg-tn)
     (move result new-self)))
 
 ;;;; other miscellaneous VOPs
