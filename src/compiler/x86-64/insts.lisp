@@ -1649,7 +1649,7 @@
 (define-instruction-macro mov/raw (dst src &optional scratch scratch2)
   (declare (ignore scratch scratch2))
   `(without-ea-check ()
-     (inst mov/obj ,dst ,src)))
+     (inst mov ,dst ,src)))
 
 ;;; Emit a sign-extending (if SIGNED-P is true) or zero-extending move.
 ;;; To achieve the shortest possible encoding zero extensions into a
@@ -1775,7 +1775,7 @@
 
 (define-instruction-macro pop/raw (dst)
   `(without-ea-check ()
-     (inst pop/obj ,dst)))
+     (inst pop ,dst)))
 
 (define-instruction xchg (segment operand1 operand2)
   ;; Register with accumulator.
@@ -1817,7 +1817,7 @@
 
 (define-instruction-macro xchg/raw (x y)
   `(without-ea-check ()
-     (inst xchg/obj ,x ,y)))
+     (inst xchg ,x ,y)))
 
 (define-instruction lea (segment dst src)
   (:printer reg-reg/mem ((op #b1000110) (width 1)))
@@ -1851,7 +1851,7 @@
 
 (define-instruction-macro cmpxchg/raw (dst src &optional prefix)
   `(without-ea-check ()
-     (inst cmpxchg/obj ,dst ,src ,prefix)))
+     (inst cmpxchg ,dst ,src ,prefix)))
 
 ;;;; flag control instructions
 
@@ -2178,7 +2178,7 @@
 
 (define-instruction-macro xadd/raw (dst src &optional prefix)
   `(without-ea-check ()
-     (inst xadd/obj ,dst ,src ,prefix)))
+     (inst xadd ,dst ,src ,prefix)))
 
 ;;;; logic
 
