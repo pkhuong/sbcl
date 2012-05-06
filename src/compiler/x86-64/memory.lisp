@@ -112,7 +112,8 @@
                              (character
                               (logior (ash (char-code val) n-widetag-bits)
                                       character-widetag)))
-                           temp))
+                           temp
+                           temp-reg-tn))
          ;; Else, value not immediate.
          (storew/obj value object (+ base offset) lowtag
                      temp))))
