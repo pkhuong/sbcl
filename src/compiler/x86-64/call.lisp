@@ -136,8 +136,8 @@
   (:policy :fast-safe)
   (:generator 4
     (aver (sc-is variable-home-tn control-stack))
-    (storew value frame-pointer
-            (frame-word-offset (tn-offset variable-home-tn)))))
+    (storew/raw value frame-pointer
+                (frame-word-offset (tn-offset variable-home-tn)))))
 
 (macrolet ((define-frame-op
                (suffix sc stack-sc instruction
@@ -368,7 +368,8 @@
                (when first-stack-arg-p
                  ;; There are stack args so the frame of the callee is
                  ;; still there, save RDX in its first slot temporalily.
-                 (storew rdx-tn rbx-tn (frame-word-offset sp->fp-offset)))
+                 (storew/raw rdx-tn rbx-tn
+                             (frame-word-offset sp->fp-offset)))
                (loadw rdx-tn rbx-tn (frame-word-offset (+ sp->fp-offset i)))
                (inst mov tn rdx-tn)))
            (emit-label defaulting-done)
@@ -427,7 +428,8 @@
          (inst sub rcx-tn (fixnumize register-arg-count))
          (inst jmp :le no-stack-args)
          ;; Save EDI.
-         (storew rdi-tn rbx-tn (frame-word-offset (+ sp->fp-offset 1)))
+         (storew/raw rdi-tn rbx-tn
+                     (frame-word-offset (+ sp->fp-offset 1)))
          ;; Throw away any unwanted args.
          (inst cmp rcx-tn (fixnumize (- nvals register-arg-count)))
          (inst jmp :be count-okay)
@@ -440,7 +442,8 @@
                (make-ea :qword :base rbp-tn
                         :disp (frame-byte-offset register-arg-count)))
          ;; Save ESI, and compute a pointer to where the args come from.
-         (storew rsi-tn rbx-tn (frame-word-offset (+ sp->fp-offset 2)))
+         (storew/raw rsi-tn rbx-tn
+                     (frame-word-offset (+ sp->fp-offset 2)))
          (inst lea rsi-tn
                (make-ea :qword :base rbx-tn
                         :disp (frame-byte-offset
@@ -530,7 +533,7 @@
       for arg in *register-arg-tns*
       for i downfrom -1
       for j below (sb!kernel:values-type-max-value-count type)
-      do (storew arg args i))
+      do (storew/raw arg args i))
     (move start args)
     (move count nargs)
 
@@ -895,8 +898,8 @@
                                '(inst sub new-fp (* sp->fp-offset n-word-bytes)))
 
                           ;; Save the fp
-                          (storew rbp-tn new-fp
-                                  (frame-word-offset ocfp-save-offset))
+                          (storew/raw rbp-tn new-fp
+                                      (frame-word-offset ocfp-save-offset))
 
                           (move rbp-tn new-fp) ; NB - now on new stack frame.
                           )))
@@ -1301,17 +1304,17 @@
        ;; Compute a pointer to the next cons.
        (inst add dst (* cons-size n-word-bytes))
        ;; Store a pointer to this cons in the CDR of the previous cons.
-       (storew dst dst -1 list-pointer-lowtag)
+       (storew/obj dst dst -1 list-pointer-lowtag)
        (emit-label enter)
        ;; Grab one value and stash it in the car of this cons.
        (inst mov rax (make-ea :qword :base src))
        (inst sub src n-word-bytes)
-       (storew rax dst 0 list-pointer-lowtag)
+       (storew/obj rax dst 0 list-pointer-lowtag)
        ;; Go back for more.
        (inst sub rcx (fixnumize 1))
        (inst jmp :nz loop)
        ;; NIL out the last cons.
-       (storew nil-value dst 1 list-pointer-lowtag)
+       (storew/obj nil-value dst 1 list-pointer-lowtag)
        (inst cld))
       (emit-label done))))
 

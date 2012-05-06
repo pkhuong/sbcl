@@ -116,8 +116,8 @@
              x)
        #!+sb-unicode
        (if (= (tn-offset fp) esp-offset)
-           (storew x fp (tn-offset y))  ; c-call
-           (storew x fp (frame-word-offset (tn-offset y))))))))
+           (storew/raw x fp (tn-offset y))  ; c-call
+           (storew/raw x fp (frame-word-offset (tn-offset y))))))))
 (define-move-vop move-character-arg :move-arg
   (any-reg character-reg) (character-reg))
 

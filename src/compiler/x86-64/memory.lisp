@@ -31,7 +31,7 @@
   (:variant-vars offset lowtag)
   (:policy :fast-safe)
   (:generator 4
-    (storew value object offset lowtag)))
+    (storew/obj value object offset lowtag)))
 (define-vop (cell-setf)
   (:args (object :scs (descriptor-reg))
          (value :scs (descriptor-reg any-reg) :target result))
@@ -39,7 +39,7 @@
   (:variant-vars offset lowtag)
   (:policy :fast-safe)
   (:generator 4
-    (storew value object offset lowtag)
+    (storew/obj value object offset lowtag)
     (move result value)))
 (define-vop (cell-setf-fun)
   (:args (value :scs (descriptor-reg any-reg) :target result)
@@ -48,7 +48,7 @@
   (:variant-vars offset lowtag)
   (:policy :fast-safe)
   (:generator 4
-    (storew value object offset lowtag)
+    (storew/obj value object offset lowtag)
     (move result value)))
 
 ;;; Define accessor VOPs for some cells in an object. If the operation
@@ -114,7 +114,7 @@
                                       character-widetag)))
                            temp))
          ;; Else, value not immediate.
-         (storew value object (+ base offset) lowtag))))
+         (storew/obj value object (+ base offset) lowtag))))
 
 (define-vop (slot-set-conditional)
   (:args (object :scs (descriptor-reg) :to :eval)

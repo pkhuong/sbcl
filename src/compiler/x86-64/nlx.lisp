@@ -77,10 +77,10 @@
   (:generator 22
     (inst lea block (catch-block-ea tn))
     (load-tl-symbol-value temp *current-unwind-protect-block*)
-    (storew temp block unwind-block-current-uwp-slot)
-    (storew rbp-tn block unwind-block-current-cont-slot)
+    (storew/raw temp block unwind-block-current-uwp-slot)
+    (storew/raw rbp-tn block unwind-block-current-cont-slot)
     (inst lea temp (make-fixup nil :code-object entry-label))
-    (storew temp block catch-block-entry-pc-slot)))
+    (storew/raw temp block catch-block-entry-pc-slot)))
 
 ;;; like MAKE-UNWIND-BLOCK, except that we also store in the specified
 ;;; tag, and link the block into the CURRENT-CATCH list
@@ -93,13 +93,13 @@
   (:generator 44
     (inst lea block (catch-block-ea tn))
     (load-tl-symbol-value temp *current-unwind-protect-block*)
-    (storew temp block  unwind-block-current-uwp-slot)
-    (storew rbp-tn block  unwind-block-current-cont-slot)
+    (storew/raw temp block  unwind-block-current-uwp-slot)
+    (storew/raw rbp-tn block  unwind-block-current-cont-slot)
     (inst lea temp (make-fixup nil :code-object entry-label))
-    (storew temp block catch-block-entry-pc-slot)
-    (storew tag block catch-block-tag-slot)
+    (storew/raw temp block catch-block-entry-pc-slot)
+    (storew/raw tag block catch-block-tag-slot)
     (load-tl-symbol-value temp *current-catch-block*)
-    (storew temp block catch-block-previous-catch-slot)
+    (storew/raw temp block catch-block-previous-catch-slot)
     (store-tl-symbol-value block *current-catch-block* temp)))
 
 ;;; Just set the current unwind-protect to TN's address. This instantiates an
@@ -165,7 +165,7 @@
                  (inst cmp count (fixnumize i))
                  (inst jmp :le default-lab)
                  (when first-stack-arg-p
-                   (storew rdx-tn rbx-tn -1))
+                   (storew/raw rdx-tn rbx-tn -1))
                  (sc-case tn
                    ((descriptor-reg any-reg)
                     (loadw tn start (frame-word-offset (+ sp->fp-offset i))))
@@ -256,14 +256,14 @@
     ;; Set up magic catch / UWP block.
     (move block rsp-tn)
     (loadw temp uwp sap-pointer-slot other-pointer-lowtag)
-    (storew temp block unwind-block-current-uwp-slot)
+    (storew/raw temp block unwind-block-current-uwp-slot)
     (loadw temp ofp sap-pointer-slot other-pointer-lowtag)
-    (storew temp block unwind-block-current-cont-slot)
+    (storew/raw temp block unwind-block-current-cont-slot)
 
     (inst lea temp-reg-tn (make-fixup nil :code-object entry-label))
-    (storew temp-reg-tn
-            block
-            catch-block-entry-pc-slot)
+    (storew/raw temp-reg-tn
+                block
+                catch-block-entry-pc-slot)
 
     ;; Run any required UWPs.
     (inst lea temp-reg-tn (make-fixup 'unwind :assembly-routine))

@@ -31,7 +31,7 @@
   (:node-var node)
   (:generator 20
     (with-fixed-allocation (res sap-widetag sap-size node)
-      (storew sap res sap-pointer-slot other-pointer-lowtag))))
+      (storew/obj sap res sap-pointer-slot other-pointer-lowtag))))
 (define-move-vop move-from-sap :move
   (sap-reg) (descriptor-reg))
 
@@ -64,8 +64,8 @@
        (move y x))
       (sap-stack
        (if (= (tn-offset fp) esp-offset)
-           (storew x fp (tn-offset y))  ; c-call
-           (storew x fp (frame-word-offset (tn-offset y))))))))
+           (storew/raw x fp (tn-offset y))  ; c-call
+           (storew/raw x fp (frame-word-offset (tn-offset y))))))))
 (define-move-vop move-sap-arg :move-arg
   (descriptor-reg sap-reg) (sap-reg))
 
