@@ -457,13 +457,15 @@
          ,@(when translate `((:translate ,translate)))
        (:policy :fast-safe)
        (:args (object :scs (descriptor-reg) :to :eval)
-              (index :scs (any-reg) :to :result)
+              (index :scs (any-reg) :target barrier-temp)
               (old-value :scs ,scs :target rax)
               (new-value :scs ,scs))
        (:arg-types ,type tagged-num ,el-type ,el-type)
        (:temporary (:sc descriptor-reg :offset rax-offset
                         :from (:argument 2) :to :result :target value)  rax)
-       (:temporary (:sc unsigned-reg) barrier-temp)
+       (:temporary (:sc unsigned-reg :from (:argument 1)
+                                     :to   :result)
+                   barrier-temp)
        (:results (value :scs ,scs))
        (:result-types ,el-type)
        (:generator 5
@@ -551,11 +553,13 @@
        ,@(when translate
            `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg))
-              (index :scs (any-reg))
-              (value :scs ,scs :target result))
+       (:args (object :scs (descriptor-reg) :to :eval)
+              (index :scs (any-reg) :target barrier-temp)
+              (value :scs ,scs :target result :to :result))
        (:arg-types ,type tagged-num ,el-type)
-       (:temporary (:sc unsigned-reg) barrier-temp)
+       (:temporary (:sc unsigned-reg :from (:argument 1)
+                                     :to :result)
+                   barrier-temp)
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
@@ -592,16 +596,18 @@
        ,@(when translate
            `((:translate ,translate)))
        (:policy :fast-safe)
-       (:args (object :scs (descriptor-reg))
-              (index :scs (any-reg))
-              (value :scs ,scs :target result))
+       (:args (object :scs (descriptor-reg) :to :eval)
+              (index :scs (any-reg) :target barrier-temp)
+              (value :scs ,scs :to :result :target result))
        (:info offset)
        (:arg-types ,type tagged-num
                    (:constant (constant-displacement other-pointer-lowtag
                                                      n-word-bytes
                                                      vector-data-offset))
                    ,el-type)
-       (:temporary (:sc unsigned-reg) barrier-temp)
+       (:temporary (:sc unsigned-reg :from (:argument 1)
+                        :to :result)
+                   barrier-temp)
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 4                    ; was 5
