@@ -135,3 +135,14 @@ debugger.")
 (define-optimization-quality store-coverage-data
     0
   ("no" "no" "yes" "yes"))
+
+(define-optimization-quality out-of-line-specialized-calls
+    (if (and (< compilation-speed speed)
+             (or (zerop space)
+                 (and (= speed 3)
+                      (<= space 1))))
+        0
+        3)
+  ("no" "yes" "yes" "yes")
+  "When disabled, specialized calls are inlined rather than implemented
+as out of line calls to specialized functions.")

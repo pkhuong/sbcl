@@ -125,6 +125,7 @@
 
  ("src/code/early-cl")
  ("src/code/early-fasl")
+ ("src/code/early-cached-specialization")
 
  ;; mostly needed by stuff from comcom, but also used by "x86-vm"
  ("src/code/debug-var-io")
@@ -507,6 +508,7 @@
  ("src/compiler/ir1-translators")
  ("src/compiler/ir1util")
  ("src/compiler/ir1report")
+ ("src/compiler/ir1-cached-specialization")
  ("src/compiler/ir1opt")
  ("src/compiler/loop")
 

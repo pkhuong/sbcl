@@ -781,6 +781,7 @@
 ;;; Do IR1 optimizations on a COMBINATION node.
 (declaim (ftype (function (combination) (values)) ir1-optimize-combination))
 (defun ir1-optimize-combination (node)
+  (declare (optimize debug))
   (when (lvar-reoptimize (basic-combination-fun node))
     (propagate-fun-change node)
     (maybe-terminate-block node nil))
@@ -870,7 +871,8 @@
                (maybe-terminate-block node nil)))))
 
        (let ((fun (fun-info-optimizer info)))
-         (unless (and fun (funcall fun node))
+         (unless (or (maybe-specialize-call node)
+                     (and fun (funcall fun node)))
            ;; First give the VM a peek at the call
            (multiple-value-bind (style transform)
                (combination-implementation-style node)

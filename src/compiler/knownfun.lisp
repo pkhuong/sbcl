@@ -114,6 +114,12 @@
   ;; further optimiz'ns) is backwards from the return convention for
   ;; transforms. -- WHN 19990917
   (optimizer nil :type (or function null))
+  ;; A function that specifies how the call may be specialised out of line
+  ;; Returns three values:
+  ;;  - a specialization cache key (an EQUAL-compared list)
+  ;;  - source for the cached specialised function
+  ;;  - a list of lvar used as arguments to the specialised function
+  (specializer nil :type (or function null))
   ;; a function computing the constant or literal arguments which are
   ;; destructively modified by the call.
   (destroyed-constant-args nil :type (or function null))
