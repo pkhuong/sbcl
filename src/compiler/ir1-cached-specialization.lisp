@@ -39,11 +39,21 @@
               (values default nil)))
         (values default nil))))
 
+(defun fixup-sexp (sexp env)
+  (labels ((walk (sexp &aux found)
+             (cond ((setf found (assoc sexp env))
+                    (cdr found))
+                   ((consp sexp)
+                    (cons (walk (car sexp))
+                          (walk (cdr sexp))))
+                   (t sexp))))
+    (walk sexp)))
+
 (defun maybe-specialize-call (combination)
   (declare (type combination combination))
   (unless (policy combination (plusp out-of-line-specialized-calls))
     (return-from maybe-specialize-call nil))
-  (multiple-value-bind (key source remaining dx)
+  (multiple-value-bind (key source remaining dx wrapper)
       (let ((specializer
               (fun-info-specializer
                (combination-fun-info combination))))
@@ -62,21 +72,20 @@
        combination
        `(lambda ,(mapcar 'cdr syms)
           (declare (ignorable ,@(mapcar 'cdr syms)))
-          (funcall (load-time-value
-                    (the (values function &optional)
-                         (sb!impl::ensure-specialized-function
-                          ',key
-                          (locally
-                              (declare
-                               (optimize (out-of-line-specialized-calls 0)
-                                         speed (space 0))
-                               (muffle-conditions compiler-note))
-                            ,source)))
-                    t)
-                   ,@(mapcar (lambda (arg)
-                               (or (cdr (assoc arg syms))
-                                   (bug "Unknown argument ~A" arg)))
-                             remaining)))
+          (,@(or (fixup-sexp wrapper syms)
+                 '(progn))
+           (funcall (load-time-value
+                     (the (values function &optional)
+                          (sb!impl::ensure-specialized-function
+                           ',key
+                           (locally
+                               (declare
+                                (optimize (out-of-line-specialized-calls 0)
+                                          speed (space 0))
+                                (muffle-conditions compiler-note))
+                             ,source)))
+                     t)
+                    ,@(fixup-sexp remaining syms))))
        (combination-fun-source-name combination))
       (let* ((use  (lvar-use (combination-fun combination)))
              (leaf (ref-leaf use)))
@@ -106,6 +115,14 @@
                      collect `(simple-array ,eltype 1)
                      collect `(array ,eltype 1)))))
     (do-it list)))
+
+(defun sequence-type-element-type (type)
+  (let ((type (if (ctype-p type)
+                  type
+                  (specifier-type type))))
+    (type-specifier (if (array-type-p type)
+                        (array-type-element-type type)
+                        (specifier-type t)))))
 
 (defun specialize-seq-search (function
                               item sequence
@@ -211,22 +228,42 @@
   (def position-if)
   (def position-if-not))
 
-(defoptimizer (sort specializer) ((sequence pred &key key-var))
-  (let ((type (upgraded-sequence-type (lvar-type sequence)))
-        (predicate (lvar-fun-designator-name pred :default 'any))
-        (key  (lvar-fun-designator-name key-var
-                                        :if-null 'identity)))
-    (when (and type key)
+(defun wrap-functions (&rest function-types)
+  `(dx-flet ,(loop for entry in function-types
+                   when entry
+                     collect
+                     (destructuring-bind (function . types) entry
+                       (let ((gensyms (mapcar (lambda (type) type
+                                                (gensym "WRAPPER-ARG"))
+                                              types)))
+                         `(,function (,@gensyms)
+                             (declare ,@(mapcar (lambda (gensym type)
+                                                  `(type ,type ,gensym))
+                                                gensyms types))
+                             (funcall ,function ,@gensyms)))))))
+
+(defoptimizer (sort specializer) ((sequence pred &key key))
+  (let* ((type (upgraded-sequence-type (lvar-type sequence)))
+         #+nil(eltype (sequence-type-element-type type))
+         (predicate (lvar-fun-designator-name pred :default 'any))
+         (key-var key)
+         (key  (lvar-fun-designator-name key-var
+                                         :default 'any
+                                         :if-null 'identity)))
+    (when type
       (values `(sort ,type ,predicate ,key)
               `(lambda (sequence
-                        ,@(and (eql predicate 'any) '(predicate)))
+                        ,@(and (eql predicate 'any) '(predicate))
+                        ,@(and (eql key 'any) '(key)))
                  (declare (type ,type sequence)
                           (inline sort))
                  (sort sequence ,(if (eql predicate 'any)
                                      'predicate `',predicate)
-                       :key ',key))
+                       :key ,(if (eql key 'any)
+                                 'key `',key)))
               `(,sequence
-                ,@(and (eql predicate 'any) `(,pred)))
+                ,@(and (eql predicate 'any) `(,pred))
+                ,@(and (eql key 'any) `(,key-var)))
               (list pred key-var)))))
 
 (defoptimizer (%map specializer) ((result-type fun seq &rest seqs) node)
@@ -280,5 +317,7 @@
                  (map-into dest
                            ,(if (eql function 'any) 'function `',function)
                            ,@seq-temps))
-              `(,dest ,@(and (eql function 'any) `(,fun)) ,@seqs)
-              (list fun)))))
+              `(,dest ,@(and (eql function 'any) `(#',fun)) ,@seqs)
+              (list fun)
+              (wrap-functions (cons fun
+                                    (mapcar #'sequence-type-element-type seq-types)))))))
