@@ -88,8 +88,8 @@
                (args (mapcar (lambda (x) x
                                (gensym "ARG"))
                              (cons seq seqs))))
-           `(flet ((,fn (,@args)
-                     (funcall ,fun ,@args)))
+           `(dx-flet ((,fn (,@args)
+                       (funcall ,fun ,@args)))
               (map ,result-type #',fn ,seq ,@seqs))))
         (t (values nil t))))
 
@@ -101,8 +101,8 @@
                (args (mapcar (lambda (x) x
                                (gensym "ARG"))
                              seqs)))
-           `(flet ((,fn (,@args)
-                     (funcall ,fun ,@args)))
+           `(dx-flet ((,fn (,@args)
+                       (funcall ,fun ,@args)))
               (map-into ,dest #',fn ,@seqs))))
         (t (values nil t))))
 
