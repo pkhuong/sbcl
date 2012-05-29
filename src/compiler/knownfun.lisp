@@ -216,10 +216,12 @@
                                 (:derive-type (or function null))
                                 (:optimizer (or function null))
                                 (:destroyed-constant-args (or function null))
-                                (:result-arg (or index null)))
+                                (:result-arg (or index null))
+                                (:dx-safe-args (or function list)))
                           *)
                 %defknown))
-(defun %defknown (names type attributes &key derive-type optimizer destroyed-constant-args result-arg dx-safe-args)
+(defun %defknown (names type attributes &key derive-type optimizer destroyed-constant-args
+                                          result-arg dx-safe-args)
   (let ((ctype (specifier-type type))
         (info (make-fun-info :attributes attributes
                              :derive-type derive-type

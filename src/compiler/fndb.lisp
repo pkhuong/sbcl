@@ -460,21 +460,26 @@
 (defknown (map %map) (type-specifier callable sequence &rest sequence)
   consed-sequence
   (call)
+   :dx-safe-args '(1)
 ; :DERIVE-TYPE 'TYPE-SPEC-ARG1 ? Nope... (MAP NIL ...) returns NULL, not NIL.
   )
-(defknown %map-to-list-arity-1 (callable sequence) list (flushable call))
+(defknown %map-to-list-arity-1 (callable sequence) list (flushable call)
+  :dx-safe-args '(0))
 (defknown %map-to-simple-vector-arity-1 (callable sequence) simple-vector
-  (flushable call))
+    (flushable call) :dx-safe-args '(0))
 (defknown %map-to-nil-on-simple-vector (callable simple-vector) null
-  (flushable call))
-(defknown %map-to-nil-on-vector (callable vector) null (flushable call))
-(defknown %map-to-nil-on-sequence (callable sequence) null (flushable call))
+  (flushable call)  :dx-safe-args '(0))
+(defknown %map-to-nil-on-vector (callable vector) null (flushable call)
+   :dx-safe-args '(0))
+(defknown %map-to-nil-on-sequence (callable sequence) null (flushable call)
+   :dx-safe-args '(0))
 
 (defknown map-into (sequence callable &rest sequence)
   sequence
   (call)
   :derive-type #'result-type-first-arg
-  :destroyed-constant-args (nth-constant-nonempty-sequence-args 1))
+  :destroyed-constant-args (nth-constant-nonempty-sequence-args 1)
+  :dx-safe-args '(1))
 
 ;;; returns the result from the predicate...
 (defknown some (callable sequence &rest sequence) t
