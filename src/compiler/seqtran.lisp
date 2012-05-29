@@ -75,11 +75,14 @@
 ;;; MAP is %MAP plus a check to make sure that any length specified in
 ;;; the result type matches the actual result. We also wrap it in a
 ;;; TRULY-THE for the most specific type we can determine.
+(defun lambda-form-p (x)
+  (typep fun `(or (cons (member lambda named-lambda))
+                  (cons (eql function)
+                        (cons (member lambda named-lambda))))))
+
 (define-source-transform map (result-type fun seq &rest seqs)
-  (cond ((typep fun `(or (cons (member lambda named-lambda))
-                         (cons (eql function)
-                               (cons (member lambda named-lambda)))))
-         (let ((fn   (gensym "FN"))
+  (cond ((lambda-form-p fun)
+         (let ((fn   (gensym "MAP-FN"))
                (args (mapcar (lambda (x) x
                                (gensym "ARG"))
                              (cons seq seqs))))
@@ -89,10 +92,8 @@
         (t (values nil t))))
 
 (define-source-transform map-into (dest fun &rest seqs)
-  (cond ((typep fun `(or (cons (member lambda named-lambda))
-                         (cons (eql function)
-                               (cons (member lambda named-lambda)))))
-         (let ((fn   (gensym "FN"))
+  (cond ((lambda-form-p fun)
+         (let ((fn   (gensym "MAP-INTO-FN"))
                (args (mapcar (lambda (x) x
                                (gensym "ARG"))
                              seqs)))
