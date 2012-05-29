@@ -81,7 +81,8 @@
                       (cons (cons (member lambda named-lambda)))))))
 
 (define-source-transform map (&environment env result-type fun seq &rest seqs)
-  (setf fun (macroexpand fun env))
+  (when env
+    (setf fun (sb!xc:macroexpand fun env)))
   (cond ((literal-lambda-form-p fun)
          (let ((fn   (gensym "MAP-FN"))
                (args (mapcar (lambda (x) x
@@ -93,7 +94,8 @@
         (t (values nil t))))
 
 (define-source-transform map-into (&environment env dest fun &rest seqs)
-  (setf fun (macroexpand fun env))
+  (when env
+    (setf fun (sb!xc:macroexpand fun env)))
   (cond ((literal-lambda-form-p fun)
          (let ((fn   (gensym "MAP-INTO-FN"))
                (args (mapcar (lambda (x) x
