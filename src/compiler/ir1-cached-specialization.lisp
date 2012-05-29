@@ -43,7 +43,7 @@
   (declare (type combination combination))
   (unless (policy combination (plusp out-of-line-specialized-calls))
     (return-from maybe-specialize-call nil))
-  (multiple-value-bind (key source remaining)
+  (multiple-value-bind (key source remaining dx)
       (let ((specializer
               (fun-info-specializer
                (combination-fun-info combination))))
@@ -53,14 +53,14 @@
       (return-from maybe-specialize-call nil))
     (let* ((args (combination-args combination))
            (syms (mapcar (lambda (x)
-                           (cons x (gensym "ARG")))
+                           (cons x (gensym "SPECIALIZED-ARG")))
                          args)))
       (transform-call
        combination
        `(lambda ,(mapcar 'cdr syms)
           (declare (ignorable ,@(mapcar 'cdr syms)))
           (funcall (load-time-value
-                    (the function
+                    (the (values function &optional)
                          (sb!impl::ensure-specialized-function
                           ',key
                           (locally
@@ -74,7 +74,16 @@
                                (or (cdr (assoc arg syms))
                                    (bug "Unknown argument ~A" arg)))
                              remaining)))
-       (combination-fun-source-name combination))))
+       (combination-fun-source-name combination))
+      (let* ((use  (lvar-use (combination-fun combination)))
+             (leaf (ref-leaf use)))
+        (aver (ref-p use))
+        (aver (lambda-p leaf))
+        (loop for var in (lambda-vars leaf)
+              for arg in (combination-args combination)
+              when (member arg dx)
+                do (dolist (ref (lambda-var-refs var))
+                     (setf (lvar-dx-safe-p (ref-lvar ref)) t))))))
   t)
 
 (defun upgraded-sequence-type (type &optional default)
@@ -97,13 +106,13 @@
 
 (defun specialize-seq-search (function
                               item sequence
-                              key test test-not
+                              key-var test-var test-not-var
                               from-end
                               start end)
   (let ((type (upgraded-sequence-type (lvar-type sequence)))
-        (key  (lvar-fun-designator-name key  :if-null 'identity))
-        (test (lvar-fun-designator-name test :if-null 'eql))
-        (test-not (lvar-fun-designator-name test-not :default :maybe))
+        (key  (lvar-fun-designator-name key-var  :if-null 'identity))
+        (test (lvar-fun-designator-name test-var :if-null 'eql))
+        (test-not (lvar-fun-designator-name test-not-var :default :maybe))
         (from-end (cond ((null from-end) nil)
                         ((constant-lvar-p from-end)
                          (not (not (lvar-value from-end))))
@@ -132,7 +141,8 @@
                             ,@(and endp   '(:end end))))
               `(,item ,sequence
                       ,@(and startp `(,start))
-                      ,@(and endp `(,end)))))))
+                      ,@(and endp `(,end)))
+              (list key-var test-var test-not-var)))))
 
 (macrolet ((def (name)
              `(defoptimizer (,name specializer)
@@ -148,11 +158,11 @@
 
 (defun specialize-seq-search-if (function
                                  pred sequence
-                                 key from-end
+                                 key-var from-end
                                  start end)
   (let ((type (upgraded-sequence-type (lvar-type sequence)))
         (predicate (lvar-fun-designator-name pred :default 'any))
-        (key  (lvar-fun-designator-name key  :if-null 'identity))
+        (key  (lvar-fun-designator-name key-var  :if-null 'identity))
         (from-end (cond ((null from-end) nil)
                         ((constant-lvar-p from-end)
                          (not (not (lvar-value from-end))))
@@ -181,7 +191,8 @@
               `(,@(and (eql predicate 'any) `(,pred))
                 ,sequence
                 ,@(and startp `(,start))
-                ,@(and endp `(,end)))))))
+                ,@(and endp `(,end)))
+              (list pred key-var)))))
 
 (macrolet ((def (name)
              `(defoptimizer (,name specializer)
@@ -197,10 +208,10 @@
   (def position-if)
   (def position-if-not))
 
-(defoptimizer (sort specializer) ((sequence pred &key key))
+(defoptimizer (sort specializer) ((sequence pred &key key-var))
   (let ((type (upgraded-sequence-type (lvar-type sequence)))
         (predicate (lvar-fun-designator-name pred :default 'any))
-        (key  (lvar-fun-designator-name key
+        (key  (lvar-fun-designator-name key-var
                                         :if-null 'identity)))
     (when (and type key)
       (values `(sort ,type ,predicate ,key)
@@ -212,9 +223,10 @@
                                      'predicate `',predicate)
                        :key ',key))
               `(,sequence
-                ,@(and (eql predicate 'any) `(,pred)))))))
+                ,@(and (eql predicate 'any) `(,pred)))
+              (list pred key-var)))))
 
-(defoptimizer (%map specializer) ((result-type fun seq &rest seqs))
+(defoptimizer (%map specializer) ((result-type fun seq &rest seqs) node)
   (block nil
     (unless (constant-lvar-p result-type)
       (return))
@@ -240,7 +252,8 @@
                        ,@seq-temps))
               (if (eql function 'any)
                   (list* fun seq seqs)
-                  (cons seq seqs))))))
+                  (cons seq seqs))
+              (list fun)))))
 
 (defoptimizer (map-into specializer) ((dest fun &rest seqs))
   (let ((dest-type   (upgraded-sequence-type (lvar-type dest)))
@@ -264,4 +277,5 @@
                  (map-into dest
                            ,(if (eql function 'any) 'function `',function)
                            ,@seq-temps))
-              `(,dest ,@(and (eql function 'any) `(,fun)) ,@seqs)))))
+              `(,dest ,@(and (eql function 'any) `(,fun)) ,@seqs)
+              (list fun)))))
