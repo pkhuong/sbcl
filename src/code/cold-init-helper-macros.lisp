@@ -46,6 +46,7 @@
 (defmacro !defun-from-collected-cold-init-forms (name)
   #+sb-xc `(progn
              (defun ,name ()
+               (declare (optimize (sb!c::out-of-line-specialized-calls 0)))
                ,@*cold-init-forms*
                (values))
              (eval-when (:compile-toplevel :execute)
