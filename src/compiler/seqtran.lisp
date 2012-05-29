@@ -75,6 +75,32 @@
 ;;; MAP is %MAP plus a check to make sure that any length specified in
 ;;; the result type matches the actual result. We also wrap it in a
 ;;; TRULY-THE for the most specific type we can determine.
+(define-source-transform map (result-type fun seq &rest seqs)
+  (cond ((typep fun `(or (cons (member lambda named-lambda))
+                         (cons (eql function)
+                               (cons (member lambda named-lambda)))))
+         (let ((fn   (gensym "FN"))
+               (args (mapcar (lambda (x) x
+                               (gensym "ARG"))
+                             (cons seq seqs))))
+           `(dx-flet ((,fn (,@args)
+                        (funcall ,fun ,@args)))
+              (map ,result-type #',fn ,seq ,@seqs))))
+        (t (values nil t))))
+
+(define-source-transform map-into (dest fun &rest seqs)
+  (cond ((typep fun `(or (cons (member lambda named-lambda))
+                         (cons (eql function)
+                               (cons (member lambda named-lambda)))))
+         (let ((fn   (gensym "FN"))
+               (args (mapcar (lambda (x) x
+                               (gensym "ARG"))
+                             seqs)))
+           `(dx-flet ((,fn (,@args)
+                        (funcall ,fun ,@args)))
+              (map-into ,dest #',fn ,@seqs))))
+        (t (values nil t))))
+
 (deftransform map ((result-type-arg fun seq &rest seqs) * * :node node)
   (let* ((seq-names (make-gensym-list (1+ (length seqs))))
          (bare `(%map result-type-arg fun ,@seq-names))
