@@ -250,41 +250,84 @@
 
 (defvar *functional-escape-info*)
 
-(defun functional-may-escape-p (functional)
+(defun functional-may-escape-p (functional &optional home-lambda)
   (let ((table *functional-escape-info*))
     (unless table
       ;; Many components never need the table since they have no escapes -- so
       ;; we allocate it lazily.
       (setf table (make-hash-table)
             *functional-escape-info* table))
-    (multiple-value-bind (bool ok) (gethash functional table)
-      (if ok
-          bool
-          (let ((entry (functional-entry-fun functional)))
-            ;; First stick a NIL in there: break cycles.
-            (setf (gethash functional table) nil)
-            ;; Then compute the real value.
-            (setf (gethash functional table)
-                  (or
-                   ;; If the functional has a XEP, it's kind is :EXTERNAL --
-                   ;; which means it may escape. ...but if it
-                   ;; HAS-EXTERNAL-REFERENCES-P, then that XEP is actually a
-                   ;; TL-XEP, which means it's a toplevel function -- which in
-                   ;; turn means our search has bottomed out without an escape
-                   ;; path. AVER just to make sure, though.
-                   (and (eq :external (functional-kind functional))
-                        (if (functional-has-external-references-p functional)
-                            (aver (eq 'tl-xep (car (functional-debug-name functional))))
-                            t))
-                   ;; If it has an entry point that may escape, that just as bad.
-                   (and entry (functional-may-escape-p entry))
-                   ;; If it has references to it in functions that may escape, that's bad
-                   ;; too.
-                   (dolist (ref (functional-refs functional) nil)
-                     (let* ((lvar (ref-lvar ref))
-                            (dest (when lvar (lvar-dest lvar))))
-                       (when (functional-may-escape-p (node-home-lambda dest))
-                         (return t)))))))))))
+    (flet ((slow-path (functional entry parent)
+             (cond
+               ;; Trust user declarations
+               ((leaf-extent functional)
+                (not (leaf-dynamic-extent functional)))
+               ;; If the functional has a XEP, it's kind is :EXTERNAL --
+               ;; which means it may escape. ...but if it
+               ;; HAS-EXTERNAL-REFERENCES-P, then that XEP is actually a
+               ;; TL-XEP, which means it's a toplevel function -- which in
+               ;; turn means our search has bottomed out without an escape-
+               ;; path. AVER just to make sure, though.
+               ((and (eq :external (functional-kind functional))
+                     (functional-has-external-references-p functional))
+                (aver (eq 'tl-xep
+                          (car (functional-debug-name functional))))
+                nil)
+               ;; If it has an entry point that may escape,
+               ;;  that just as bad.
+               ((and entry (functional-may-escape-p entry parent)))
+               (t
+                ;; Walk references
+                (dolist (ref (functional-refs functional) nil)
+                  (binding* ((lvar (ref-lvar ref)
+                                   :exit-if-null)
+                             (dest (lvar-dest lvar)
+                                   :exit-if-null)
+                             (dest-home-lambda (node-home-lambda dest)))
+                    ;; The use better be inside our static scope...
+                    (unless (or (not parent)
+                                (lambda-ancestor-p parent
+                                                   dest-home-lambda))
+                      (return t))
+                    ;; If the referrer may escape, this is no
+                    ;; good.
+                    (when (functional-may-escape-p dest-home-lambda)
+                      (return t))
+                    ;; Use is in a non-escaping lambda inside our
+                    ;; static scope... Let's be aggressive
+
+                    ;; Let's trust optimisers (:
+                    (when (or (lvar-dx-safe-p lvar)
+                              (lvar-dynamic-extent lvar))
+                      (go next))
+                    ;; We only descend on calls
+                    (unless (combination-p dest)
+                      (return t))
+                    ;; callee is safe
+                    (when (eql lvar (combination-fun dest))
+                      (go next))
+                    (let* ((info (or (combination-fun-info dest)
+                                     (return t)))
+                           (dx-safe-p (fun-info-dx-safe-args info)))
+                      (unless (if (listp dx-safe-p)
+                                  (find (position lvar (combination-args dest))
+                                        dx-safe-p)
+                                  (find lvar (funcall dx-safe-p dest)))
+                        (return t))))
+                  next)))))
+      (multiple-value-bind (bool ok) (gethash functional table)
+        (cond (ok bool)
+              (t
+               ;; First stick a NIL in there: break cycles.
+               (setf (gethash functional table) nil)
+               ;; Then compute the real value.
+               (setf (gethash functional table)
+                     (slow-path functional
+                                (functional-entry-fun functional)
+                                (if (and (null (functional-kind functional))
+                                         (lambda-p functional))
+                                    (lambda-parent functional)
+                                    home-lambda)))))))))
 
 (defun exit-should-check-tag-p (exit)
   (declare (type exit exit))
@@ -294,7 +337,7 @@
              (policy exit (zerop check-tag-existence))
              ;; Dynamic extent is a promise things won't escape --
              ;; and an explicit request to avoid heap consing.
-             (member (lambda-extent exit-lambda) '(:always-dynamic :maybe-dynamic))
+             (leaf-dynamic-extent exit-lambda)
              ;; If the exit lambda cannot escape, then we should be safe.
              ;; ...since the escape analysis is kinda new, and not particularly
              ;; exhaustively tested, let alone proven, disable it for SAFETY 3.
@@ -418,11 +461,11 @@
                 (note-non-local-exit target-physenv exit)))))))
   (values))
 
-;;;; final decision on stack allocation of dynamic-extent structures
 (defun recheck-dynamic-extent-lvars (component)
   (declare (type component component))
   (dolist (lambda (component-lambdas component))
-    (loop for entry in (lambda-entries lambda)
+    (loop with *functional-escape-info* = nil
+          for entry in (lambda-entries lambda)
           for cleanup = (entry-cleanup entry)
           do (when (eq (cleanup-kind cleanup) :dynamic-extent)
                (collect ((real-dx-lvars))
@@ -449,7 +492,10 @@
                                     (funs (lvar-value arg))
                                     (dx nil))
                                (dolist (fun funs)
-                                 (binding* ((() (leaf-dynamic-extent fun)
+                                 (binding* ((() (or (leaf-dynamic-extent fun)
+                                                    (and (not (functional-may-escape-p fun))
+                                                         (setf (leaf-extent fun)
+                                                               :always-dynamic)))
                                              :exit-if-null)
                                             (xep (functional-entry-fun fun)
                                                  :exit-if-null)
