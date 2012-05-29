@@ -137,6 +137,10 @@
   ;; If true, the function can stack-allocate the result. The
   ;; COMBINATION node is passed as an argument.
   (stack-allocate-result nil :type (or function null))
+  ;; Either a list of argument indices for which the function
+  ;; does not escape, or a function that returns a list of
+  ;; non-escaping LVARs
+  (dx-safe-args nil :type (or function list))
   ;; all the templates that could be used to translate this function
   ;; into IR2, sorted by increasing cost.
   (templates nil :type list)
@@ -215,13 +219,14 @@
                                 (:result-arg (or index null)))
                           *)
                 %defknown))
-(defun %defknown (names type attributes &key derive-type optimizer destroyed-constant-args result-arg)
+(defun %defknown (names type attributes &key derive-type optimizer destroyed-constant-args result-arg dx-safe-args)
   (let ((ctype (specifier-type type))
         (info (make-fun-info :attributes attributes
                              :derive-type derive-type
                              :optimizer optimizer
                              :destroyed-constant-args destroyed-constant-args
-                             :result-arg result-arg)))
+                             :result-arg result-arg
+                             :dx-safe-args dx-safe-args)))
     (dolist (name names)
       (let ((old-fun-info (info :function :info name)))
         (when old-fun-info

@@ -78,6 +78,8 @@
   (%externally-checkable-type nil :type (or null ctype))
   ;; if the LVAR value is DYNAMIC-EXTENT, CLEANUP protecting it.
   (dynamic-extent nil :type (or null cleanup))
+  ;; T the LVAR's receiver uses its value in a DX-safe manner (i.e. no escape)
+  (dx-safe-p nil :type boolean)
   ;; something or other that the back end annotates this lvar with
   (info nil))
 
