@@ -800,9 +800,10 @@ also processed as top level forms."
                      . ,forms))))))
     (values (names) (defs))))
 
-(defun ir1-convert-fbindings (start next result funs body)
+(defun ir1-convert-fbindings (start next result funs body &optional (always-dx t))
   (let ((ctran (make-ctran))
-        (dx-p (find-if #'leaf-dynamic-extent funs)))
+        (dx-p  (or always-dx
+                   (find-if #'leaf-dynamic-extent funs))))
     (when dx-p
       (ctran-starts-block ctran)
       (ctran-starts-block next))
