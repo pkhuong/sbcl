@@ -333,7 +333,7 @@
                                                 component)))))
                (locall-analyze-fun-1 functional)
                (when (lambda-p functional)
-                 (maybe-let-convert functional)))))))
+                 (maybe-let-convert functional component)))))))
   (values))
 
 (defun locall-analyze-clambdas-until-done (clambdas)
@@ -1052,7 +1052,7 @@
 ;;; CLAMBDA might be converted into a LET. This is done after local
 ;;; call analysis, and also when a reference is deleted. We return
 ;;; true if we converted.
-(defun maybe-let-convert (clambda)
+(defun maybe-let-convert (clambda &optional component)
   (declare (type clambda clambda))
   (unless (or (declarations-suppress-let-conversion-p clambda)
               (functional-has-external-references-p clambda))
@@ -1095,6 +1095,37 @@
               (return-from maybe-let-convert nil))
             (unless (eq (functional-kind clambda) :assignment)
               (let-convert clambda dest))
+            (when component
+              (loop for arg in (basic-combination-args dest)
+                    for var in (lambda-vars clambda)
+                    do (when (and arg (ref-p (lvar-uses arg)))
+                         (let ((leaf (ref-leaf (lvar-use arg))))
+                           (when (and (functional-p leaf)
+                                      (member leaf (component-lambdas component))
+                                      (singleton-p (leaf-refs leaf))
+                                      (null (lambda-var-sets var)))
+                             (cond ((singleton-p (lambda-var-refs var))
+                                    (let ((ref (first (lambda-var-refs var))))
+                                      (change-ref-leaf ref leaf)
+                                      (when (basic-combination-p (lvar-dest
+                                                                  (ref-lvar
+                                                                   ref)))
+                                        (reoptimize-call (lvar-dest (ref-lvar ref))))))
+                                   (t
+                                    (dolist (ref (lambda-var-refs var))
+                                      (let* ((lvar (ref-lvar ref))
+                                             (dest (lvar-dest lvar)))
+                                        (loop while (or (cast-p dest)
+                                                        (and (combination-p dest)
+                                                             (eql (lvar-fun-name (combination-fun dest))
+                                                                  'sb!kernel:%coerce-callable-to-fun)
+                                                             (eql lvar (first (combination-args dest)))))
+                                              do (setf lvar (node-lvar dest)
+                                                       dest (lvar-dest lvar)))
+                                        (when (and (basic-combination-p dest)
+                                                   (eql lvar (basic-combination-fun dest)))
+                                          (change-ref-leaf ref leaf)
+                                          (reoptimize-call dest)))))))))))
             (reoptimize-call dest)
             (setf (functional-kind clambda)
                   (if (mv-combination-p dest) :mv-let :let))))
