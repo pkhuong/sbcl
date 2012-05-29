@@ -11,10 +11,10 @@
   (when (null lvar)
     (return-from lvar-fun-designator-name (values if-null nil)))
   (let ((use (lvar-uses lvar)))
-    (and (ref-p use)
-         (let* ((*lexenv* (node-lexenv use))
-                (leaf (ref-leaf use))
-                (name
+    (if (ref-p use)
+        (let* ((*lexenv* (node-lexenv use))
+               (leaf (ref-leaf use))
+               (name
                  (cond ((global-var-p leaf)
                         (and (eq (global-var-kind leaf) :global-function)
                              (leaf-source-name leaf)))
@@ -31,12 +31,13 @@
                                     (fboundp name)
                                     (eql value (fdefinition name))
                                     name)))))))))
-           (if (and name
-                    (symbolp name)
-                    (not (fun-lexically-notinline-p name))
-                    (useful-function-p name))
-               (values name t)
-               (values default nil))))))
+          (if (and name
+                   (symbolp name)
+                   (not (fun-lexically-notinline-p name))
+                   (useful-function-p name))
+              (values name t)
+              (values default nil)))
+        (values default nil))))
 
 (defun maybe-specialize-call (combination)
   (declare (type combination combination))
@@ -59,9 +60,9 @@
        `(lambda ,(mapcar 'cdr syms)
           (declare (ignorable ,@(mapcar 'cdr syms)))
           (funcall (load-time-value
-                    (sb!impl::ensure-specialized-function
-                     ',key
-                     (the function
+                    (the function
+                         (sb!impl::ensure-specialized-function
+                          ',key
                           (locally
                               (declare
                                (optimize (out-of-line-specialized-calls 0)
@@ -213,7 +214,6 @@
               `(,sequence
                 ,@(and (eql predicate 'any) `(,pred)))))))
 
-#+nil
 (defoptimizer (%map specializer) ((result-type fun seq &rest seqs))
   (block nil
     (unless (constant-lvar-p result-type)
@@ -242,7 +242,6 @@
                   (list* fun seq seqs)
                   (cons seq seqs))))))
 
-#+nil
 (defoptimizer (map-into specializer) ((dest fun &rest seqs))
   (let ((dest-type   (upgraded-sequence-type (lvar-type dest)))
         (function    (lvar-fun-designator-name fun :default 'any))
@@ -256,13 +255,13 @@
     (unless (or (not dest-type)
                 (position nil seq-types))
       (values `(map-into ,dest-type ,function ,@seq-types)
-              `(lambda (dest,@(and (eql function 'any) '(function))
+              `(lambda (dest ,@(and (eql function 'any) '(function))
                         ,@seq-temps)
                  (declare (type ,dest-type dest)
                           ,@(mapcar (lambda (type temp)
                                       `(type ,type ,temp))
                                     seq-types seq-temps))
-                 (map dest
-                      ,(if (eql function 'any) 'function `',function)
-                      ,@seq-temps))
-              `(,dest ,(and (eql function 'any) `(,fun)) ,@seqs)))))
+                 (map-into dest
+                           ,(if (eql function 'any) 'function `',function)
+                           ,@seq-temps))
+              `(,dest ,@(and (eql function 'any) `(,fun)) ,@seqs)))))
