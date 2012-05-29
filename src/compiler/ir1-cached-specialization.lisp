@@ -51,6 +51,9 @@
              (funcall specializer combination)))
     (unless key
       (return-from maybe-specialize-call nil))
+    (when (typep source '(cons (eql lambda)))
+      (setf source `(named-lambda (specialized-function ,@key)
+                        ,@(rest source))))
     (let* ((args (combination-args combination))
            (syms (mapcar (lambda (x)
                            (cons x (gensym "SPECIALIZED-ARG")))
