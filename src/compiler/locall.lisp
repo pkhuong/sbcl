@@ -1048,12 +1048,69 @@
                 (eq (component-kind (lambda-component fun))
                     :initial)))))
 
+;;; ir1opt usually takes care of forwarding let-bound values directly
+;;; to their destination when possible.  However, locall analysis
+;;; greatly benefits from that transformation, and is executed in a
+;;; distinct phase from ir1opt.  After let-conversion, variables
+;;; bound to functional values are immediately substituted away.
+;;;
+;;; When called from locall, component is non-nil, and the functionals
+;;; are marked for reanalysis when appropriate.
+(defun substitute-let-funargs (call fun component)
+  (declare (type combination call) (type clambda fun)
+           (type (or null component) component))
+  (loop for arg in (combination-args call)
+        and var in (lambda-vars fun)
+        when (and arg (null (lambda-var-sets var)))
+        do
+     (binding* ((use  (lvar-uses arg))
+                (()   (ref-p use) :exit-if-null)
+                (leaf (ref-leaf use))
+                (done-something nil))
+       ;; unlike propagate-let-args, we're only concerned with
+       ;; functionals.
+       (cond ((not (functional-p leaf)))
+             ;; if the types match, we can mutate refs to point to
+             ;;  the functional instead of var
+             ((csubtypep (single-value-type (node-derived-type use))
+                         (leaf-type var))
+              (let ((use-component (node-component use)))
+                (substitute-leaf-if
+                 (lambda (ref)
+                   (cond ((eq (node-component ref) use-component)
+                          (setf done-something t))
+                         (t
+                          (aver (lambda-toplevelish-p (lambda-home fun)))
+                          nil)))
+                 leaf var)))
+             ;; otherwise, we can still play LVAR-level tricks for single
+             ;;  destination variables.
+             ((and (null (rest (leaf-refs var)))
+                   ;; Don't substitute single-ref variables on high-debug /
+                   ;; low speed, to improve the debugging experience.
+                   (policy call (< preserve-single-use-debug-variables 3)))
+              (setf done-something t)
+              (substitute-single-use-lvar arg var)))
+       ;; if we've done something, the functional may now be used in
+       ;; more analysis-friendly manners.  Enqueue it if we're in
+       ;; locall.
+       (when (and done-something
+                  component
+                  (member leaf (component-lambdas component)))
+         (pushnew leaf (component-reanalyze-functionals component)))))
+  (values))
+
 ;;; This function is called when there is some reason to believe that
 ;;; CLAMBDA might be converted into a LET. This is done after local
 ;;; call analysis, and also when a reference is deleted. We return
 ;;; true if we converted.
+;;;
+;;; COMPONENT is non-nil during local call analysis.  It is used to
+;;; re-enqueue functionals for reanalysis when they have been forwarded
+;;; directly to destination nodes.
 (defun maybe-let-convert (clambda &optional component)
-  (declare (type clambda clambda))
+  (declare (type clambda clambda)
+           (type (or null component) component))
   (unless (or (declarations-suppress-let-conversion-p clambda)
               (functional-has-external-references-p clambda))
     ;; We only convert to a LET when the function is a normal local
@@ -1095,43 +1152,12 @@
               (return-from maybe-let-convert nil))
             (unless (eq (functional-kind clambda) :assignment)
               (let-convert clambda dest))
-            (when component
-              (loop for arg in (basic-combination-args dest)
-                    for var in (lambda-vars clambda)
-                    do (when (and arg (ref-p (lvar-uses arg)))
-                         (let ((leaf (ref-leaf (lvar-use arg))))
-                           (when (and (functional-p leaf)
-                                      (member leaf (component-lambdas component))
-                                      (singleton-p (leaf-refs leaf))
-                                      (null (lambda-var-sets var))
-                                      (csubtypep (functional-type leaf)
-                                                 (lambda-var-type var)))
-                             (cond ((singleton-p (lambda-var-refs var))
-                                    (let* ((ref  (first (lambda-var-refs var)))
-                                           (dest (lvar-dest (ref-lvar ref))))
-                                      (when (leaf-visible-from-node-p leaf dest)
-                                        (change-ref-leaf ref leaf)
-                                        (when (basic-combination-p dest)
-                                          (reoptimize-call dest)))))
-                                   (t
-                                    (dolist (ref (lambda-var-refs var))
-                                      (let* ((lvar (ref-lvar ref))
-                                             (dest (lvar-dest lvar)))
-                                        (loop while (or (cast-p dest)
-                                                        (and (combination-p dest)
-                                                             (eql (lvar-fun-name (combination-fun dest))
-                                                                  'sb!kernel:%coerce-callable-to-fun)
-                                                             (eql lvar (first (combination-args dest)))))
-                                              do (setf lvar (node-lvar dest)
-                                                       dest (lvar-dest lvar)))
-                                        (when (and (leaf-visible-from-node-p leaf dest)
-                                                   (basic-combination-p dest)
-                                                   (eql lvar (basic-combination-fun dest)))
-                                          (change-ref-leaf ref leaf)
-                                          (reoptimize-call dest)))))))))))
             (reoptimize-call dest)
             (setf (functional-kind clambda)
-                  (if (mv-combination-p dest) :mv-let :let))))
+                  (if (mv-combination-p dest) :mv-let :let))
+            (when (combination-p dest)  ;  mv-combinations are too hairy
+                                        ;  for me to handle - PK 2012-05-30
+              (substitute-let-funargs dest clambda component))))
         t))))
 
 ;;;; tail local calls and assignments
