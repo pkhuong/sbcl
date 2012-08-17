@@ -19,7 +19,8 @@
   (force-output *trace-output*))
 
 (defmacro with-test ((&key fails-on broken-on skipped-on name) &body body)
-  (let ((block-name (gensym)))
+  (let ((block-name (gensym))
+        (threads    (gensym "THREADS")))
     `(progn
        (start-test)
        (cond
@@ -28,18 +29,25 @@
          ((skipped-p ,skipped-on)
           (fail-test :skipped-disabled ',name "Test disabled for this combination of platform and features"))
          (t
-          (block ,block-name
-            (handler-bind ((error (lambda (error)
-                                    (if (expected-failure-p ,fails-on)
-                                        (fail-test :expected-failure ',name error)
-                                        (fail-test :unexpected-failure ',name error))
-                                    (return-from ,block-name))))
-              (progn
-                (log-msg "Running ~S" ',name)
-                ,@body
-                (if (expected-failure-p ,fails-on)
-                    (fail-test :unexpected-success ',name nil)
-                    (log-msg "Success ~S" ',name))))))))))
+          (let (#+sb-thread (,threads (sb-thread:list-all-threads)))
+            (block ,block-name
+              (handler-bind ((error (lambda (error)
+                                      (if (expected-failure-p ,fails-on)
+                                          (fail-test :expected-failure ',name error)
+                                          (fail-test :unexpected-failure ',name error))
+                                      (return-from ,block-name))))
+                (progn
+                  (log-msg "Running ~S" ',name)
+                  ,@body
+                  (if (expected-failure-p ,fails-on)
+                      (fail-test :unexpected-success ',name nil)
+                      (log-msg "Success ~S" ',name)))))
+            #+sb-thread
+            (dolist (thread (sb-thread:list-all-threads))
+              (unless (or (not (sb-thread:thread-alive-p thread))
+                          (member thread ,threads))
+                (log-msg "Forcibly killing thread ~S" thread)
+                (sb-thread:terminate-thread thread)))))))))
 
 (defun report-test-status ()
   (with-standard-io-syntax
