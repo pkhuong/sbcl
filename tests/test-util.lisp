@@ -2,7 +2,8 @@
   (:use :cl :sb-ext)
   (:export #:with-test #:report-test-status #:*failures*
            #:really-invoke-debugger
-           #:*break-on-failure* #:*break-on-expected-failure*))
+           #:*break-on-failure* #:*break-on-expected-failure*
+           #:make-kill-thread #:make-join-thread))
 
 (in-package :test-util)
 
@@ -12,13 +13,31 @@
 (defvar *break-on-failure* nil)
 (defvar *break-on-expected-failure* nil)
 
+(defvar *threads-to-kill*)
+(defvar *threads-to-join*)
+
+#+sb-thread
+(defun make-kill-thread (&rest args)
+  (let ((thread (apply #'sb-thread:make-thread args)))
+    (when (boundp '*threads-to-kill*)
+      (push thread *threads-to-kill*))
+    thread))
+
+#+sb-thread
+(defun make-join-thread (&rest args)
+  (let ((thread (apply #'sb-thread:make-thread args)))
+    (when (boundp '*threads-to-join*)
+      (push thread *threads-to-join*))
+    thread))
+
 (defun log-msg (&rest args)
   (format *trace-output* "~&::: ")
   (apply #'format *trace-output* args)
   (terpri *trace-output*)
   (force-output *trace-output*))
 
-(defmacro with-test ((&key fails-on broken-on skipped-on name) &body body)
+(defmacro with-test ((&key fails-on broken-on skipped-on name)
+                     &body body)
   (let ((block-name (gensym))
         (threads    (gensym "THREADS")))
     `(progn
@@ -29,7 +48,9 @@
          ((skipped-p ,skipped-on)
           (fail-test :skipped-disabled ',name "Test disabled for this combination of platform and features"))
          (t
-          (let (#+sb-thread (,threads (sb-thread:list-all-threads)))
+          (let (#+sb-thread (,threads (sb-thread:list-all-threads))
+                (*threads-to-join* nil)
+                (*threads-to-kill* nil))
             (block ,block-name
               (handler-bind ((error (lambda (error)
                                       (if (expected-failure-p ,fails-on)
@@ -39,15 +60,26 @@
                 (progn
                   (log-msg "Running ~S" ',name)
                   ,@body
+                  (let ((any-leftover nil))
+                    (dolist (thread *threads-to-join*)
+                      (ignore-errors (sb-thread:join-thread thread)))
+                    (dolist (thread *threads-to-kill*)
+                      (ignore-errors (sb-thread:terminate-thread thread)))
+                    (setf ,threads (union (union *threads-to-kill*
+                                                 *threads-to-join*)
+                                          ,threads))
+                    (dolist (thread (sb-thread:list-all-threads))
+                      (unless (or (not (sb-thread:thread-alive-p thread))
+                                  (eql thread sb-thread:*current-thread*)
+                                  (member thread ,threads))
+                        (setf any-leftover thread)
+                        (ignore-errors (sb-thread:terminate-thread thread))))
+                    (when any-leftover
+                      (fail-test :leftover-thread ',name any-leftover)
+                      (return-from ,block-name)))
                   (if (expected-failure-p ,fails-on)
                       (fail-test :unexpected-success ',name nil)
-                      (log-msg "Success ~S" ',name)))))
-            #+sb-thread
-            (dolist (thread (sb-thread:list-all-threads))
-              (unless (or (not (sb-thread:thread-alive-p thread))
-                          (member thread ,threads))
-                (log-msg "Forcibly killing thread ~S" thread)
-                (sb-thread:terminate-thread thread)))))))))
+                      (log-msg "Success ~S" ',name)))))))))))
 
 (defun report-test-status ()
   (with-standard-io-syntax
