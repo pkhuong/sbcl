@@ -87,7 +87,7 @@
   (assert-timeout
    (sb-sys:with-deadline (:seconds 1)
      (sb-thread:join-thread
-      (sb-thread:make-thread (lambda () (loop (sleep 1))))))))
+      (make-kill-thread (lambda () (loop (sleep 1))))))))
 
 (with-test (:name (:deadline :futex-wait-eintr) :skipped-on '(not :sb-thread))
   (let ((lock (sb-thread:make-mutex))
