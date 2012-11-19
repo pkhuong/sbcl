@@ -134,7 +134,8 @@
                   :ref-known (flushable)
                   :set-trans (setf %array-displaced-from)
                   :set-known ())
-  (dimensions :rest-p t))
+  ;; actually, pair of dimension - stride
+  (dimension-stride-pairs :rest-p t))
 
 (define-primitive-object (vector :type vector
                                  :lowtag other-pointer-lowtag

@@ -377,7 +377,7 @@
                new-value :lock)
          (move value rax)))))
 
-(defmacro define-full-reffer (name type offset lowtag scs el-type &optional translate)
+(defmacro define-full-reffer (name type offset lowtag scs el-type &optional translate (scale 1))
   `(progn
      (define-vop (,name)
        ,@(when translate
@@ -390,7 +390,7 @@
        (:result-types ,el-type)
        (:generator 3                    ; pw was 5
          (inst mov value (make-ea :qword :base object :index index
-                                  :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                                  :scale (ash ,scale (- word-shift n-fixnum-tag-bits))
                                   :disp (- (* ,offset n-word-bytes)
                                            ,lowtag)))))
      (define-vop (,(symbolicate name "-C"))
@@ -400,13 +400,15 @@
        (:args (object :scs (descriptor-reg)))
        (:info index)
        (:arg-types ,type
-                   (:constant (load/store-index ,n-word-bytes ,(eval lowtag)
+                   (:constant (load/store-index ,(* scale n-word-bytes)
+                                                ,(eval lowtag)
                                                 ,(eval offset))))
        (:results (value :scs ,scs))
        (:result-types ,el-type)
        (:generator 2                    ; pw was 5
          (inst mov value (make-ea :qword :base object
-                                  :disp (- (* (+ ,offset index) n-word-bytes)
+                                  :disp (- (* (+ ,offset (* index ,scale))
+                                              n-word-bytes)
                                            ,lowtag)))))))
 
 (defmacro define-full-reffer+offset (name type offset lowtag scs el-type &optional translate)
@@ -446,7 +448,7 @@
                                   :disp (- (* (+ ,offset index offset) n-word-bytes)
                                            ,lowtag)))))))
 
-(defmacro define-full-setter (name type offset lowtag scs el-type &optional translate)
+(defmacro define-full-setter (name type offset lowtag scs el-type &optional translate (scale 1))
   `(progn
      (define-vop (,name)
        ,@(when translate
@@ -460,7 +462,7 @@
        (:result-types ,el-type)
        (:generator 4                    ; was 5
          (inst mov (make-ea :qword :base object :index index
-                            :scale (ash 1 (- word-shift n-fixnum-tag-bits))
+                            :scale (ash ,scale (- word-shift n-fixnum-tag-bits))
                             :disp (- (* ,offset n-word-bytes) ,lowtag))
                value)
          (move result value)))
@@ -472,14 +474,16 @@
               (value :scs ,scs :target result))
        (:info index)
        (:arg-types ,type
-                   (:constant (load/store-index ,n-word-bytes ,(eval lowtag)
+                   (:constant (load/store-index ,(* scale n-word-bytes)
+                                                ,(eval lowtag)
                                                 ,(eval offset)))
                    ,el-type)
        (:results (result :scs ,scs))
        (:result-types ,el-type)
        (:generator 3                    ; was 5
          (inst mov (make-ea :qword :base object
-                            :disp (- (* (+ ,offset index) n-word-bytes)
+                            :disp (- (* (+ ,offset (* index ,scale))
+                                        n-word-bytes)
                                      ,lowtag))
                value)
          (move result value)))))

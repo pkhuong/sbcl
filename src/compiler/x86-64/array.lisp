@@ -31,12 +31,16 @@
   (:generator 13
     (inst lea bytes
           (make-ea :qword
-                   :index rank :scale (ash 1 (- word-shift n-fixnum-tag-bits))
-                   :disp (+ (* (1+ array-dimensions-offset) n-word-bytes)
+                   :index rank :scale (ash 2 (- word-shift n-fixnum-tag-bits))
+                   :disp (+ (* (1+ array-dimension-stride-pairs-offset)
+                               n-word-bytes)
                             lowtag-mask)))
     (inst and bytes (lognot lowtag-mask))
-    (inst lea header (make-ea :qword :base rank
-                              :disp (fixnumize (1- array-dimensions-offset))))
+    (inst lea header (make-ea :qword
+                              :index rank
+                              :scale 2
+                              :disp (fixnumize
+                                     (1- array-dimension-stride-pairs-offset))))
     (inst shl header n-widetag-bits)
     (inst or  header type)
     (inst shr header n-fixnum-tag-bits)
@@ -47,12 +51,12 @@
 
 ;;;; additional accessors and setters for the array header
 (define-full-reffer %array-dimension *
-  array-dimensions-offset other-pointer-lowtag
-  (any-reg) positive-fixnum sb!kernel:%array-dimension)
+  array-dimension-stride-pairs-offset other-pointer-lowtag
+  (any-reg) positive-fixnum sb!kernel:%array-dimension 2)
 
 (define-full-setter %set-array-dimension *
-  array-dimensions-offset other-pointer-lowtag
-  (any-reg) positive-fixnum sb!kernel:%set-array-dimension)
+  array-dimension-stride-pairs-offset other-pointer-lowtag
+  (any-reg) positive-fixnum sb!kernel:%set-array-dimension 2)
 
 (define-vop (array-rank-vop)
   (:translate sb!kernel:%array-rank)
@@ -63,7 +67,8 @@
   (:generator 6
     (loadw res x 0 other-pointer-lowtag)
     (inst shr res n-widetag-bits)
-    (inst sub res (1- array-dimensions-offset))))
+    (inst sub res (1- array-dimension-stride-pairs-offset))
+    (inst shr res 1)))
 
 ;;;; bounds checking routine
 

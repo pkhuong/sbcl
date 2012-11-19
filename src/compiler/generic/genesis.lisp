@@ -2319,9 +2319,11 @@ core and return a descriptor to it."
 (define-cold-fop (fop-array)
   (let* ((rank (read-word-arg))
          (data-vector (pop-stack))
-         (result (allocate-boxed-object *dynamic*
-                                        (+ sb!vm:array-dimensions-offset rank)
-                                        sb!vm:other-pointer-lowtag)))
+         (result (allocate-boxed-object
+                  *dynamic*
+                  (+ sb!vm:array-dimension-stride-pairs-offset
+                     (* 2 rank))
+                  sb!vm:other-pointer-lowtag)))
     (write-memory result
                   (make-other-immediate-descriptor rank
                                                    sb!vm:simple-array-widetag))
@@ -2343,7 +2345,8 @@ core and return a descriptor to it."
                            (ash (descriptor-low dim)
                                 sb!vm:n-fixnum-tag-bits))))
           (write-wordindexed result
-                             (+ sb!vm:array-dimensions-offset axis)
+                             (+ sb!vm:array-dimension-stride-pairs-offset
+                                (* 2 axis))
                              dim)))
       (write-wordindexed result
                          sb!vm:array-elements-slot
