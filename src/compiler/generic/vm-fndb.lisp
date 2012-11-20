@@ -117,8 +117,12 @@
   (flushable))
 (defknown %set-array-dimension (t index index) index
   ())
-(defknown %array-rank (t) index
+(defknown %array-stride (t index) index
   (flushable))
+(defknown %set-array-stride (t index index) index
+  ())
+(defknown %array-rank (t) index
+    (flushable))
 
 (defknown %make-instance (index) instance
   (flushable))

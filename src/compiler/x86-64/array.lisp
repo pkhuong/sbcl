@@ -58,6 +58,14 @@
   array-dimension-stride-pairs-offset other-pointer-lowtag
   (any-reg) positive-fixnum sb!kernel:%set-array-dimension 2)
 
+(define-full-reffer %array-stride *
+  (1+ array-dimension-stride-pairs-offset) other-pointer-lowtag
+  (any-reg) positive-fixnum sb!kernel:%array-stride 2)
+
+(define-full-setter %set-array-dimension *
+  (1+ array-dimension-stride-pairs-offset) other-pointer-lowtag
+  (any-reg) positive-fixnum sb!kernel:%set-array-stride 2)
+
 (define-vop (array-rank-vop)
   (:translate sb!kernel:%array-rank)
   (:policy :fast-safe)

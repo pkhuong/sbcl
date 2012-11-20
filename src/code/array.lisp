@@ -42,6 +42,12 @@
 (defun %set-array-dimension (array axis value)
   (%set-array-dimension array axis value))
 
+(defun %array-stride (array axis)
+  (%array-stride array axis))
+
+(defun %set-array-stride (array axis value)
+  (%set-array-stride array axis value))
+
 (defun %check-bound (array bound index)
   (declare (type index bound)
            (fixnum index))
