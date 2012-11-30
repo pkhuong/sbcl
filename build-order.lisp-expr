@@ -516,6 +516,7 @@
  ("src/compiler/typetran")
  ("src/compiler/generic/vm-typetran")
  ("src/compiler/float-tran")
+ ("src/compiler/divtran")
  ("src/compiler/saptran")
  ("src/compiler/srctran")
  ("src/compiler/generic/vm-tran")
@@ -574,6 +575,7 @@
   ;; x pressing problems. Someday, though, it would be nice to figure out
   ;; x what the problem is and fix it.
   #!+(or ppc) :ignore-failure-p)
+ ("src/compiler/target/div-by-mul")
  ("src/code/cross-modular"  :not-target)
  ("src/compiler/target/subprim")
 

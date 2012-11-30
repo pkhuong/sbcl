@@ -398,42 +398,6 @@
   (def single-float 1.0 -1.0)
   (def double-float 1.0d0 -1.0d0))
 
-;;; Return the reciprocal of X if it can be represented exactly, NIL otherwise.
-(defun maybe-exact-reciprocal (x)
-  (unless (zerop x)
-    (handler-case
-        (multiple-value-bind (significand exponent sign)
-            (integer-decode-float x)
-          ;; only powers of 2 can be inverted exactly
-          (unless (zerop (logand significand (1- significand)))
-            (return-from maybe-exact-reciprocal nil))
-          (let ((expected   (/ sign significand (expt 2 exponent)))
-                (reciprocal (/ x)))
-            (multiple-value-bind (significand exponent sign)
-                (integer-decode-float reciprocal)
-              ;; Denorms can't be inverted safely.
-              (and (eql expected (* sign significand (expt 2 exponent)))
-                   reciprocal))))
-      (error () (return-from maybe-exact-reciprocal nil)))))
-
-;;; Replace constant division by multiplication with exact reciprocal,
-;;; if one exists.
-(macrolet ((def (type)
-             `(deftransform / ((x y) (,type (constant-arg ,type)) *
-                               :node node)
-                "convert to multiplication by reciprocal"
-                (let ((n (lvar-value y)))
-                  (if (policy node (zerop float-accuracy))
-                      `(* x ,(/ n))
-                      (let ((r (maybe-exact-reciprocal n)))
-                        (if r
-                            `(* x ,r)
-                            (give-up-ir1-transform
-                             "~S does not have an exact reciprocal"
-                             n))))))))
-  (def single-float)
-  (def double-float))
-
 ;;; Optimize addition and subtraction of zero
 (macrolet ((def (op type &rest args)
              `(deftransform ,op ((x y) (,type (constant-arg (member ,@args))) *
