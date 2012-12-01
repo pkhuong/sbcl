@@ -11,7 +11,7 @@
 
 (in-package "SB!VM")
 
-(defun emit-mul-shift-add-tag (result x rax signed-p
+(defun emit-mul-shift-add-tag (result x rax signedp
                                multiplier shift increment tag
                                rdx tmp copy-x
                                &aux (mask (ldb (byte tag 0) -1)))
@@ -20,7 +20,7 @@
    tmp: only used if increment is large and non-zero
    copy-x: only used for signed multiplication by > signed-word constants"
   (declare (type tn result x rax)
-           (type boolean signed-p)
+           (type boolean signedp)
            (type (or word signed-word) multiplier)
            (type word increment)
            (type (mod #.n-word-bits) shift tag)
@@ -60,7 +60,7 @@
                                        increment
                                        tmp))
                   (inst adc rax-tn high)))))
-    (cond ((not signed-p)
+    (cond ((not signedp)
            (aver (typep multiplier 'word))
            (move rax x)
            (load-values)
@@ -88,7 +88,7 @@
            (inst imul rdx-tn)
            (increment copy-x t)))
     (when (plusp shift)
-      (if signed-p
+      (if signedp
           (inst sar rdx-tn shift)
           (inst shr rdx-tn shift)))
     (when (plusp tag)
