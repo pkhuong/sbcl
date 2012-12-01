@@ -14,6 +14,7 @@
 
 ;;;; Convert division by constant floats into multiplication by a
 ;;;; reciprocal when exact.
+
 ;;; Return the reciprocal of X if it can be represented exactly, NIL otherwise.
 (defun maybe-exact-reciprocal (x)
   (unless (zerop x)
@@ -32,6 +33,8 @@
                    reciprocal))))
       (error () (return-from maybe-exact-reciprocal nil)))))
 
+;;;; Generic truncate-by-mul code-path
+
 ;;; Replace constant division by multiplication with exact reciprocal,
 ;;; if one exists.
 (macrolet ((def (type)
@@ -139,6 +142,7 @@
 ;;; the same value, emit much simpler code to handle that. (This case
 ;;; may be rare but it's easy to detect and the compiler doesn't find
 ;;; this optimization on its own.)
+#!-div-by-mul-vops
 (deftransform truncate ((x y) (word (constant-arg word))
                         *
                         :policy (and (> speed compilation-speed)
@@ -156,3 +160,17 @@
             (rem (ldb (byte #.sb!vm:n-word-bits 0)
                       (- x (* quot ,y)))))
        (values quot rem))))
+
+
+;;;; Exploit specialised div-by-mul VOPs
+#!+div-by-mul-vops
+(defun %truncate-by-mul (x a shift tagged-a tagged-shift)
+  (declare (ignore tagged-a tagged-shift))
+  (ash (* x a)
+       (- (+ shift sb!vm:n-word-bits))))
+
+#!+div-by-mul-vops
+(defun %floor-by-mul (x a b shift tagged-a tagged-b tagged-shift)
+  (declare (ignore tagged-a tagged-b tagged-shift))
+  (ash (+ (* x a) b)
+       (- (+ shift sb!vm:n-word-bits))))

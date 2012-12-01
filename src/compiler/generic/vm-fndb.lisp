@@ -295,6 +295,33 @@
           (bignum-element-type (mod #.sb!vm:n-word-bits)) bignum-element-type
   (foldable flushable movable))
 
+;;;; division-by-multiplication VOPs
+
+;;; TRUNCATE by (a*x) >> (n-word-bits+shift)
+;;; First argument is x, rest constants
+;;; First pair is `a' and `shift' for machine integers,
+;;; second pair for tagged integers (or NIL)
+#!+div-by-mul-vops
+(defknown %truncate-by-mul
+    ((or word sb!vm:signed-word)
+     (or word sb!vm:signed-word) (mod #.sb!vm:n-word-bits)
+     (or null word sb!vm:signed-word) (or null (mod #.sb!vm:n-word-bits)))
+    (or word sb!vm:signed-word)
+    (foldable flushable always-translatable))
+
+;;; FLOOR by (a*x+b) >> (n-word-bits+shift)
+;;; First argument is x, rest constants
+;;; First triplet is `a', `b' and `shift' for machine integers,
+;;; second pair for tagged integers (or NIL)
+#!+div-by-mul-vops
+(defknown %floor-by-mul
+    ((or word sb!vm:signed-word)
+     (or word sb!vm:signed-word) (or word sb!vm:signed-word) (mod #.sb!vm:n-word-bits)
+     (or null word sb!vm:signed-word) (or null word sb!vm:signed-word)
+     (or null (mod #.sb!vm:n-word-bits)))
+    (or word sb!vm:signed-word)
+    (foldable flushable always-translatable))
+
 ;;;; bit-bashing routines
 
 ;;; FIXME: there's some ugly duplication between the (INTERN (FORMAT ...))
