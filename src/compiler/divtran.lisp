@@ -217,21 +217,23 @@
            multiplier)))
 
   (defun truncate-approximation (divisor input-magnitude tag-bits)
-    (flet ((probe (delta-shift)
-             (let ((multiplier
-                     (maybe-truncate-approximation divisor (+ sb!vm:n-word-bits
-                                                              delta-shift)
-                                                   input-magnitude tag-bits)))
-               (when multiplier
-                 (aver (typep multiplier '(integer #.(- (* 3/2 (ash 1 sb!vm:n-word-bits)))
-                                                   #.(1- (* 3/2 (ash 1 sb!vm:n-word-bits))))))
-                 (return-from truncate-approximation
-                   (values multiplier delta-shift))))))
-      (probe 0)
-      (let ((len (integer-length (1- divisor))))
-        (when (> len (1+ sb!vm:n-fixnum-tag-bits))
-          (probe (- len 1 sb!vm:n-fixnum-tag-bits)))
-        (when (> len 1)
+    (let ((max-delta -1))
+      (flet ((probe (delta-shift)
+               (when (<= delta-shift max-delta)
+                 (return-from probe))
+               (setf max-delta delta-shift)
+               (let ((multiplier
+                       (maybe-truncate-approximation divisor (+ sb!vm:n-word-bits
+                                                                delta-shift)
+                                                     input-magnitude tag-bits)))
+                 (when multiplier
+                   (aver (typep multiplier '(integer #.(- (* 3/2 (ash 1 sb!vm:n-word-bits)))
+                                             #.(1- (* 3/2 (ash 1 sb!vm:n-word-bits))))))
+                   (return-from truncate-approximation
+                     (values multiplier delta-shift))))))
+        (probe 0)
+        (let ((len (integer-length (1- divisor))))
+          (probe (- len 1 sb!vm:n-fixnum-tag-bits))
           (probe (1- len))))))
 
   (defun %truncate-form (x divisor input-magnitude)
@@ -278,22 +280,24 @@
                                    (:slow (ash (abs multiplier) tag-bits)))))))
 
   (defun floor-approximation (divisor input-magnitude tag-bits)
-    (flet ((probe (delta-shift)
-             (multiple-value-bind (multiplier increment)
-                 (maybe-floor-approximation divisor (+ sb!vm:n-word-bits
-                                                       delta-shift)
-                                            input-magnitude tag-bits)
-               (when multiplier
-                 (aver (typep multiplier '(integer #.(- (* 3/2 (ash 1 sb!vm:n-word-bits)))
-                                                   #.(1- (* 3/2 (ash 1 sb!vm:n-word-bits))))))
-                 (aver (typep increment 'word))
-                 (return-from floor-approximation
-                   (values multiplier increment delta-shift))))))
-      (probe 0)
-      (let ((len (integer-length (1- divisor))))
-        (when (> len (1+ sb!vm:n-fixnum-tag-bits))
-          (probe (- len 1 sb!vm:n-fixnum-tag-bits)))
-        (when (> len 1)
+    (let ((max-delta -1))
+      (flet ((probe (delta-shift)
+               (when (<= delta-shift max-delta)
+                 (return-from probe))
+               (setf max-delta delta-shift)
+               (multiple-value-bind (multiplier increment)
+                   (maybe-floor-approximation divisor (+ sb!vm:n-word-bits
+                                                         delta-shift)
+                                              input-magnitude tag-bits)
+                 (when multiplier
+                   (aver (typep multiplier '(integer #.(- (* 3/2 (ash 1 sb!vm:n-word-bits)))
+                                             #.(1- (* 3/2 (ash 1 sb!vm:n-word-bits))))))
+                   (aver (typep increment 'word))
+                   (return-from floor-approximation
+                     (values multiplier increment delta-shift))))))
+        (probe 0)
+        (let ((len (integer-length (1- divisor))))
+          (probe (- len 1 sb!vm:n-fixnum-tag-bits))
           (probe (1- len))))))
 
   (defun %floor-form (x divisor input-magnitude)
