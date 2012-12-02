@@ -223,7 +223,8 @@
                                                               delta-shift)
                                                    input-magnitude tag-bits)))
                (when multiplier
-                 (aver (typep multiplier '(or word sb!vm:signed-word)))
+                 (aver (typep multiplier '(integer #.(- (* 3/2 (ash 1 sb!vm:n-word-bits)))
+                                                   #.(1- (* 3/2 (ash 1 sb!vm:n-word-bits))))))
                  (return-from truncate-approximation
                    (values multiplier delta-shift))))))
       (probe 0)
@@ -280,7 +281,8 @@
                                                        delta-shift)
                                             input-magnitude tag-bits)
                (when multiplier
-                 (aver (typep multiplier '(or word sb!vm:signed-word)))
+                 (aver (typep multiplier '(integer #.(- (* 3/2 (ash 1 sb!vm:n-word-bits)))
+                                                   #.(1- (* 3/2 (ash 1 sb!vm:n-word-bits))))))
                  (aver (typep increment 'word))
                  (return-from floor-approximation
                    (values multiplier increment delta-shift))))))
@@ -324,6 +326,8 @@
     ;; Division by zero, one or powers of two is handled elsewhere.
     (when (zerop (logand y (1- y)))
       (give-up-ir1-transform))
+    (when (minusp y)
+      (rotatef min-result max-result))
     `(let* ((quot ,(if (= min-result max-result)
                        min-result
                        `(truly-the (integer ,min-result ,max-result)
@@ -354,9 +358,11 @@
     ;; Division by zero, one or powers of two is handled elsewhere.
     (when (zerop (logand y (1- y)))
       (give-up-ir1-transform))
+    (when (minusp y)
+      (rotatef min-result max-result))
     `(let* ((quot ,(if (= min-result max-result)
                        min-result
-                       `(truly-the (integer ,(floor min-x y) ,(floor max-x y))
+                       `(truly-the (integer ,min-result ,max-result)
                                    ,(or (%floor-form 'x y magnitude-x)
                                         (give-up-ir1-transform)))))
             (rem (mask-signed-field ,sb!vm:n-word-bits
@@ -400,8 +406,12 @@
                           *
                           :policy (and (> speed compilation-speed)
                                        (>= speed space)))
-    "Flip sign of word/negative-signed-word truncate"
-    `(- (truncate x ,(- (lvar-value y)))))
+    ;; flip sign of word/negative-word truncate to allow previous to trigger
+    (let ((y (- (lvar-value y))))
+      `(let* ((quot (truncate x ,y))
+              (rem (ldb (byte #.sb!vm:n-word-bits 0)
+                        (- x (* quot ,y)))))
+         (values (- quot) rem))))
 
   (deftransform floor ((x y) (word (constant-arg word))
                        *
