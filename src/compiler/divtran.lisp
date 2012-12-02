@@ -339,8 +339,7 @@
     (when (or (zerop y)
               (not (typep y 'sb!vm:signed-word)))
       (give-up-ir1-transform))
-    `(let* ((x (truly-the ,(lvar-type x) x)) ; type propagation is sometimes too slow.
-            (quot (floor x ,y))
+    `(let* ((quot (floor x ,y))
             ;; m-s-f is safe because y is a signed-word, thus so is
             ;; rem.
             (rem  (mask-signed-field sb!vm:n-word-bits
