@@ -86,6 +86,7 @@
 ;;;                        -1)))
 ;;;        -2))
 ;;;
+#!-div-by-mul-vops
 (defun gen-unsigned-div-by-constant-expr (y max-x)
   (declare (type (integer 3 #.most-positive-word) y)
            (type word max-x))
@@ -143,26 +144,39 @@
 ;;; may be rare but it's easy to detect and the compiler doesn't find
 ;;; this optimization on its own.)
 #!-div-by-mul-vops
-(deftransform truncate ((x y) (word (constant-arg word))
-                        *
-                        :policy (and (> speed compilation-speed)
-                                     (> speed space)))
-  "convert integer division to multiplication"
-  (let* ((y      (lvar-value y))
-         (x-type (lvar-type x))
-         (max-x  (or (and (numeric-type-p x-type)
-                          (numeric-type-high x-type))
-                     most-positive-word)))
-    ;; Division by zero, one or powers of two is handled elsewhere.
-    (when (zerop (logand y (1- y)))
-      (give-up-ir1-transform))
-    `(let* ((quot ,(gen-unsigned-div-by-constant-expr y max-x))
-            (rem (ldb (byte #.sb!vm:n-word-bits 0)
-                      (- x (* quot ,y)))))
-       (values quot rem))))
+(progn
+  (defun transform-positive-truncate (x y)
+    (let* ((y      (lvar-value y))
+           (x-type (lvar-type x))
+           (max-x  (or (and (numeric-type-p x-type)
+                            (numeric-type-high x-type))
+                       most-positive-word)))
+      ;; Division by zero, one or powers of two is handled elsewhere.
+      (when (zerop (logand y (1- y)))
+        (give-up-ir1-transform))
+      `(let* ((quot ,(gen-unsigned-div-by-constant-expr y max-x))
+              (rem (ldb (byte #.sb!vm:n-word-bits 0)
+                        (- x (* quot ,y)))))
+         (values quot rem))))
+
+  (deftransform truncate ((x y) (word (constant-arg word))
+                          *
+                          :policy (and (> speed compilation-speed)
+                                       (> speed space)))
+    "convert integer division to multiplication"
+    (transform-positive-truncate x y))
+
+  (deftransform floor ((x y) (word (constant-arg word))
+                       *
+                       :policy (and (> speed compilation-speed)
+                                    (> speed space)))
+    "convert integer division to multiplication"
+    (transform-positive-truncate x y)))
 
 
 ;;;; Exploit specialised div-by-mul VOPs
+
+;;; These should only be called from the compiler (constant folding)
 #!+div-by-mul-vops
 (defun %truncate-by-mul (x a shift tagged-a tagged-shift)
   (declare (ignore tagged-a tagged-shift))
@@ -174,3 +188,224 @@
   (declare (ignore tagged-a tagged-b tagged-shift))
   (ash (+ (* x a) b)
        (- (+ shift sb!vm:n-word-bits))))
+
+;;; Support code to determine whether an approximation is exact over
+;;; a given range, and to find a practically optimal one if possible.
+
+;;; First, truncate, with [x/d] approximated by [ax/2^k] + (1 if result is -ve)
+#!+div-by-mul-vops
+(progn
+  (defun truncate-approximation-ok-p (divisor
+                                      multiplier shift
+                                      input-magnitude
+                                      tag-bits)
+    (declare (type integer divisor multiplier)
+             (type unsigned-byte shift input-magnitude tag-bits))
+    (let* ((reciprocal (/ divisor))
+           (approximation (/ multiplier (ash 1 shift))))
+      (aver (>= (abs approximation) (abs reciprocal)))
+      (aver (= (signum divisor) (signum multiplier)))
+      (let ((error (abs (- approximation reciprocal))))
+        (< (* error input-magnitude) (* (abs reciprocal) (ash 1 tag-bits))))))
+
+  (defun maybe-truncate-approximation (divisor shift input-magnitude tag-bits)
+    (let ((multiplier (* (ceiling (ash 1 shift) (abs divisor))
+                         (signum divisor))))
+      (and (truncate-approximation-ok-p divisor
+                                        multiplier shift
+                                        input-magnitude tag-bits)
+           multiplier)))
+
+  (defun truncate-approximation (divisor input-magnitude tag-bits)
+    (flet ((probe (delta-shift)
+             (let ((multiplier
+                     (maybe-truncate-approximation divisor (+ sb!vm:n-word-bits
+                                                              delta-shift)
+                                                   input-magnitude tag-bits)))
+               (when multiplier
+                 (aver (typep multiplier '(or word sb!vm:signed-word)))
+                 (return-from truncate-approximation
+                   (values multiplier delta-shift))))))
+      (probe 0)
+      (probe (- (integer-length (1- divisor))
+                2))
+      (probe (1- (integer-length (1- divisor))))))
+
+  (defun %truncate-form (x divisor input-magnitude)
+    (multiple-value-bind (multiplier shift)
+        (truncate-approximation divisor input-magnitude 0)
+      (multiple-value-bind (tagged-multiplier tagged-shift)
+          (truncate-approximation (ash divisor sb!vm:n-fixnum-tag-bits)
+                                  (ash input-magnitude sb!vm:n-fixnum-tag-bits)
+                                  sb!vm:n-fixnum-tag-bits)
+        (and multiplier shift
+             `(%truncate-by-mul ,x
+                                ,multiplier ,shift
+                                ,tagged-multiplier ,tagged-shift))))))
+
+;;; Second, floor, with [x/d] approximated with [(ax+b)/2^k]
+#!+div-by-mul-vops
+(progn
+  (defun floor-approximation-ok-p (divisor
+                                   multiplier shift
+                                   input-magnitude
+                                   tag-bits)
+    (declare (type integer divisor multiplier)
+             (type unsigned-byte shift input-magnitude tag-bits))
+    (let* ((reciprocal (/ divisor))
+           (approximation (/ multiplier (ash 1 shift))))
+      (aver (<= approximation reciprocal))
+      (aver (= (signum divisor) (signum multiplier)))
+      (let ((error (* (abs (- approximation reciprocal)) input-magnitude))
+            (max-error (abs reciprocal)))
+        (cond ((< error (* max-error (1- (ash 1 tag-bits))))
+               :quick)
+              ((< error (* max-error (ash 1 tag-bits)))
+               :slow)))))
+
+  (defun maybe-floor-approximation (divisor shift input-magnitude tag-bits)
+    (let* ((multiplier (floor (ash 1 shift) divisor))
+           (ok (floor-approximation-ok-p divisor
+                                         multiplier shift
+                                         input-magnitude tag-bits)))
+      (and ok (values multiplier (ecase ok
+                                   (:quick (* (abs multiplier)
+                                              (1- (ash 1 tag-bits))))
+                                   (:slow (ash (abs multiplier) tag-bits)))))))
+
+  (defun floor-approximation (divisor input-magnitude tag-bits)
+    (flet ((probe (delta-shift)
+             (multiple-value-bind (multiplier increment)
+                 (maybe-floor-approximation divisor (+ sb!vm:n-word-bits
+                                                       delta-shift)
+                                            input-magnitude tag-bits)
+               (when multiplier
+                 (aver (typep multiplier '(or word sb!vm:signed-word)))
+                 (aver (typep increment 'word))
+                 (return-from floor-approximation
+                   (values multiplier increment delta-shift))))))
+      (probe 0)
+      (probe (- (integer-length (1- divisor))
+                2))
+      (probe (1- (integer-length (1- divisor))))))
+
+  (defun %floor-form (x divisor input-magnitude)
+    (multiple-value-bind (multiplier increment shift)
+        (floor-approximation divisor input-magnitude 0)
+      (multiple-value-bind (tagged-multiplier tagged-increment tagged-shift)
+          (floor-approximation (ash divisor sb!vm:n-fixnum-tag-bits)
+                               (ash input-magnitude sb!vm:n-fixnum-tag-bits)
+                               sb!vm:n-fixnum-tag-bits)
+        (and multiplier shift increment
+             `(%floor-by-mul
+               ,x
+               ,multiplier ,increment ,shift
+               ,tagged-multiplier ,tagged-increment ,tagged-shift))))))
+
+;;; Call these generators
+#!+div-by-mul-vops
+(deftransform truncate ((x y)
+                        (sb!vm:signed-word (constant-arg sb!vm:signed-word))
+                        *
+                        :policy (and (> speed compilation-speed)
+                                     (>= speed space)))
+  "convert integer division to multiplication"
+  (let* ((y      (lvar-value y))
+         (x-type (lvar-type x))
+         (max-x  (or (and (numeric-type-p x-type)
+                          (numeric-type-high x-type))
+                     (truncate most-positive-word 2)))
+         (min-x  (or (and (numeric-type-p x-type)
+                          (numeric-type-low x-type))
+                     (- (1+ (truncate most-positive-word 2)))))
+         (magnitude-x (max max-x (- min-x)))
+         (min-result (truncate min-x y))
+         (max-result (truncate max-x y)))
+    ;; Division by zero, one or powers of two is handled elsewhere.
+    (when (zerop (logand y (1- y)))
+      (give-up-ir1-transform))
+    `(let* ((quot ,(if (= min-result max-result)
+                       min-result
+                       `(truly-the (integer ,min-result ,max-result)
+                                   ,(or (%truncate-form 'x y magnitude-x)
+                                        (give-up-ir1-transform)))))
+            (rem (mask-signed-field ,sb!vm:n-word-bits
+                                    (- x (* quot ,y)))))
+       (values quot rem))))
+
+#!+div-by-mul-vops
+(deftransform floor ((x y)
+                     (sb!vm:signed-word (constant-arg sb!vm:signed-word))
+                     *
+                     :policy (and (> speed compilation-speed)
+                                  (>= speed space)))
+  "convert integer division to multiplication"
+  (let* ((y      (lvar-value y))
+         (x-type (lvar-type x))
+         (max-x  (or (and (numeric-type-p x-type)
+                          (numeric-type-high x-type))
+                     (truncate most-positive-word 2)))
+         (min-x  (or (and (numeric-type-p x-type)
+                          (numeric-type-low x-type))
+                     (- (1+ (truncate most-positive-word 2)))))
+         (magnitude-x (max max-x (- min-x)))
+         (min-result (floor min-x y))
+         (max-result (floor max-x y)))
+    ;; Division by zero, one or powers of two is handled elsewhere.
+    (when (zerop (logand y (1- y)))
+      (give-up-ir1-transform))
+    `(let* ((quot ,(if (= min-result max-result)
+                       min-result
+                       `(truly-the (integer ,(floor min-x y) ,(floor max-x y))
+                                   ,(or (%floor-form 'x y magnitude-x)
+                                        (give-up-ir1-transform)))))
+            (rem (mask-signed-field ,sb!vm:n-word-bits
+                                    (- x (* quot ,y)))))
+       (values quot rem))))
+
+;;; Positive-only truncate/floor are easiest. Define these transforms last so
+;;; they fire first.  The trick is that they are equivalent, so we can always
+;;; use TRUNCATE if possible (quicker), and FLOOR otherwise (better than
+;;; the classic TRUNCATE slow-path).
+#!+div-by-mul-vops
+(progn
+  (defun transform-positive-truncate (x y)
+    (let* ((y      (lvar-value y))
+           (x-type (lvar-type x))
+           (max-x  (or (and (numeric-type-p x-type)
+                            (numeric-type-high x-type))
+                       most-positive-word))
+           (max-result (truncate max-x y)))
+      ;; Division by zero, one or powers of two is handled elsewhere.
+      (when (zerop (logand y (1- y)))
+        (give-up-ir1-transform))
+      `(let* ((quot ,(if (zerop max-result)
+                         0
+                         `(truly-the (integer 0 ,max-result)
+                                     ,(or (%truncate-form 'x y max-x)
+                                          (%floor-form 'x y max-x)
+                                          (give-up-ir1-transform)))))
+              (rem (ldb (byte #.sb!vm:n-word-bits 0)
+                        (- x (* quot ,y)))))
+         (values quot rem))))
+
+  (deftransform truncate ((x y) (word (constant-arg word))
+                          *
+                          :policy (and (> speed compilation-speed)
+                                       (>= speed space)))
+    "convert integer division to multiplication"
+    (transform-positive-truncate x y))
+
+  (deftransform truncate ((x y) (word (constant-arg (and sb!vm:signed-word (not word))))
+                          *
+                          :policy (and (> speed compilation-speed)
+                                       (>= speed space)))
+    "Flip sign of word/negative-signed-word truncate"
+    `(- (truncate x ,(- (lvar-value y)))))
+
+  (deftransform floor ((x y) (word (constant-arg word))
+                       *
+                       :policy (and (> speed compilation-speed)
+                                    (>= speed space)))
+    "convert integer division to multiplication"
+    (transform-positive-truncate x y)))

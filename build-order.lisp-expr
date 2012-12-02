@@ -516,9 +516,9 @@
  ("src/compiler/typetran")
  ("src/compiler/generic/vm-typetran")
  ("src/compiler/float-tran")
- ("src/compiler/divtran")
  ("src/compiler/saptran")
  ("src/compiler/srctran")
+ ("src/compiler/divtran") ; after srctran to take precedence
  ("src/compiler/generic/vm-tran")
  ("src/compiler/locall")
  ("src/compiler/dfo")
