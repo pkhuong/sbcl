@@ -228,9 +228,11 @@
                  (return-from truncate-approximation
                    (values multiplier delta-shift))))))
       (probe 0)
-      (probe (- (integer-length (1- divisor))
-                2))
-      (probe (1- (integer-length (1- divisor))))))
+      (let ((len (integer-length (1- divisor))))
+        (when (> len (1+ sb!vm:n-fixnum-tag-bits))
+          (probe (- len 1 sb!vm:n-fixnum-tag-bits)))
+        (when (> len 1)
+          (probe (1- len))))))
 
   (defun %truncate-form (x divisor input-magnitude)
     (multiple-value-bind (multiplier shift)
@@ -288,9 +290,11 @@
                  (return-from floor-approximation
                    (values multiplier increment delta-shift))))))
       (probe 0)
-      (probe (- (integer-length (1- divisor))
-                2))
-      (probe (1- (integer-length (1- divisor))))))
+      (let ((len (integer-length (1- divisor))))
+        (when (> len (1+ sb!vm:n-fixnum-tag-bits))
+          (probe (- len 1 sb!vm:n-fixnum-tag-bits)))
+        (when (> len 1)
+          (probe (1- len))))))
 
   (defun %floor-form (x divisor input-magnitude)
     (multiple-value-bind (multiplier increment shift)
