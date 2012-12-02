@@ -19,8 +19,9 @@
 
    If post-increment-p, result is incremented by one if negative, before tagging
 
-   tmp: only used if increment is large and non-zero, or post-increment-p
-   copy-x: only used for signed multiplication by > signed-word constants"
+   tmp: only used if increment is large and non-zero
+   copy-x: only used for signed multiplication by > signed-word constants
+   If post-increment-p, at least one of the latter two must be provided"
   (declare (type tn result x rax)
            (type boolean signedp post-increment-p)
            (type (or word signed-word) multiplier)
@@ -35,7 +36,7 @@
       (decf shift delta)
       (decf tag delta))
     (when (and (typep (ash multiplier tag) `(signed-byte ,(1+ n-word-bits)))
-               (typep (ash increment tag) `(signed-byte ,(1+ n-word-bits))))
+               (typep (ash increment tag) 'word))
       (setf multiplier (ash multiplier tag)
             increment  (ash increment tag)
             tag        0)))
@@ -56,17 +57,17 @@
            (cond ((zerop increment)
                   (unless (zerop high)
                     (if minusp
-                        (inst sub rax high)
-                        (inst add rax high))))
+                        (inst sub rdx high)
+                        (inst add rdx high))))
                  (t
                   (when minusp
                     (if (tn-p high)
                         (inst neg high)
                         (setf high (- high))))
-                  (inst add rdx (if (typep increment '(signed-byte 32))
+                  (inst add rax (if (typep increment '(signed-byte 32))
                                     increment
                                     tmp))
-                  (inst adc rax high)))))
+                  (inst adc rdx high)))))
     (cond ((not signedp)
            (aver (typep multiplier 'word))
            (move rax x)
@@ -202,7 +203,7 @@
     (with-div-by-mul-constants (tag mul shift increment)
       (emit-mul-shift-add-tag r x rax
                               nil mul shift increment tag nil
-                              rdx nil tmp))))
+                              rdx tmp nil))))
 
 (define-vop (%floor-by-mul/positive-fixnum %floor-by-mul/unsigned)
   (:args (x :scs (any-reg) :target rax))
@@ -215,15 +216,17 @@
               (:constant unsigned-byte))
   (:generator 9
     (with-div-by-mul-constants (tag mul shift increment)
-      (when (= mul increment)
-        (if (location= x rax)
-            (add rax 1)
-            (inst lea rax (make-ea :qword :base x :disp 1)))
-        (setf increment 0
-              x rax))
+      (multiple-value-bind (scale rem) (truncate increment mul)
+        (when (and (zerop rem)
+                   (<= 0 scale fixnum-tag-mask))
+          (if (location= x rax)
+              (add rax scale)
+              (inst lea rax (make-ea :qword :base x :disp scale)))
+          (setf increment 0
+                x rax)))
       (emit-mul-shift-add-tag r x rax
                               nil mul shift increment tag nil
-                              rdx nil tmp))))
+                              rdx tmp nil))))
 
 (define-vop (%floor-by-mul/signed)
   (:translate %floor-by-mul)
@@ -260,12 +263,14 @@
               (:constant unsigned-byte))
   (:generator 10
     (with-div-by-mul-constants (tag mul shift increment)
-      (when (= mul increment)
-        (if (location= x rax)
-            (add rax 1)
-            (inst lea rax (make-ea :qword :base x :disp 1)))
-        (setf increment 0
-              x rax))
+      (multiple-value-bind (scale rem) (truncate increment mul)
+        (when (and (zerop rem)
+                   (<= 0 scale fixnum-tag-mask))
+          (if (location= x rax)
+              (add rax scale)
+              (inst lea rax (make-ea :qword :base x :disp scale)))
+          (setf increment 0
+                x rax)))
       (emit-mul-shift-add-tag r x rax
                               t mul shift increment tag nil
                               rdx tmp tmp2))))
