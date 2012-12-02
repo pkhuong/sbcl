@@ -3226,43 +3226,22 @@
         `(- (ash x ,len))
         `(ash x ,len))))
 
-;;; These must come before the ones below, so that they are tried
-;;; first. Since %FLOOR and %CEILING are inlined, this allows
-;;; the general case to be handled by TRUNCATE transforms.
-(deftransform floor ((x y))
+;;; These must be defined early, so that they are tried first.  Since
+;;; %FLOOR and %CEILING are inlined, this allows the general case to
+;;; be handled by TRUNCATE transforms.
+;;;
+;;; However, some transforms are also type-directed, and we must allow
+;;; constraint propagation to proceed before deciding to convert to
+;;; the general truncate-based routines.
+(deftransform floor ((x y) * * :node node)
+  (delay-ir1-transform node :constraint)
   `(%floor x y))
 
-(deftransform ceiling ((x y))
+(deftransform ceiling ((x y) * * :node node)
+  (delay-ir1-transform node :constraint)
   `(%ceiling x y))
 
-;;; If arg is a constant power of two, turn FLOOR into a shift and
-;;; mask. If CEILING, add in (1- (ABS Y)), do FLOOR and correct a
-;;; remainder.
-(flet ((frob (y ceil-p)
-         (unless (constant-lvar-p y)
-           (give-up-ir1-transform))
-         (let* ((y (lvar-value y))
-                (y-abs (abs y))
-                (len (1- (integer-length y-abs))))
-           (unless (and (> y-abs 0) (= y-abs (ash 1 len)))
-             (give-up-ir1-transform))
-           (let ((shift (- len))
-                 (mask (1- y-abs))
-                 (delta (if ceil-p (* (signum y) (1- y-abs)) 0)))
-             `(let ((x (+ x ,delta)))
-                ,(if (minusp y)
-                     `(values (ash (- x) ,shift)
-                              (- (- (logand (- x) ,mask)) ,delta))
-                     `(values (ash x ,shift)
-                              (- (logand x ,mask) ,delta))))))))
-  (deftransform floor ((x y) (integer integer) *)
-    "convert division by 2^k to shift"
-    (frob y nil))
-  (deftransform ceiling ((x y) (integer integer) *)
-    "convert division by 2^k to shift"
-    (frob y t)))
-
-;;; Do the same for MOD.
+;;; Convert MOD of 2^k into a bitmask
 (deftransform mod ((x y) (integer integer) *)
   "convert remainder mod 2^k to LOGAND"
   (unless (constant-lvar-p y)
@@ -3276,28 +3255,6 @@
       (if (minusp y)
           `(- (logand (- x) ,mask))
           `(logand x ,mask)))))
-
-;;; If arg is a constant power of two, turn TRUNCATE into a shift and mask.
-(deftransform truncate ((x y) (integer integer))
-  "convert division by 2^k to shift"
-  (unless (constant-lvar-p y)
-    (give-up-ir1-transform))
-  (let* ((y (lvar-value y))
-         (y-abs (abs y))
-         (len (1- (integer-length y-abs))))
-    (unless (and (> y-abs 0) (= y-abs (ash 1 len)))
-      (give-up-ir1-transform))
-    (let* ((shift (- len))
-           (mask (1- y-abs)))
-      `(if (minusp x)
-           (values ,(if (minusp y)
-                        `(ash (- x) ,shift)
-                        `(- (ash (- x) ,shift)))
-                   (- (logand (- x) ,mask)))
-           (values ,(if (minusp y)
-                        `(ash (- ,mask x) ,shift)
-                        `(ash x ,shift))
-                   (logand x ,mask))))))
 
 ;;; And the same for REM.
 (deftransform rem ((x y) (integer integer) *)
@@ -3483,23 +3440,6 @@
   (def round)
   (def floor)
   (def ceiling))
-
-(macrolet ((def (name &optional float)
-             (let ((x (if float '(float x) 'x)))
-               `(deftransform ,name ((x y) (integer (constant-arg (member 1 -1)))
-                                     *)
-                  "fold division by 1"
-                  `(values ,(if (minusp (lvar-value y))
-                                '(%negate ,x)
-                                ',x)  0)))))
-  (def truncate)
-  (def round)
-  (def floor)
-  (def ceiling)
-  (def ftruncate t)
-  (def fround t)
-  (def ffloor t)
-  (def fceiling t))
 
 
 ;;;; character operations

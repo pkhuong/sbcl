@@ -318,9 +318,29 @@
   ;; flip sign of word/negative-word truncate
   ;; define it now so it only triggers when the next transform fails.
   (let ((y (- (lvar-value y))))
+    (when (zerop y) (give-up-ir1-transform))
     `(let* ((quot (truncate x ,y))
             (rem (ldb (byte #.sb!vm:n-word-bits 0)
-                      (- x (* quot ,y)))))
+                      (+ x (* quot ,(- y))))))
+       (values (- quot) rem))))
+
+#!+div-by-mul-vops
+(deftransform ceiling ((x y)
+                       (sb!vm:signed-word (constant-arg sb!vm:signed-word))
+                       *
+                       :policy (and (> speed compilation-speed)
+                                    (>= speed space)))
+  "convert integer ceiling into floor"
+  (let ((y (- (lvar-value y))))
+    (when (or (zerop y)
+              (not (typep y 'sb!vm:signed-word)))
+      (give-up-ir1-transform))
+    `(let* ((x (truly-the ,(lvar-type x) x)) ; type propagation is sometimes too slow.
+            (quot (floor x ,y))
+            ;; m-s-f is safe because y is a signed-word, thus so is
+            ;; rem.
+            (rem  (mask-signed-field sb!vm:n-word-bits
+                                     (+ x (* quot ,(- y))))))
        (values (- quot) rem))))
 
 #!+div-by-mul-vops
@@ -329,7 +349,7 @@
                         *
                         :policy (and (> speed compilation-speed)
                                      (>= speed space)))
-  "convert integer division to multiplication"
+  "convert signed integer truncate to multiplication"
   (let* ((y      (lvar-value y))
          (x-type (lvar-type x))
          (max-x  (or (and (numeric-type-p x-type)
@@ -361,7 +381,7 @@
                      *
                      :policy (and (> speed compilation-speed)
                                   (>= speed space)))
-  "convert integer division to multiplication"
+  "convert signed integer floor to multiplication"
   (let* ((y      (lvar-value y))
          (x-type (lvar-type x))
          (max-x  (or (and (numeric-type-p x-type)
@@ -417,12 +437,80 @@
                           *
                           :policy (and (> speed compilation-speed)
                                        (>= speed space)))
-    "convert integer division to multiplication"
+    "convert unsigned truncate to multiplication"
     (transform-positive-truncate x y))
 
   (deftransform floor ((x y) (word (constant-arg word))
                        *
                        :policy (and (> speed compilation-speed)
                                     (>= speed space)))
-    "convert integer division to multiplication"
+    "convert unsigned floor to multiplication"
     (transform-positive-truncate x y)))
+
+;;;; 2^k cases are defined last to mke them trigger first
+
+;;; If arg is a constant power of two, turn FLOOR into a shift and
+;;; mask. If CEILING, add in (1- (ABS Y)), do FLOOR and correct a
+;;; remainder.
+(flet ((frob (y ceil-p)
+         (unless (constant-lvar-p y)
+           (give-up-ir1-transform))
+         (let* ((y (lvar-value y))
+                (y-abs (abs y))
+                (len (1- (integer-length y-abs))))
+           (unless (and (> y-abs 0) (= y-abs (ash 1 len)))
+             (give-up-ir1-transform))
+           (let ((shift (- len))
+                 (mask (1- y-abs))
+                 (delta (if ceil-p (* (signum y) (1- y-abs)) 0)))
+             `(let ((x (+ x ,delta)))
+                ,(if (minusp y)
+                     `(values (ash (- x) ,shift)
+                              (- (- (logand (- x) ,mask)) ,delta))
+                     `(values (ash x ,shift)
+                              (- (logand x ,mask) ,delta))))))))
+  (deftransform floor ((x y) (integer integer) *)
+    "convert division by 2^k to shift"
+    (frob y nil))
+  (deftransform ceiling ((x y) (integer integer) *)
+    "convert division by 2^k to shift"
+    (frob y t)))
+
+;;; If arg is a constant power of two, turn TRUNCATE into a shift and mask.
+(deftransform truncate ((x y) (integer integer))
+  "convert division by 2^k to shift"
+  (unless (constant-lvar-p y)
+    (give-up-ir1-transform))
+  (let* ((y (lvar-value y))
+         (y-abs (abs y))
+         (len (1- (integer-length y-abs))))
+    (unless (and (> y-abs 0) (= y-abs (ash 1 len)))
+      (give-up-ir1-transform))
+    (let* ((shift (- len))
+           (mask (1- y-abs)))
+      `(if (minusp x)
+           (values ,(if (minusp y)
+                        `(ash (- x) ,shift)
+                        `(- (ash (- x) ,shift)))
+                   (- (logand (- x) ,mask)))
+           (values ,(if (minusp y)
+                        `(ash (- ,mask x) ,shift)
+                        `(ash x ,shift))
+                   (logand x ,mask))))))
+
+(macrolet ((def (name &optional float)
+             (let ((x (if float '(float x) 'x)))
+               `(deftransform ,name ((x y) (integer (constant-arg (member 1 -1)))
+                                     *)
+                  "fold division by 1"
+                  `(values ,(if (minusp (lvar-value y))
+                                '(%negate ,x)
+                                ',x)  0)))))
+  (def truncate)
+  (def round)
+  (def floor)
+  (def ceiling)
+  (def ftruncate t)
+  (def fround t)
+  (def ffloor t)
+  (def fceiling t))
