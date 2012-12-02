@@ -45,6 +45,10 @@
                  ((= multiplier increment)
                   (aver (tn-p tmp))
                   (inst mov tmp rdx))
+                 ((= multiplier (- increment))
+                  (aver (tn-p tmp))
+                  (inst mov tmp rdx)
+                  (inst neg tmp))
                  (t
                   (aver (tn-p tmp))
                   (inst mov tmp increment))))
@@ -60,8 +64,8 @@
                         (inst neg high)
                         (setf high (- high))))
                   (inst add rdx (if (typep increment '(signed-byte 32))
-                                       increment
-                                       tmp))
+                                    increment
+                                    tmp))
                   (inst adc rax high)))))
     (cond ((not signedp)
            (aver (typep multiplier 'word))
