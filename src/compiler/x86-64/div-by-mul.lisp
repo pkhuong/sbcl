@@ -11,6 +11,9 @@
 
 (in-package "SB!VM")
 
+(deftype extended-signed-word ()
+  '(integer #.(- (* 3/2 (ash 1 n-word-bits))) #.(1- (* 3/2 (ash 1 n-word-bits)))))
+
 (defun emit-mul-shift-add-tag (result x rax signedp
                                multiplier shift increment tag post-increment-p
                                rdx tmp copy-x
@@ -24,7 +27,7 @@
    If post-increment-p, at least one of the latter two must be provided"
   (declare (type tn result x rax)
            (type boolean signedp post-increment-p)
-           (type (or word signed-word) multiplier)
+           (type extended-signed-word multiplier)
            (type word increment)
            (type (mod #.n-word-bits) shift tag)
            (type tn rdx)
@@ -35,7 +38,7 @@
     (let ((delta (min shift tag)))
       (decf shift delta)
       (decf tag delta))
-    (when (and (typep (ash multiplier tag) `(signed-byte ,(1+ n-word-bits)))
+    (when (and (typep (ash multiplier tag) 'extended-signed-word)
                (typep (ash increment tag) 'word))
       (setf multiplier (ash multiplier tag)
             increment  (ash increment tag)
@@ -55,7 +58,7 @@
                   (inst mov tmp increment))))
          (increment (&optional (high 0) minusp)
            (cond ((zerop increment)
-                  (unless (zerop high)
+                  (unless (eql high 0)
                     (if minusp
                         (inst sub rdx high)
                         (inst add rdx high))))
@@ -233,12 +236,12 @@
   (:policy :fast-safe)
   (:args (x :scs (signed-reg) :target rax))
   (:arg-types signed-num
-              (:constant unsigned-byte)
-              (:constant unsigned-byte)
-              (:constant unsigned-byte)
-              (:constant (or null unsigned-byte))
-              (:constant (or null unsigned-byte))
-              (:constant (or null unsigned-byte)))
+              (:constant integer)
+              (:constant integer)
+              (:constant integer)
+              (:constant t)
+              (:constant t)
+              (:constant t))
   (:results (r :scs (signed-reg any-reg)))
   (:result-types (:or signed-num tagged-num))
   (:info a b shift tagged-a tagged-b tagged-shift)
@@ -258,9 +261,9 @@
               (:constant t)
               (:constant t)
               (:constant t)
-              (:constant unsigned-byte)
-              (:constant unsigned-byte)
-              (:constant unsigned-byte))
+              (:constant integer)
+              (:constant integer)
+              (:constant integer))
   (:generator 10
     (with-div-by-mul-constants (tag mul shift increment)
       (multiple-value-bind (scale rem) (truncate increment mul)
