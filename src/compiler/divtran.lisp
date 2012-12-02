@@ -311,6 +311,19 @@
 
 ;;; Call these generators
 #!+div-by-mul-vops
+(deftransform truncate ((x y) (word (constant-arg (and sb!vm:signed-word (not word))))
+                        *
+                        :policy (and (> speed compilation-speed)
+                                     (>= speed space)))
+  ;; flip sign of word/negative-word truncate
+  ;; define it now so it only triggers when the next transform fails.
+  (let ((y (- (lvar-value y))))
+    `(let* ((quot (truncate x ,y))
+            (rem (ldb (byte #.sb!vm:n-word-bits 0)
+                      (- x (* quot ,y)))))
+       (values (- quot) rem))))
+
+#!+div-by-mul-vops
 (deftransform truncate ((x y)
                         (sb!vm:signed-word (constant-arg sb!vm:signed-word))
                         *
@@ -370,8 +383,8 @@
                        `(truly-the (integer ,min-result ,max-result)
                                    ,(or (%floor-form 'x y magnitude-x)
                                         (give-up-ir1-transform)))))
-            (rem (mask-signed-field ,sb!vm:n-word-bits
-                                    (- x (* quot ,y)))))
+            (rem (ldb (byte ,sb!vm:n-word-bits 0)
+                      (- x (* quot ,y)))))
        (values quot rem))))
 
 ;;; Positive-only truncate/floor are easiest. Define these transforms last so
@@ -406,17 +419,6 @@
                                        (>= speed space)))
     "convert integer division to multiplication"
     (transform-positive-truncate x y))
-
-  (deftransform truncate ((x y) (word (constant-arg (and sb!vm:signed-word (not word))))
-                          *
-                          :policy (and (> speed compilation-speed)
-                                       (>= speed space)))
-    ;; flip sign of word/negative-word truncate to allow previous to trigger
-    (let ((y (- (lvar-value y))))
-      `(let* ((quot (truncate x ,y))
-              (rem (ldb (byte #.sb!vm:n-word-bits 0)
-                        (- x (* quot ,y)))))
-         (values (- quot) rem))))
 
   (deftransform floor ((x y) (word (constant-arg word))
                        *
