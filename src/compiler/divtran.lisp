@@ -236,13 +236,14 @@
           (probe (- len 1 sb!vm:n-fixnum-tag-bits))
           (probe (1- len))))))
 
-  (defun %truncate-form (x divisor input-magnitude)
+  (defun %truncate-form (x divisor input-magnitude &optional (lower-zero-bits 0))
+    (aver (zerop (ldb (byte lower-zero-bits 0) divisor)))
     (multiple-value-bind (multiplier shift)
-        (truncate-approximation divisor input-magnitude 0)
+        (truncate-approximation divisor input-magnitude lower-zero-bits)
       (multiple-value-bind (tagged-multiplier tagged-shift)
           (truncate-approximation (ash divisor sb!vm:n-fixnum-tag-bits)
                                   (ash input-magnitude sb!vm:n-fixnum-tag-bits)
-                                  sb!vm:n-fixnum-tag-bits)
+                                  (+ sb!vm:n-fixnum-tag-bits lower-zero-bits))
         (and multiplier shift
              `(%truncate-by-mul ,x
                                 ,multiplier ,shift
@@ -416,6 +417,10 @@
 ;;; the classic TRUNCATE slow-path).
 #!+div-by-mul-vops
 (progn
+  (defun count-trailing-zeros (x)
+    (declare (type (integer 1) x))
+    (1- (integer-length (logxor x (1- x)))))
+  
   (defun transform-positive-truncate (x y)
     (let* ((y      (lvar-value y))
            (x-type (lvar-type x))
@@ -430,6 +435,11 @@
                          0
                          `(truly-the (integer 0 ,max-result)
                                      ,(or (%truncate-form 'x y max-x)
+                                          (let* ((power-of-two (count-trailing-zeros y))
+                                                 (mask         (lognot (ldb (byte power-of-two 0) -1))))
+                                            (and (plusp power-of-two)
+                                                 (%truncate-form `(logand x ,mask) y (logand max-x mask)
+                                                                 power-of-two)))
                                           (%floor-form 'x y max-x)
                                           (give-up-ir1-transform)))))
               (rem (ldb (byte #.sb!vm:n-word-bits 0)
@@ -450,7 +460,7 @@
     "convert unsigned floor to multiplication"
     (transform-positive-truncate x y)))
 
-;;;; 2^k cases are defined last to mke them trigger first
+;;;; 2^k cases are defined last so they trigger first
 
 ;;; If arg is a constant power of two, turn FLOOR into a shift and
 ;;; mask. If CEILING, add in (1- (ABS Y)), do FLOOR and correct a
