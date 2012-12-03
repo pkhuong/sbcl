@@ -420,7 +420,7 @@
   (defun count-trailing-zeros (x)
     (declare (type (integer 1) x))
     (1- (integer-length (logxor x (1- x)))))
-  
+
   (defun transform-positive-truncate (x y)
     (let* ((y      (lvar-value y))
            (x-type (lvar-type x))
@@ -433,22 +433,23 @@
         (give-up-ir1-transform))
       `(let* ((quot ,(if (zerop max-result)
                          0
-                         `(truly-the (integer 0 ,max-result)
-                                     ,(or (%truncate-form 'x y max-x)
-                                          ;; This part is tricky. Basically, when
-                                          ;; the divisor is a multiple of two, we
-                                          ;; can clear out the corresponding
-                                          ;; low-order bits without affecting the
-                                          ;; truncated division; constants are then
-                                          ;; easier to find, due to the known common
-                                          ;; divisor.
-                                          (let* ((power-of-two (count-trailing-zeros y))
-                                                 (mask         (lognot (ldb (byte power-of-two 0) -1))))
-                                            (and (plusp power-of-two)
-                                                 (%truncate-form `(logand x ,mask) y (logand max-x mask)
-                                                                 power-of-two)))
-                                          (%floor-form 'x y max-x)
-                                          (give-up-ir1-transform)))))
+                         `(truly-the
+                           (integer 0 ,max-result)
+                           ,(or (%truncate-form 'x y max-x)
+                                ;; This part is tricky. Basically, when
+                                ;; the divisor is a multiple of two, we
+                                ;; can clear out the corresponding
+                                ;; low-order bits without affecting the
+                                ;; truncated division; constants are then
+                                ;; easier to find, due to the known common
+                                ;; divisor.
+                                (let* ((zeros (count-trailing-zeros y))
+                                       (mask  (lognot (ldb (byte zeros 0) -1))))
+                                  (and (plusp zeros)
+                                       (%truncate-form `(logand x ,mask) y (logand max-x mask)
+                                                       zeros)))
+                                (%floor-form 'x y max-x)
+                                (give-up-ir1-transform)))))
               (rem (ldb (byte #.sb!vm:n-word-bits 0)
                         (- x (* quot ,y)))))
          (values quot rem))))
