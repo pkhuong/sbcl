@@ -435,6 +435,13 @@
                          0
                          `(truly-the (integer 0 ,max-result)
                                      ,(or (%truncate-form 'x y max-x)
+                                          ;; This part is tricky. Basically, when
+                                          ;; the divisor is a multiple of two, we
+                                          ;; can clear out the corresponding
+                                          ;; low-order bits without affecting the
+                                          ;; truncated division; constants are then
+                                          ;; easier to find, due to the known common
+                                          ;; divisor.
                                           (let* ((power-of-two (count-trailing-zeros y))
                                                  (mask         (lognot (ldb (byte power-of-two 0) -1))))
                                             (and (plusp power-of-two)
