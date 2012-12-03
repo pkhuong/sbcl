@@ -304,8 +304,9 @@
 #!+div-by-mul-vops
 (defknown %truncate-by-mul
     ((or word sb!vm:signed-word)
-     (signed-byte #.(1+ sb!vm:n-word-bits)) (mod #.sb!vm:n-word-bits)
-     (or null (signed-byte #.(1+ sb!vm:n-word-bits))) (or null (mod #.sb!vm:n-word-bits)))
+     (integer #.(- most-positive-word) #.most-positive-word) (mod #.sb!vm:n-word-bits)
+     (or null (integer #.(- most-positive-word) #.most-positive-word))
+     (or null (mod #.sb!vm:n-word-bits)))
     (or word sb!vm:signed-word)
     (foldable flushable always-translatable))
 
@@ -316,8 +317,8 @@
 #!+div-by-mul-vops
 (defknown %floor-by-mul
     ((or word sb!vm:signed-word)
-     (signed-byte #.(1+ sb!vm:n-word-bits)) word (mod #.sb!vm:n-word-bits)
-     (or null (signed-byte #.(1+ sb!vm:n-word-bits))) (or null word)
+     (integer #.(- most-positive-word) #.most-positive-word) word (mod #.sb!vm:n-word-bits)
+     (or null (integer #.(- most-positive-word) #.most-positive-word)) (or null word)
      (or null (mod #.sb!vm:n-word-bits)))
     (or word sb!vm:signed-word)
     (foldable flushable always-translatable))

@@ -44,6 +44,9 @@
             increment  (ash increment tag)
             tag        0)))
   (flet ((load-values (&optional (multiplier multiplier))
+           (if signedp
+               (aver (typep multiplier 'signed-word))
+               (aver (typep multiplier 'word)))
            (when (and (= multiplier increment)
                       (not (typep increment '(signed-byte 32))))
              (aver (tn-p tmp))
@@ -108,6 +111,7 @@
              (increment copy t))))
     (let ((bit (or tmp copy-x)))
       (when post-increment-p
+        (aver bit)
         (inst mov bit rdx)
         (inst shr bit (1- n-word-bits)))
       (when (plusp shift)
@@ -117,6 +121,9 @@
       (when post-increment-p
         (cond ((location= rdx result)
                (inst add rdx bit))
+              ((location= bit result)
+               (inst add bit rdx)
+               (setf rdx result))
               (t
                (inst lea result (make-ea :qword :base rdx :index bit))
                (setf rdx result)))))

@@ -262,23 +262,25 @@
            (approximation (/ multiplier (ash 1 shift))))
       (aver (<= approximation reciprocal))
       (aver (= (signum divisor) (signum multiplier)))
-      (let ((error (* (abs (- approximation reciprocal)) input-magnitude))
-            (max-error (abs reciprocal)))
+      (let* ((error (* (abs (- approximation reciprocal)) input-magnitude))
+             (max-error (abs reciprocal))
+             (tag-scale (ash 1 tag-bits))
+             (max-scale (min (floor most-positive-word (abs multiplier))
+                             tag-scale)))
+        (aver (plusp max-scale))
         (cond ((and (plusp tag-bits)
-                    (< error (* max-error (1- (ash 1 tag-bits)))))
-               :quick)
-              ((< error (* max-error (ash 1 tag-bits)))
-               :slow)))))
+                    (= max-scale tag-scale)
+                    (< error (* max-error (1- tag-scale))))
+               (1- tag-scale))
+              ((< error (* max-error max-scale))
+               max-scale)))))
 
   (defun maybe-floor-approximation (divisor shift input-magnitude tag-bits)
     (let* ((multiplier (floor (ash 1 shift) divisor))
-           (ok (floor-approximation-ok-p divisor
-                                         multiplier shift
-                                         input-magnitude tag-bits)))
-      (and ok (values multiplier (ecase ok
-                                   (:quick (* (abs multiplier)
-                                              (1- (ash 1 tag-bits))))
-                                   (:slow (ash (abs multiplier) tag-bits)))))))
+           (scale (floor-approximation-ok-p divisor
+                                            multiplier shift
+                                            input-magnitude tag-bits)))
+      (and scale (values multiplier (* scale (abs multiplier))))))
 
   (defun floor-approximation (divisor input-magnitude tag-bits)
     (let ((max-delta -1))
