@@ -316,7 +316,9 @@
 
 ;;; Call these generators
 #!+div-by-mul-vops
-(deftransform truncate ((x y) (word (constant-arg (and sb!vm:signed-word (not word))))
+(deftransform truncate ((x y) (word
+                               (constant-arg (and sb!vm:signed-word
+                                                  (integer * -2))))
                         *
                         :policy (and (> speed compilation-speed)
                                      (>= speed space)))
@@ -349,7 +351,9 @@
 
 #!+div-by-mul-vops
 (deftransform truncate ((x y)
-                        (sb!vm:signed-word (constant-arg sb!vm:signed-word))
+                        (sb!vm:signed-word
+                         (constant-arg (and sb!vm:signed-word
+                                            (not (eql 0)))))
                         *
                         :policy (and (> speed compilation-speed)
                                      (>= speed space)))
@@ -381,7 +385,9 @@
 
 #!+div-by-mul-vops
 (deftransform floor ((x y)
-                     (sb!vm:signed-word (constant-arg sb!vm:signed-word))
+                     (sb!vm:signed-word
+                      (constant-arg (and sb!vm:signed-word
+                                         (not (eql 0)))))
                      *
                      :policy (and (> speed compilation-speed)
                                   (>= speed space)))
@@ -427,14 +433,18 @@
            (max-x  (or (and (numeric-type-p x-type)
                             (numeric-type-high x-type))
                        most-positive-word))
-           (max-result (truncate max-x y)))
+           (min-x  (or (and (numeric-type-p x-type)
+                            (numeric-type-low x-type))
+                       0))
+           (max-result (truncate max-x y))
+           (min-result (truncate min-x y)))
       ;; Division by zero, one or powers of two is handled elsewhere.
       (when (zerop (logand y (1- y)))
         (give-up-ir1-transform))
-      `(let* ((quot ,(if (zerop max-result)
-                         0
+      `(let* ((quot ,(if (= min-result max-result)
+                         min-result
                          `(truly-the
-                           (integer 0 ,max-result)
+                           (integer ,min-result ,max-result)
                            ,(or (%truncate-form 'x y max-x)
                                 ;; This part is tricky. Basically, when
                                 ;; the divisor is a multiple of two, we
@@ -454,14 +464,14 @@
                         (- x (* quot ,y)))))
          (values quot rem))))
 
-  (deftransform truncate ((x y) (word (constant-arg word))
+  (deftransform truncate ((x y) (word (constant-arg (and word (integer 1))))
                           *
                           :policy (and (> speed compilation-speed)
                                        (>= speed space)))
     "convert unsigned truncate to multiplication"
     (transform-positive-truncate x y))
 
-  (deftransform floor ((x y) (word (constant-arg word))
+  (deftransform floor ((x y) (word (constant-arg (and word (integer 1))))
                        *
                        :policy (and (> speed compilation-speed)
                                     (>= speed space)))
