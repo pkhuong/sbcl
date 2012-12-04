@@ -385,8 +385,8 @@
                        `(truly-the (integer ,min-result ,max-result)
                                    ,(or (%truncate-form 'x y magnitude-x)
                                         (give-up-ir1-transform)))))
-            (rem (mask-signed-field ,sb!vm:n-word-bits
-                                    (- x (* quot ,y)))))
+            (rem (truly-the sb!vm:signed-word
+                            (- x (* quot ,y)))))
        (values quot rem))))
 
 #!+div-by-mul-vops
