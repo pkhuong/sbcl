@@ -306,7 +306,7 @@
     ((or word sb!vm:signed-word)
      (integer #.(- most-positive-word) #.most-positive-word) (mod #.sb!vm:n-word-bits)
      (or null (integer #.(- most-positive-word) #.most-positive-word))
-     (or null (mod #.sb!vm:n-word-bits)))
+     (or null (integer 0 #.sb!vm:n-word-bits)))
     (or word sb!vm:signed-word)
     (foldable flushable always-translatable))
 
@@ -319,7 +319,7 @@
     ((or word sb!vm:signed-word)
      (integer #.(- most-positive-word) #.most-positive-word) word (mod #.sb!vm:n-word-bits)
      (or null (integer #.(- most-positive-word) #.most-positive-word)) (or null word)
-     (or null (mod #.sb!vm:n-word-bits)))
+     (or null (integer 0 #.sb!vm:n-word-bits)))
     (or word sb!vm:signed-word)
     (foldable flushable always-translatable))
 

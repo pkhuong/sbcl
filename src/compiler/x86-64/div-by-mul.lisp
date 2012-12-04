@@ -157,9 +157,11 @@
   (:temporary (:sc unsigned-reg :offset rdx-offset :to (:result 0) :target r) rdx)
   (:generator 10
     (with-div-by-mul-constants (tag mul shift)
-      (emit-mul-shift-add-tag r x rax nil
-                              mul shift 0 tag t
-                              rdx nil nil))))
+      (if (= shift n-word-bits)
+          (zeroize r)
+          (emit-mul-shift-add-tag r x rax nil
+                                  mul shift 0 tag t
+                                  rdx nil nil)))))
 
 (define-vop (%truncate-by-mul/positive-fixnum %truncate-by-mul/unsigned)
   (:args (x :scs (any-reg) :target rax))
@@ -219,9 +221,11 @@
   (:temporary (:sc unsigned-reg) tmp)
   (:generator 10
     (with-div-by-mul-constants (tag mul shift increment)
-      (emit-mul-shift-add-tag r x rax
-                              nil mul shift increment tag nil
-                              rdx tmp nil))))
+      (if (= shift n-word-bits)
+          (zeroize r)
+          (emit-mul-shift-add-tag r x rax
+                                  nil mul shift increment tag nil
+                                  rdx tmp nil)))))
 
 (define-vop (%floor-by-mul/positive-fixnum %floor-by-mul/unsigned)
   (:args (x :scs (any-reg) :target rax))
@@ -234,17 +238,20 @@
               (:constant unsigned-byte))
   (:generator 9
     (with-div-by-mul-constants (tag mul shift increment)
-      (multiple-value-bind (scale rem) (truncate increment mul)
-        (when (and (zerop rem)
-                   (<= 0 scale fixnum-tag-mask))
-          (if (location= x rax)
-              (add rax scale)
-              (inst lea rax (make-ea :qword :base x :disp scale)))
-          (setf increment 0
-                x rax)))
-      (emit-mul-shift-add-tag r x rax
-                              nil mul shift increment tag nil
-                              rdx tmp nil))))
+      (cond ((= shift n-word-bits)
+             (zeroize r))
+            (t
+             (multiple-value-bind (scale rem) (truncate increment mul)
+               (when (and (zerop rem)
+                          (<= 0 scale fixnum-tag-mask))
+                 (if (location= x rax)
+                     (add rax scale)
+                     (inst lea rax (make-ea :qword :base x :disp scale)))
+                 (setf increment 0
+                       x rax)))
+             (emit-mul-shift-add-tag r x rax
+                                     nil mul shift increment tag nil
+                                     rdx tmp nil))))))
 
 (define-vop (%floor-by-mul/signed)
   (:translate %floor-by-mul)

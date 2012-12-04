@@ -204,7 +204,7 @@
     (let* ((reciprocal (/ divisor))
            (approximation (/ multiplier (ash 1 shift))))
       (aver (>= (abs approximation) (abs reciprocal)))
-      (aver (= (signum divisor) (signum multiplier)))
+      (aver (>= (* (signum divisor) (signum multiplier)) 0))
       (let ((error (abs (- approximation reciprocal))))
         (< (* error input-magnitude) (* (abs reciprocal) (ash 1 tag-bits))))))
 
@@ -255,34 +255,38 @@
   (defun floor-approximation-ok-p (divisor
                                    multiplier shift
                                    input-magnitude
-                                   tag-bits)
+                                   tag-bits
+                                   signedp)
     (declare (type integer divisor multiplier)
              (type unsigned-byte shift input-magnitude tag-bits))
     (let* ((reciprocal (/ divisor))
            (approximation (/ multiplier (ash 1 shift))))
       (aver (<= approximation reciprocal))
-      (aver (= (signum divisor) (signum multiplier)))
+      (aver (>= (* (signum divisor) (signum multiplier)) 0))
       (let* ((error (* (abs (- approximation reciprocal)) input-magnitude))
              (max-error (abs reciprocal))
              (tag-scale (ash 1 tag-bits))
              (max-scale (min (floor most-positive-word (abs multiplier))
-                             tag-scale)))
+                             tag-scale))
+             (offset    (if signedp 1 0)))
         (aver (plusp max-scale))
         (cond ((and (plusp tag-bits)
                     (= max-scale tag-scale)
-                    (< error (* max-error (1- tag-scale))))
+                    (< error (- (* max-error (1- tag-scale)) offset)))
                (1- tag-scale))
-              ((< error (* max-error max-scale))
+              ((< error (- (* max-error max-scale) offset))
                max-scale)))))
 
-  (defun maybe-floor-approximation (divisor shift input-magnitude tag-bits)
+  (defun maybe-floor-approximation (divisor shift input-magnitude tag-bits signedp)
     (let* ((multiplier (floor (ash 1 shift) divisor))
            (scale (floor-approximation-ok-p divisor
                                             multiplier shift
-                                            input-magnitude tag-bits)))
-      (and scale (values multiplier (* scale (abs multiplier))))))
+                                            input-magnitude tag-bits
+                                            signedp)))
+      (and scale (values multiplier (- (* scale (abs multiplier))
+                                       (if signedp 1 0))))))
 
-  (defun floor-approximation (divisor input-magnitude tag-bits)
+  (defun floor-approximation (divisor input-magnitude tag-bits signedp)
     (let ((max-delta -1))
       (flet ((probe (delta-shift)
                (when (<= delta-shift max-delta)
@@ -291,7 +295,8 @@
                (multiple-value-bind (multiplier increment)
                    (maybe-floor-approximation divisor (+ sb!vm:n-word-bits
                                                          delta-shift)
-                                              input-magnitude tag-bits)
+                                              input-magnitude tag-bits
+                                              signedp)
                  (when multiplier
                    (aver (typep multiplier '(integer #.(- (* 3/2 (ash 1 sb!vm:n-word-bits)))
                                              #.(1- (* 3/2 (ash 1 sb!vm:n-word-bits))))))
@@ -303,13 +308,13 @@
           (probe (- len 1 sb!vm:n-fixnum-tag-bits))
           (probe (1- len))))))
 
-  (defun %floor-form (x divisor input-magnitude)
+  (defun %floor-form (x divisor input-magnitude signedp)
     (multiple-value-bind (multiplier increment shift)
-        (floor-approximation divisor input-magnitude 0)
+        (floor-approximation divisor input-magnitude 0 signedp)
       (multiple-value-bind (tagged-multiplier tagged-increment tagged-shift)
           (floor-approximation (ash divisor sb!vm:n-fixnum-tag-bits)
                                (ash input-magnitude sb!vm:n-fixnum-tag-bits)
-                               sb!vm:n-fixnum-tag-bits)
+                               sb!vm:n-fixnum-tag-bits signedp)
         (and multiplier shift increment
              `(%floor-by-mul
                ,x
@@ -345,10 +350,9 @@
               (not (typep y 'sb!vm:signed-word)))
       (give-up-ir1-transform))
     `(let* ((quot (floor x ,y))
-            ;; m-s-f is safe because y is a signed-word, thus so is
-            ;; rem.
-            (rem  (mask-signed-field sb!vm:n-word-bits
-                                     (+ x (* quot ,(- y))))))
+            ;; signed modular arithmetic might be borked...
+            (rem  (truly-the sb!vm:signed-word
+                             (+ x (* quot ,(- y))))))
        (values (- quot) rem))))
 
 #!+div-by-mul-vops
@@ -413,7 +417,7 @@
     `(let* ((quot ,(if (= min-result max-result)
                        min-result
                        `(truly-the (integer ,min-result ,max-result)
-                                   ,(or (%floor-form 'x y magnitude-x)
+                                   ,(or (%floor-form 'x y magnitude-x t)
                                         (give-up-ir1-transform)))))
             (rem (ldb (byte ,sb!vm:n-word-bits 0)
                       (- x (* quot ,y)))))
@@ -460,7 +464,7 @@
                                   (and (plusp zeros)
                                        (%truncate-form `(logand x ,mask) y (logand max-x mask)
                                                        zeros)))
-                                (%floor-form 'x y max-x)
+                                (%floor-form 'x y max-x nil)
                                 (give-up-ir1-transform)))))
               (rem (ldb (byte #.sb!vm:n-word-bits 0)
                         (- x (* quot ,y)))))
