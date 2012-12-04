@@ -350,9 +350,9 @@
               (not (typep y 'sb!vm:signed-word)))
       (give-up-ir1-transform))
     `(let* ((quot (floor x ,y))
-            ;; signed modular arithmetic might be borked...
-            (rem  (truly-the sb!vm:signed-word
-                             (+ x (* quot ,(- y))))))
+            ;; safe, because y is a signed-word.
+            (rem  (mask-signed-field sb!vm:n-word-bits
+                                     (+ x (* quot ,(- y))))))
        (values (- quot) rem))))
 
 #!+div-by-mul-vops
@@ -385,8 +385,8 @@
                        `(truly-the (integer ,min-result ,max-result)
                                    ,(or (%truncate-form 'x y magnitude-x)
                                         (give-up-ir1-transform)))))
-            (rem (truly-the sb!vm:signed-word
-                            (- x (* quot ,y)))))
+            (rem (mask-signed-field sb!vm:n-word-bits
+                                    (- x (* quot ,y)))))
        (values quot rem))))
 
 #!+div-by-mul-vops
