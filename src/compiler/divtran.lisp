@@ -264,27 +264,26 @@
       (aver (<= approximation reciprocal))
       (aver (>= (* (signum divisor) (signum multiplier)) 0))
       (let* ((error (* (abs (- approximation reciprocal)) input-magnitude))
-             (max-error (abs reciprocal))
              (tag-scale (ash 1 tag-bits))
              (max-scale (min (floor most-positive-word (abs multiplier))
                              tag-scale))
-             (offset    (if signedp 1 0)))
+             (offset    (if (and signedp (= tag-scale max-scale)) 1 0)))
         (aver (plusp max-scale))
         (cond ((and (plusp tag-bits)
                     (= max-scale tag-scale)
-                    (< error (- (* max-error (1- tag-scale)) offset)))
-               (1- tag-scale))
-              ((< error (- (* max-error max-scale) offset))
-               max-scale)))))
+                    (< error (* (1- tag-scale) (abs approximation))))
+               (* (1- tag-scale) (abs multiplier)))
+              ((< error (/ (- (abs (* max-scale multiplier)) offset)
+                           (ash 1 shift)))
+               (- (abs (* max-scale multiplier)) offset))))))
 
   (defun maybe-floor-approximation (divisor shift input-magnitude tag-bits signedp)
     (let* ((multiplier (floor (ash 1 shift) divisor))
-           (scale (floor-approximation-ok-p divisor
-                                            multiplier shift
-                                            input-magnitude tag-bits
-                                            signedp)))
-      (and scale (values multiplier (- (* scale (abs multiplier))
-                                       (if signedp 1 0))))))
+           (offset (floor-approximation-ok-p divisor
+                                             multiplier shift
+                                             input-magnitude tag-bits
+                                             signedp)))
+      (and offset (values multiplier (max offset 0)))))
 
   (defun floor-approximation (divisor input-magnitude tag-bits signedp)
     (let ((max-delta -1))
