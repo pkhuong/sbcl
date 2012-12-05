@@ -283,7 +283,7 @@
                                              multiplier shift
                                              input-magnitude tag-bits
                                              signedp)))
-      (and offset (values multiplier (max offset 0)))))
+      (and offset (values multiplier offset))))
 
   (defun floor-approximation (divisor input-magnitude tag-bits signedp)
     (let ((max-delta -1))
