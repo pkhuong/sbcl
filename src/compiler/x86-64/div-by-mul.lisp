@@ -38,7 +38,10 @@
     (let ((delta (min shift tag)))
       (decf shift delta)
       (decf tag delta))
-    (when (and (typep (ash multiplier tag) 'extended-signed-word)
+    (when (and (let ((new-multiplier (ash multiplier tag)))
+                 (if signedp
+                     (typep new-multiplier 'extended-signed-word)
+                     (typep new-multiplier 'word)))
                (typep (ash increment tag) 'word))
       (setf multiplier (ash multiplier tag)
             increment  (ash increment tag)
