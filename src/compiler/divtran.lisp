@@ -264,9 +264,11 @@
       (aver (<= approximation reciprocal))
       (aver (>= (* (signum divisor) (signum multiplier)) 0))
       (let* ((error (* (abs (- approximation reciprocal)) input-magnitude))
+             (amultiplier (abs multiplier))
              (tag-scale (ash 1 tag-bits))
-             (max-scale (floor most-positive-word (abs multiplier)))
-             (amultiplier (abs multiplier)))
+             (max-scale (if (zerop multiplier)
+                            tag-scale
+                            (floor most-positive-word amultiplier))))
         (aver (plusp max-scale))
         (flet ((probe (increment)
                  (when (< error (/ increment (ash 1 shift)))
