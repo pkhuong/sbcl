@@ -38,14 +38,15 @@
     (let ((delta (min shift tag)))
       (decf shift delta)
       (decf tag delta))
-    (when (and (let ((new-multiplier (ash multiplier tag)))
+    (let ((tagged-multiplier (ash multiplier tag))
+          (tagged-increment (ash increment tag)))
+      (when (and (typep tagged-increment 'word)
                  (if signedp
-                     (typep new-multiplier 'extended-signed-word)
-                     (typep new-multiplier 'word)))
-               (typep (ash increment tag) 'word))
-      (setf multiplier (ash multiplier tag)
-            increment  (ash increment tag)
-            tag        0)))
+                     (typep tagged-multiplier 'extended-signed-word)
+                     (typep tagged-multiplier 'word)))
+        (setf multiplier tagged-multiplier
+              increment  tagged-increment
+              tag        0))))
   (flet ((load-values (&optional (multiplier multiplier))
            (if signedp
                (aver (typep multiplier 'signed-word))
