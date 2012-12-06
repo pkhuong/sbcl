@@ -261,7 +261,7 @@
              (type unsigned-byte shift input-magnitude tag-bits))
     (let* ((reciprocal (/ divisor))
            (approximation (/ multiplier (ash 1 shift))))
-      (aver (<= approximation reciprocal))
+      (aver (<= (abs approximation) (abs reciprocal)))
       (aver (>= (* (signum divisor) (signum multiplier)) 0))
       (let* ((error (* (abs (- approximation reciprocal)) input-magnitude))
              (amultiplier (abs multiplier))
@@ -282,7 +282,7 @@
             (probe (- (* tag-scale amultiplier) (if signedp 1 0))))))))
 
   (defun maybe-floor-approximation (divisor shift input-magnitude tag-bits signedp)
-    (let* ((multiplier (floor (ash 1 shift) divisor))
+    (let* ((multiplier (truncate (ash 1 shift) divisor))
            (offset (floor-approximation-ok-p divisor
                                              multiplier shift
                                              input-magnitude tag-bits
