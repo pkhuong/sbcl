@@ -195,9 +195,12 @@
                   (:translate ,translate)
                   (:generator ,untagged-penalty
                   (move r x)
-                  (inst ,op r (if (typep y '(unsigned-byte 31))
-                                  y
-                                  (register-inline-constant :qword y))))))))
+                  (inst ,op r (cond ((typep y '(unsigned-byte 31))
+                                     y)
+                                    ((= (ldb (byte 33 0) -1) (ash y -31))
+                                     ;; sign-extension is fine
+                                     (logior (ash -1 31) y))
+                                    (t (register-inline-constant :qword y)))))))))
 
   ;;(define-binop + 4 add)
   (define-binop - 4 sub)
