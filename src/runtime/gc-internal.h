@@ -94,7 +94,7 @@ NWORDS(uword_t x, uword_t n_bits)
 #include "gencgc-alloc-region.h"
 void *
 gc_alloc_with_region(sword_t nbytes,int page_type_flag, struct alloc_region *my_region,
-                     int quick_p);
+                     int quick_p, boolean failure_allowed);
 static inline void *
 gc_general_alloc(sword_t nbytes, int page_type_flag, int quick_p)
 {
@@ -106,7 +106,7 @@ gc_general_alloc(sword_t nbytes, int page_type_flag, int quick_p)
     } else {
         lose("bad page type flag: %d", page_type_flag);
     }
-    return gc_alloc_with_region(nbytes, page_type_flag, my_region, quick_p);
+    return gc_alloc_with_region(nbytes, page_type_flag, my_region, quick_p, 0);
 }
 #else
 extern void *gc_general_alloc(word_t nbytes,int page_type_flag,int quick_p);

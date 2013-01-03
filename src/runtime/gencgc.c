@@ -62,7 +62,7 @@
 
 /* forward declarations */
 page_index_t  gc_find_freeish_pages(page_index_t *restart_page_ptr, sword_t nbytes,
-                                    int page_type_flag);
+                                    int page_type_flag, boolean failure_allowed);
 
 
 /*
@@ -800,8 +800,9 @@ set_generation_alloc_start_page(generation_index_t generation, int page_type_fla
  * allocation call using the same pages, all the pages in the region
  * are allocated, although they will initially be empty.
  */
-static void
-gc_alloc_new_region(sword_t nbytes, int page_type_flag, struct alloc_region *alloc_region)
+static int
+gc_alloc_new_region(sword_t nbytes, int page_type_flag, struct alloc_region *alloc_region,
+                    boolean failure_allowed)
 {
     page_index_t first_page;
     page_index_t last_page;
@@ -822,7 +823,9 @@ gc_alloc_new_region(sword_t nbytes, int page_type_flag, struct alloc_region *all
     ret = thread_mutex_lock(&free_pages_lock);
     gc_assert(ret == 0);
     first_page = generation_alloc_start_page(gc_alloc_generation, page_type_flag, 0);
-    last_page=gc_find_freeish_pages(&first_page, nbytes, page_type_flag);
+    last_page=gc_find_freeish_pages(&first_page, nbytes, page_type_flag, failure_allowed);
+    if (last_page == (page_index_t)-1UL)
+        return 1;
     bytes_found=(GENCGC_CARD_BYTES - page_table[first_page].bytes_used)
             + npage_bytes(last_page-first_page);
 
@@ -897,6 +900,8 @@ gc_alloc_new_region(sword_t nbytes, int page_type_flag, struct alloc_region *all
             }
         }
     }
+
+    return 0;
 }
 
 /* If the record_new_objects flag is 2 then all new regions created
@@ -1130,7 +1135,8 @@ static inline void *gc_quick_alloc(word_t nbytes);
 
 /* Allocate a possibly large object. */
 void *
-gc_alloc_large(sword_t nbytes, int page_type_flag, struct alloc_region *alloc_region)
+gc_alloc_large(sword_t nbytes, int page_type_flag, struct alloc_region *alloc_region,
+               boolean failure_allowed)
 {
     boolean more;
     page_index_t first_page, next_page, last_page;
@@ -1147,7 +1153,8 @@ gc_alloc_large(sword_t nbytes, int page_type_flag, struct alloc_region *alloc_re
         first_page = alloc_region->last_page+1;
     }
 
-    last_page=gc_find_freeish_pages(&first_page,nbytes, page_type_flag);
+    last_page=gc_find_freeish_pages(&first_page,nbytes, page_type_flag, failure_allowed);
+    if (last_page == (page_index_t)-1UL) return NULL;
 
     gc_assert(first_page > alloc_region->last_page);
 
@@ -1281,7 +1288,7 @@ gc_heap_exhausted_error_or_lose (sword_t available, sword_t requested)
 
 page_index_t
 gc_find_freeish_pages(page_index_t *restart_page_ptr, sword_t bytes,
-                      int page_type_flag)
+                      int page_type_flag, boolean failure_allowed)
 {
     page_index_t most_bytes_found_from = 0, most_bytes_found_to = 0;
     page_index_t first_page, last_page, restart_page = *restart_page_ptr;
@@ -1363,6 +1370,7 @@ gc_find_freeish_pages(page_index_t *restart_page_ptr, sword_t bytes,
     /* Check for a failure */
     if (bytes_found < nbytes) {
         gc_assert(restart_page >= page_table_pages);
+        if (failure_allowed) return -1UL;
         gc_heap_exhausted_error_or_lose(most_bytes_found, nbytes);
     }
 
@@ -1376,12 +1384,12 @@ gc_find_freeish_pages(page_index_t *restart_page_ptr, sword_t bytes,
 
 void *
 gc_alloc_with_region(sword_t nbytes,int page_type_flag, struct alloc_region *my_region,
-                     int quick_p)
+                     int quick_p, boolean failure_allowed)
 {
     void *new_free_pointer;
 
     if (nbytes>=large_object_size)
-        return gc_alloc_large(nbytes, page_type_flag, my_region);
+        return gc_alloc_large(nbytes, page_type_flag, my_region, failure_allowed);
 
     /* Check whether there is room in the current alloc region. */
     new_free_pointer = my_region->free_pointer + nbytes;
@@ -1401,7 +1409,7 @@ gc_alloc_with_region(sword_t nbytes,int page_type_flag, struct alloc_region *my_
             /* If so, finished with the current region. */
             gc_alloc_update_page_tables(page_type_flag, my_region);
             /* Set up a new region. */
-            gc_alloc_new_region(32 /*bytes*/, page_type_flag, my_region);
+            gc_alloc_new_region(32 /*bytes*/, page_type_flag, my_region, 0);
         }
 
         return((void *)new_obj);
@@ -1411,8 +1419,9 @@ gc_alloc_with_region(sword_t nbytes,int page_type_flag, struct alloc_region *my_
      * new region. */
 
     gc_alloc_update_page_tables(page_type_flag, my_region);
-    gc_alloc_new_region(nbytes, page_type_flag, my_region);
-    return gc_alloc_with_region(nbytes, page_type_flag, my_region,0);
+    if (gc_alloc_new_region(nbytes, page_type_flag, my_region, failure_allowed))
+        return NULL;
+    return gc_alloc_with_region(nbytes, page_type_flag, my_region, 0, 0);
 }
 
 /* these are only used during GC: all allocation from the mutator calls
@@ -4184,6 +4193,41 @@ gc_initialize_pointers(void)
  * The check for a GC trigger is only performed when the current
  * region is full, so in most cases it's not needed. */
 
+static int
+trigger_gc (struct thread *thread)
+{
+    /* Don't flood the system with interrupts if the need to gc is
+     * already noted. This can happen for example when SUB-GC
+     * allocates or after a gc triggered in a WITHOUT-GCING. */
+    if (SymbolValue(GC_PENDING,thread) == NIL) {
+        /* set things up so that GC happens when we finish the PA
+         * section */
+        SetSymbolValue(GC_PENDING,T,thread);
+        if (SymbolValue(GC_INHIBIT,thread) == NIL) {
+#ifdef LISP_FEATURE_SB_SAFEPOINT
+            thread_register_gc_trigger();
+#else
+            set_pseudo_atomic_interrupted(thread);
+#ifdef GENCGC_IS_PRECISE
+            /* PPC calls alloc() from a trap or from pa_alloc(),
+             * look up the most context if it's from a trap. */
+            {
+                os_context_t *context =
+                    thread->interrupt_data->allocation_trap_context;
+                maybe_save_gc_mask_and_block_deferrables
+                    (context ? os_context_sigmask_addr(context) : NULL);
+            }
+#else
+            maybe_save_gc_mask_and_block_deferrables(NULL);
+#endif
+#endif
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
 static inline lispobj *
 general_alloc_internal(sword_t nbytes, int page_type_flag, struct alloc_region *region,
                        struct thread *thread, boolean failure_allowed)
@@ -4230,36 +4274,14 @@ general_alloc_internal(sword_t nbytes, int page_type_flag, struct alloc_region *
      * should GC in the near future
      */
     if (auto_gc_trigger && (bytes_allocated+trigger_bytes > auto_gc_trigger)) {
-        /* Don't flood the system with interrupts if the need to gc is
-         * already noted. This can happen for example when SUB-GC
-         * allocates or after a gc triggered in a WITHOUT-GCING. */
-        if (SymbolValue(GC_PENDING,thread) == NIL) {
-            /* set things up so that GC happens when we finish the PA
-             * section */
-            SetSymbolValue(GC_PENDING,T,thread);
-            if (SymbolValue(GC_INHIBIT,thread) == NIL) {
-#ifdef LISP_FEATURE_SB_SAFEPOINT
-                thread_register_gc_trigger();
-#else
-                set_pseudo_atomic_interrupted(thread);
-#ifdef GENCGC_IS_PRECISE
-                /* PPC calls alloc() from a trap or from pa_alloc(),
-                 * look up the most context if it's from a trap. */
-                {
-                    os_context_t *context =
-                        thread->interrupt_data->allocation_trap_context;
-                    maybe_save_gc_mask_and_block_deferrables
-                        (context ? os_context_sigmask_addr(context) : NULL);
-                }
-#else
-                maybe_save_gc_mask_and_block_deferrables(NULL);
-#endif
-#endif
-                if (failure_allowed) return NULL;
-            }
-        }
+        if (trigger_gc(thread) && failure_allowed) return NULL;
     }
-    new_obj = gc_alloc_with_region(nbytes, page_type_flag, region, 0);
+    new_obj = gc_alloc_with_region(nbytes, page_type_flag, region, 0, failure_allowed);
+    if (new_obj == NULL) {
+        gc_assert(failure_allowed);
+        trigger_gc(thread);
+        return NULL;
+    }
 
 #ifndef LISP_FEATURE_WIN32
     /* for sb-prof, and not supported on Windows yet */
