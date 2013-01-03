@@ -386,7 +386,31 @@ GNAME(maybe_alloc_tramp):
 	push	%r11
 	push	%r11
 	mov	16(%rbp),%rdi
-	call	GNAME(alloc)
+	call	GNAME(maybe_alloc)
+        test    %rax, %rax
+        jnz     done
+#ifdef LISP_FEATURE_SB_THREAD
+# define PA_BITS THREAD_PSEUDO_ATOMIC_BITS_OFFSET(%r12)
+#else
+# define PA_BITS PSEUDO_ATOMIC_BITS+SYMBOL_VALUE_OFFSET
+#endif
+
+        testq   $1, PA_BITS
+        jz      skip
+        movq    $1, PA_BITS
+        TRAP
+        .byte   trap_PendingInterrupt
+#ifdef LISP_FEATURE_SB_SAFEPOINT
+        test    %al, GC_SAFEPOINT_PAGE_ADDR
+#endif
+        mov     (%rbp), %rdi
+        mov     %rdi, PA_BITS
+
+#undef PA_BITS
+skip:
+        mov	16(%rbp),%rdi
+        call	GNAME(alloc)
+done:   
 	mov	%rax,16(%rbp)
 	pop	%r11
 	pop	%r11
@@ -402,7 +426,7 @@ GNAME(maybe_alloc_tramp):
 	mov	%rbp,%rsp
 	pop	%rbp
 	ret
-	SIZE(GNAME(alloc_tramp))
+	SIZE(GNAME(maybe_alloc_tramp))
 		
 /*
  * the closure trampoline
