@@ -376,6 +376,7 @@ GNAME(maybe_alloc_tramp):
 	sub	$16*16,%rsp
 	map_all_xmm(stkxmmsave)
 	push	%rax
+        push    %rbx            # callee-save, but clobbered
 	push	%rcx
 	push	%rdx
 	push	%rsi
@@ -385,6 +386,8 @@ GNAME(maybe_alloc_tramp):
 	push	%r10
 	push	%r11
 	push	%r11
+        mov     $HIGHEST_NORMAL_GENERATION+1, %rbx
+retry:
 	mov	16(%rbp),%rdi
 	call	GNAME(maybe_alloc)
         test    %rax, %rax
@@ -407,6 +410,8 @@ GNAME(maybe_alloc_tramp):
         mov     %rdi, PA_BITS
 
 #undef PA_BITS
+        sub     $1, %rbx
+        jnz     retry
 skip:
         mov	16(%rbp),%rdi
         call	GNAME(alloc)
@@ -421,6 +426,7 @@ done:
 	pop	%rsi
 	pop	%rdx
 	pop	%rcx
+        pop     %rbx
 	pop	%rax
 	map_all_xmm(stkxmmload)
 	mov	%rbp,%rsp
