@@ -85,8 +85,7 @@
                                        (* vector-data-offset n-word-bytes))))
     (inst and result (lognot lowtag-mask))
     (pseudo-atomic
-      (allocation result result)
-      (inst lea result (make-ea :byte :base result :disp other-pointer-lowtag))
+      (allocation result result nil nil other-pointer-lowtag t)
       (storew type result 0 other-pointer-lowtag)
       (storew length result vector-length-slot other-pointer-lowtag))))
 

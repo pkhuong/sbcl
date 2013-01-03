@@ -4186,7 +4186,7 @@ gc_initialize_pointers(void)
 
 static inline lispobj *
 general_alloc_internal(sword_t nbytes, int page_type_flag, struct alloc_region *region,
-                       struct thread *thread)
+                       struct thread *thread, boolean failure_allowed)
 {
 #ifndef LISP_FEATURE_WIN32
     lispobj alloc_signal;
@@ -4255,6 +4255,7 @@ general_alloc_internal(sword_t nbytes, int page_type_flag, struct alloc_region *
                 maybe_save_gc_mask_and_block_deferrables(NULL);
 #endif
 #endif
+                if (failure_allowed) return NULL;
             }
         }
     }
@@ -4278,8 +4279,8 @@ general_alloc_internal(sword_t nbytes, int page_type_flag, struct alloc_region *
     return (new_obj);
 }
 
-lispobj *
-general_alloc(sword_t nbytes, int page_type_flag)
+static lispobj *
+general_alloc_(sword_t nbytes, int page_type_flag, boolean failure_allowed)
 {
     struct thread *thread = arch_os_get_current_thread();
     /* Select correct region, and call general_alloc_internal with it.
@@ -4291,16 +4292,24 @@ general_alloc(sword_t nbytes, int page_type_flag)
 #else
         struct alloc_region *region = &boxed_region;
 #endif
-        return general_alloc_internal(nbytes, page_type_flag, region, thread);
+        return general_alloc_internal(nbytes, page_type_flag, region, thread,
+                                      failure_allowed);
     } else if (UNBOXED_PAGE_FLAG == page_type_flag) {
         lispobj * obj;
         gc_assert(0 == thread_mutex_lock(&allocation_lock));
-        obj = general_alloc_internal(nbytes, page_type_flag, &unboxed_region, thread);
+        obj = general_alloc_internal(nbytes, page_type_flag, &unboxed_region, thread,
+                                     failure_allowed);
         gc_assert(0 == thread_mutex_unlock(&allocation_lock));
         return obj;
     } else {
         lose("bad page type flag: %d", page_type_flag);
     }
+}
+
+lispobj *
+general_alloc(sword_t nbytes, int page_type_flag)
+{
+        return general_alloc_(nbytes, page_type_flag, 0);
 }
 
 lispobj AMD64_SYSV_ABI *
@@ -4316,6 +4325,28 @@ alloc(long nbytes)
 #endif
 
     lispobj *result = general_alloc(nbytes, BOXED_PAGE_FLAG);
+
+#ifdef LISP_FEATURE_SB_SAFEPOINT_STRICTLY
+    if (!was_pseudo_atomic)
+        clear_pseudo_atomic_atomic(self);
+#endif
+
+    return result;
+}
+
+lispobj AMD64_SYSV_ABI *
+maybe_alloc(long nbytes)
+{
+#ifdef LISP_FEATURE_SB_SAFEPOINT_STRICTLY
+    struct thread *self = arch_os_get_current_thread();
+    int was_pseudo_atomic = get_pseudo_atomic_atomic(self);
+    if (!was_pseudo_atomic)
+        set_pseudo_atomic_atomic(self);
+#else
+    gc_assert(get_pseudo_atomic_atomic(arch_os_get_current_thread()));
+#endif
+
+    lispobj *result = general_alloc_(nbytes, BOXED_PAGE_FLAG, 1);
 
 #ifdef LISP_FEATURE_SB_SAFEPOINT_STRICTLY
     if (!was_pseudo_atomic)

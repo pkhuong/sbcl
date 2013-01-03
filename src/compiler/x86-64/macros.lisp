@@ -148,17 +148,21 @@
 ;;; This macro should only be used inside a pseudo-atomic section,
 ;;; which should also cover subsequent initialization of the
 ;;; object.
-(defun allocation-tramp (alloc-tn size lowtag)
+(defun allocation-tramp (alloc-tn size lowtag maybe-large)
   (inst push size)
   (inst lea temp-reg-tn (make-ea :qword
-                            :disp (make-fixup "alloc_tramp" :foreign)))
+                            :disp (make-fixup (if maybe-large
+                                                  "maybe_alloc_tramp"
+                                                  "alloc_tramp")
+                                              :foreign)))
   (inst call temp-reg-tn)
   (inst pop alloc-tn)
   (when lowtag
     (inst lea alloc-tn (make-ea :byte :base alloc-tn :disp lowtag)))
   (values))
 
-(defun allocation (alloc-tn size &optional ignored dynamic-extent lowtag)
+(defun allocation (alloc-tn size &optional ignored dynamic-extent lowtag
+                                   maybe-large)
   (declare (ignore ignored))
   (when dynamic-extent
     (allocation-dynamic-extent alloc-tn size lowtag)
@@ -188,7 +192,7 @@
                   :scale 1 :disp
                   (make-fixup "boxed_region" :foreign 8))))
     (cond (in-elsewhere
-           (allocation-tramp alloc-tn size lowtag))
+           (allocation-tramp alloc-tn size lowtag maybe-large))
           (t
            (inst mov temp-reg-tn free-pointer)
            (if (tn-p size)
@@ -208,10 +212,10 @@
            (assemble (*elsewhere*)
              (emit-label NOT-INLINE)
              (cond ((numberp size)
-                    (allocation-tramp alloc-tn size lowtag))
+                    (allocation-tramp alloc-tn size lowtag maybe-large))
                    (t
                     (inst sub alloc-tn free-pointer)
-                    (allocation-tramp alloc-tn alloc-tn lowtag)))
+                    (allocation-tramp alloc-tn alloc-tn lowtag maybe-large)))
              (inst jmp DONE))))
     (values)))
 

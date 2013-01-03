@@ -364,6 +364,45 @@ GNAME(alloc_tramp):
 	ret
 	SIZE(GNAME(alloc_tramp))
 
+	.text
+	.align	align_16byte,0x90
+	.globl  GNAME(maybe_alloc_tramp)
+	TYPE(GNAME(maybe_alloc_tramp))
+GNAME(maybe_alloc_tramp):
+	cld
+	push	%rbp		# Save old frame pointer.
+	mov	%rsp,%rbp	# Establish new frame.
+	and	$-32,%rsp
+	sub	$16*16,%rsp
+	map_all_xmm(stkxmmsave)
+	push	%rax
+	push	%rcx
+	push	%rdx
+	push	%rsi
+	push	%rdi
+	push	%r8
+	push	%r9
+	push	%r10
+	push	%r11
+	push	%r11
+	mov	16(%rbp),%rdi
+	call	GNAME(alloc)
+	mov	%rax,16(%rbp)
+	pop	%r11
+	pop	%r11
+	pop	%r10
+	pop	%r9
+	pop	%r8
+	pop	%rdi
+	pop	%rsi
+	pop	%rdx
+	pop	%rcx
+	pop	%rax
+	map_all_xmm(stkxmmload)
+	mov	%rbp,%rsp
+	pop	%rbp
+	ret
+	SIZE(GNAME(alloc_tramp))
 		
 /*
  * the closure trampoline
