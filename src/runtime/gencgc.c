@@ -92,6 +92,8 @@ os_vm_size_t large_object_size = 4 * PAGE_BYTES;
 
 /* Largest allocation seen since last GC. */
 os_vm_size_t large_allocation = 0;
+/* True if we want to GC everything. */
+boolean major_gc_forced = 0;
 
 
 /*
@@ -824,8 +826,11 @@ gc_alloc_new_region(sword_t nbytes, int page_type_flag, struct alloc_region *all
     gc_assert(ret == 0);
     first_page = generation_alloc_start_page(gc_alloc_generation, page_type_flag, 0);
     last_page=gc_find_freeish_pages(&first_page, nbytes, page_type_flag, failure_allowed);
-    if (last_page == (page_index_t)-1UL)
+    if (last_page == (page_index_t)-1UL) {
+        ret = thread_mutex_unlock(&free_pages_lock);
+        gc_assert(ret == 0);
         return 1;
+    }
     bytes_found=(GENCGC_CARD_BYTES - page_table[first_page].bytes_used)
             + npage_bytes(last_page-first_page);
 
@@ -1154,7 +1159,11 @@ gc_alloc_large(sword_t nbytes, int page_type_flag, struct alloc_region *alloc_re
     }
 
     last_page=gc_find_freeish_pages(&first_page,nbytes, page_type_flag, failure_allowed);
-    if (last_page == (page_index_t)-1UL) return NULL;
+    if (last_page == (page_index_t)-1UL) {
+        ret = thread_mutex_unlock(&free_pages_lock);
+        gc_assert(ret == 0);
+        return NULL;
+    }
 
     gc_assert(first_page > alloc_region->last_page);
 
@@ -3839,7 +3848,8 @@ collect_garbage(generation_index_t last_gen)
              * we've been seeing, raise it and collect the next one
              * too. */
             if (!raise && gen == last_gen) {
-                more = (2*large_allocation) >= (dynamic_space_size - bytes_allocated);
+                more = (major_gc_forced ||
+                        ((2*large_allocation) >= (dynamic_space_size - bytes_allocated)));
                 raise = more;
             }
         }
@@ -3940,6 +3950,7 @@ collect_garbage(generation_index_t last_gen)
 
     gc_active_p = 0;
     large_allocation = 0;
+    major_gc_forced = 0;
 
     log_generation_stats(gc_logfile, "=== GC End ===");
     SHOW("returning from collect_garbage");
@@ -4193,6 +4204,7 @@ gc_initialize_pointers(void)
  * The check for a GC trigger is only performed when the current
  * region is full, so in most cases it's not needed. */
 
+/* Trigger a GC if needed; returns 1 if a GC was triggered, 0 otherwise */
 static int
 trigger_gc (struct thread *thread)
 {
@@ -4273,9 +4285,9 @@ general_alloc_internal(sword_t nbytes, int page_type_flag, struct alloc_region *
     /* we have to go the long way around, it seems. Check whether we
      * should GC in the near future
      */
-    if (auto_gc_trigger && (bytes_allocated+trigger_bytes > auto_gc_trigger)) {
-        if (trigger_gc(thread) && failure_allowed) return NULL;
-    }
+    if (auto_gc_trigger && (bytes_allocated+trigger_bytes > auto_gc_trigger))
+        trigger_gc(thread);
+
     new_obj = gc_alloc_with_region(nbytes, page_type_flag, region, 0, failure_allowed);
     if (new_obj == NULL) {
         gc_assert(failure_allowed);
@@ -4357,7 +4369,7 @@ alloc(long nbytes)
 }
 
 lispobj AMD64_SYSV_ABI *
-maybe_alloc(long nbytes)
+maybe_alloc(long nbytes, int retry_p)
 {
 #ifdef LISP_FEATURE_SB_SAFEPOINT_STRICTLY
     struct thread *self = arch_os_get_current_thread();
@@ -4369,6 +4381,8 @@ maybe_alloc(long nbytes)
 #endif
 
     lispobj *result = general_alloc_(nbytes, BOXED_PAGE_FLAG, 1);
+    if (retry_p && (result == NULL))
+        major_gc_forced = 1;
 
 #ifdef LISP_FEATURE_SB_SAFEPOINT_STRICTLY
     if (!was_pseudo_atomic)

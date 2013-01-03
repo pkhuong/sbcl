@@ -386,9 +386,10 @@ GNAME(maybe_alloc_tramp):
 	push	%r10
 	push	%r11
 	push	%r11
-        mov     $HIGHEST_NORMAL_GENERATION+1, %rbx
+        xor     %rbx, %rbx
 retry:
-	mov	16(%rbp),%rdi
+	mov	16(%rbp), %rdi
+        mov     %rbx, %rsi
 	call	GNAME(maybe_alloc)
         test    %rax, %rax
         jnz     done
@@ -410,7 +411,7 @@ retry:
         mov     %rdi, PA_BITS
 
 #undef PA_BITS
-        sub     $1, %rbx
+        xor     $1, %rbx
         jnz     retry
 skip:
         mov	16(%rbp),%rdi
