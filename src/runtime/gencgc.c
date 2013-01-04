@@ -3832,7 +3832,7 @@ collect_garbage(generation_index_t last_gen)
         print_generation_stats();
 
     if (major_gc_forced)
-        last_gen = gencgc_oldest_gen_to_gc+1;
+        last_gen = HIGHEST_NORMAL_GENERATION+1;
 
     do {
         /* Collect the generation. */
