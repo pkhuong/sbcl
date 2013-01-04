@@ -643,8 +643,8 @@ retry:
         test    %al, GC_SAFEPOINT_PAGE_ADDR
 #endif
 #ifndef LISP_FEATURE_SB_SAFEPOINT_STRICTLY
-        mov     (%ebp), %ebx
-        mov     %ebx, PA_BITS
+        mov     (%ebp), %edx
+        mov     %edx, PA_BITS
 #endif
 #undef PA_BITS
 next:   
