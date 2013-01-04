@@ -315,6 +315,15 @@
     (inst lea alloc-tn (make-ea :byte :base alloc-tn :disp lowtag)))
   (values))
 
+(defun large-allocation (alloc-tn size)
+  (unless (location= eax-tn alloc-tn)
+    (inst xchg eax-tn alloc-tn))
+  (unless (and (tn-p size) (location= alloc-tn size))
+    (inst mov eax-tn size))
+  (inst call (make-fixup "maybe_alloc_to_eax" :foreign))
+  (unless (location= eax-tn alloc-tn)
+    (inst xchg eax-tn alloc-tn)))
+
 ;;; Allocate an other-pointer object of fixed SIZE with a single word
 ;;; header having the specified WIDETAG value. The result is placed in
 ;;; RESULT-TN.

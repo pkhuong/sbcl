@@ -93,7 +93,9 @@
                    (inst and result (lognot lowtag-mask))
                    result))))
       (pseudo-atomic
-       (allocation result size)
+       (if (typep size '(unsigned-byte 11))
+           (allocation result size)
+           (large-allocation result size))
        (inst lea result (make-ea :byte :base result :disp other-pointer-lowtag))
        (sc-case type
          (immediate

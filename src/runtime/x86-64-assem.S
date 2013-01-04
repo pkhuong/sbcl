@@ -398,18 +398,20 @@ retry:
 #else
 # define PA_BITS PSEUDO_ATOMIC_BITS+SYMBOL_VALUE_OFFSET
 #endif
-
+#ifndef LISP_FEATURE_SB_SAFEPOINT_STRICTLY
         testq   $1, PA_BITS
         jz      skip
         movq    $1, PA_BITS
         TRAP
         .byte   trap_PendingInterrupt
+#endif
 #ifdef LISP_FEATURE_SB_SAFEPOINT
         test    %al, GC_SAFEPOINT_PAGE_ADDR
 #endif
+#ifndef LISP_FEATURE_SB_SAFEPOINT_STRICTLY
         mov     (%rbp), %rdi
         mov     %rdi, PA_BITS
-
+#endif
 #undef PA_BITS
         xor     $1, %rbx
         jnz     retry

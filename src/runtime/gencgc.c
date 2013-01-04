@@ -3831,6 +3831,9 @@ collect_garbage(generation_index_t last_gen)
     if (gencgc_verbose > 1)
         print_generation_stats();
 
+    if (major_gc_forced)
+        last_gen = gencgc_oldest_gen_to_gc+1;
+
     do {
         /* Collect the generation. */
 
@@ -3847,9 +3850,8 @@ collect_garbage(generation_index_t last_gen)
              * running low on space in comparison to the object-sizes
              * we've been seeing, raise it and collect the next one
              * too. */
-            if (!raise && gen == last_gen) {
-                more = (major_gc_forced ||
-                        ((2*large_allocation) >= (dynamic_space_size - bytes_allocated)));
+            if (!raise && (gen == last_gen)) {
+                more = (2*large_allocation) >= (dynamic_space_size - bytes_allocated);
                 raise = more;
             }
         }

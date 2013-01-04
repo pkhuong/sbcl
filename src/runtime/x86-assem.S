@@ -609,6 +609,57 @@ GNAME(do_pending_interrupt):
  * DEFINE_ALLOC_TO_FOO defines an alloction routine.
  */
 
+        .globl  GNAME(maybe_alloc_to_eax)
+        TYPE(GNAME(maybe_alloc_to_eax))
+        .align  align_16byte,0x90
+GNAME(maybe_alloc_to_eax):
+        pushl   %ecx
+        pushl   %edx
+        pushl   %ebx
+        pushl   %ebp
+        movl    %esp,%ebp
+        sub     $8, %esp
+        andl    $0xfffffff0,%esp;  /* Align stack to 16 for Darwin */
+        mov     %eax, (%esp)
+        xorl    %ebx, %ebx
+retry:
+        mov     %ebx, 4(%esp)
+        call    GNAME(maybe_alloc)
+        testl   %eax, %eax
+        jnz     done
+#ifdef LISP_FEATURE_SB_THREAD
+# define PA_BITS %fs:THREAD_PSEUDO_ATOMIC_BITS_OFFSET
+#else
+# define PA_BITS PSEUDO_ATOMIC_BITS+SYMBOL_VALUE_OFFSET
+#endif
+#ifndef LISP_FEATURE_SB_SAFEPOINT_STRICTLY
+        testl   $1, PA_BITS
+        jz      next
+        movl    $1, PA_BITS
+	TRAP
+	.byte 	trap_PendingInterrupt
+#endif
+#ifdef LISP_FEATURE_SB_SAFEPOINT
+        test    %al, GC_SAFEPOINT_PAGE_ADDR
+#endif
+#ifndef LISP_FEATURE_SB_SAFEPOINT_STRICTLY
+        mov     (%ebp), %ebx
+        mov     %ebx, PA_BITS
+#endif
+#undef PA_BITS
+next:   
+        xorl    $1, %ebx
+        jnz     retry
+        call    GNAME(alloc)
+done:
+        movl    %ebp,%esp
+        popl    %ebp
+        popl    %ebx
+        popl    %edx
+        popl    %ecx
+        ret
+SIZE(GNAME(maybe_alloc_to_eax))
+        
 #ifdef LISP_FEATURE_DARWIN
 #define ALLOC(size)                                             \
         pushl   %ebp;              /* Save EBP               */ \
