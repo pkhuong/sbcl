@@ -1106,7 +1106,9 @@
       :prototype-form (complex 42l0 42l0))
      #!+sb-simd-pack
      (simd-pack
-      :translation simd-pack)
+      :translation simd-pack
+      :codes (#.sb!vm:simd-pack-widetag)
+      :prototype-form (%make-simd-pack-integer 42 42))
      (real :translation real :inherits (number))
      (float
       :translation float

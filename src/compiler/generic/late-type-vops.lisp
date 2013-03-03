@@ -39,6 +39,70 @@
 (!define-type-vops ratiop check-ratio ratio object-not-ratio-error
   (ratio-widetag))
 
+#!+sb-simd-pack
+(progn
+  (!define-type-vops simd-pack-p nil nil nil
+     (simd-pack-widetag))
+
+  #!+x86-64
+  (define-vop (check-simd-pack check-type)
+    (:args (value :target result
+                  :scs (any-reg descriptor-reg
+                        int-sse-reg single-sse-reg double-sse-reg
+                        int-sse-stack single-sse-stack double-sse-stack)))
+    (:results (result :scs (any-reg descriptor-reg
+                            int-sse-reg single-sse-reg double-sse-reg)))
+    (:temporary (:sc unsigned-reg :offset eax-offset :to (:result 0)) eax)
+    (:ignore eax)
+    (:vop-var vop)
+    (:node-var node)
+    (:save-p :compute-only)
+    (:generator 50
+       (sc-case value
+         ((int-sse-reg single-sse-reg double-sse-reg
+           int-sse-stack single-sse-stack double-sse-stack)
+          (sc-case result
+            ((int-sse-reg single-sse-reg double-sse-reg)
+             (move result value))
+            ((any-reg descriptor-reg)
+             (with-fixed-allocation (result
+                                     simd-pack-widetag
+                                     simd-pack-size
+                                     node)
+               ;; see *simd-pack-element-types*
+               (storew (fixnumize
+                        (sc-case value
+                          ((int-sse-reg int-sse-stack) 0)
+                          ((single-sse-reg single-sse-stack) 1)
+                          ((double-sse-reg double-sse-stack) 2)))
+                   result simd-pack-tag-slot other-pointer-lowtag)
+               (let ((ea (make-ea-for-object-slot
+                          result simd-pack-lo-value-slot other-pointer-lowtag)))
+                 (if (float-simd-pack-p value)
+                     (inst movaps ea value)
+                     (inst movdqa ea value)))))))
+         ((any-reg descriptor-reg)
+          (let ((leaf (sb!c::tn-leaf value)))
+            (unless (and (sb!c::lvar-p leaf)
+                         (csubtypep (sb!c::lvar-type leaf)
+                                    (specifier-type 'simd-pack)))
+              (test-type
+               value
+               (generate-error-code vop 'object-not-simd-pack-error value)
+               t (simd-pack-widetag))))
+          (sc-case result
+            ((int-sse-reg)
+             (let ((ea (make-ea-for-object-slot
+                        value simd-pack-lo-value-slot other-pointer-lowtag)))
+               (inst movdqa result ea)))
+            ((single-sse-reg double-sse-reg)
+             (let ((ea (make-ea-for-object-slot
+                        value simd-pack-lo-value-slot other-pointer-lowtag)))
+               (inst movaps result ea)))
+            ((any-reg descriptor-reg)
+             (move result value)))))))
+  (primitive-type-vop check-simd-pack (:check) simd-pack-int simd-pack-single simd-pack-double))
+
 (!define-type-vops complexp check-complex complex object-not-complex-error
   (complex-widetag complex-single-float-widetag complex-double-float-widetag
                    #!+long-float complex-long-float-widetag))
