@@ -1,5 +1,10 @@
 ;;;; -*- coding: utf-8; fill-column: 78 -*-
 changes relative to sbcl-1.1.5:
+  * new feature: minimal runtime/compiler intrastructure support for SSE
+    SIMD values, as SB-EXT:SIMD-PACK. Enabled on x86-64 via the build-time
+    feature :sb-simd-pack. This should enable intrinsics extensions as
+    libraries, without patching SBCL itself. Thanks to Alexander Gavrilov
+    for maintaining a branch for so long.
   * enhancement: the continuable error when defknown-ing over extant 
     fndb entries can be ignored by passing :overwrite-fndb-silently t
     as a keyword argument to sb-c:defknown (after attributes). Useful
