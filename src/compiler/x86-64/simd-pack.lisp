@@ -181,7 +181,7 @@
          (lo :scs (unsigned-reg))
          (hi :scs (unsigned-reg)))
   (:arg-types tagged-num unsigned-num unsigned-num)
-  (:results (dst :scs (descriptor-reg) :from (:argument 0)))
+  (:results (dst :scs (descriptor-reg) :from :load))
   (:result-types t)
   (:node-var node)
   (:generator 13
