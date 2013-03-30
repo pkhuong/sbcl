@@ -1795,10 +1795,10 @@ variable: an unreadable object representing the error is printed instead.")
               '%make-simd-pack-single
               (%simd-pack-singles pack)))
            (t
-            (format stream "#.(~S #X~16,'0X #X~16,'0X)"
-                 '%make-simd-pack-integer
-                 (%simd-pack-low  pack)
-                 (%simd-pack-high pack)))))
+            (multiple-value-call #'format stream
+              "#.(~S #X~16,'0X #X~16,'0X)"
+              '%make-simd-pack-integer
+              (%simd-pack-ub64s pack)))))
         (t
          (print-unreadable-object (pack stream)
            (flet ((all-ones-p (value start end &aux (mask (- (ash 1 end) (ash 1 start))))
