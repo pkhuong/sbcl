@@ -2989,7 +2989,7 @@
         ,(lvar-value x))
       (give-up-ir1-transform)))
 
-(dolist (x '(= char= + * logior logand logxor))
+(dolist (x '(= char= + * logior logand logxor logtest))
   (%deftransform x '(function * *) #'commutative-arg-swap
                  "place constant arg last"))
 
