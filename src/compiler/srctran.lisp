@@ -2911,9 +2911,7 @@
                                   `(,(ecase signedp
                                        ((nil) 'unsigned-byte)
                                        ((t) 'signed-byte))
-                                     ,width))))
-        ;; track if any function call was replaced.
-        (any-nontrivial nil))
+                                     ,width)))))
     (labels ((reoptimize-node (node name)
                (setf (node-derived-type node)
                      (fun-type-returns
@@ -2957,10 +2955,12 @@
                  (setf (block-reoptimize (node-block node)) t)
                  (reoptimize-component (node-component node) :maybe))
                t)
-             (cut-node (node &aux did-something)
+             (cut-node (node &aux did-something maybe-widening)
                "Try to cut a node to width. The primary return value is
                 whether we managed to cut (cleverly), and the second whether
-                anything was changed."
+                anything was changed.  The tertiary (really...) return value
+                tells whether the change might result in a wider result than
+                expected."
                (when (block-delete-p (node-block node))
                  (return-from cut-node (values t nil)))
                (typecase node
@@ -2990,6 +2990,8 @@
                            (modular-fun (find-modular-version fun-name kind
                                                               signedp width)))
                       (cond ((not modular-fun) (values nil nil))
+                            ;; these have already CUT-TO-WIDTH their arguments, and
+                            ;; their width is at least as narrow as ours
                             ((and (memq fun-name '(logand mask-signed-field logior))
                                   (csubtypep
                                    (single-value-type (node-derived-type node))
@@ -3003,21 +3005,23 @@
                                                 (function
                                                  (funcall modular-fun node width)))
                                               :exit-if-null))
-                               (setf any-nontrivial t)
                                (unless (eql modular-fun :good)
-                                 (setq did-something t)
+                                 (setq maybe-widening t
+                                       did-something t)
                                  (change-ref-leaf
                                   fun-ref
                                   (find-free-fun name "in a strange place"))
                                  (setf (combination-kind node) :full))
                                (unless (functionp modular-fun)
                                  (dolist (arg (basic-combination-args node))
-                                   (when (cut-lvar arg)
-                                     (setq did-something t))))
+                                   (multiple-value-bind (lvar-did-something lvar-widened)
+                                       (cut-lvar arg)
+                                     (setf did-something (or did-something lvar-did-something)
+                                           maybe-widening (or maybe-widening lvar-widened)))))
                                (when did-something
                                  (reoptimize-node node name))
-                               (values t did-something)))))))))
-             (cut-lvar (lvar &key head &aux did-something must-insert)
+                               (values t did-something maybe-widening)))))))))
+             (cut-lvar (lvar &key head &aux did-something maybe-widening must-insert)
                "Cut all the LVAR's use nodes. If any of them wasn't handled
                 and its type is too wide for the operation we wish to perform
                 insert an explicit bit-width narrowing operation (LOGAND or
@@ -3030,18 +3034,20 @@
                 result in code bloat, anyway. (I'm also not sure it would be
                 correct for complicated C/D FG)"
                (do-uses (node lvar)
-                 (multiple-value-bind (handled any-change)
+                 (multiple-value-bind (handled any-change node-widened)
                      (cut-node node)
                    (setf did-something (or did-something any-change)
+                         maybe-widening (or maybe-widening node-widened)
                          must-insert (or must-insert
                                          (not (or handled
                                                   (csubtypep (single-value-type
                                                               (node-derived-type node))
                                                              type)))))))
                (when (or must-insert
-                         (and head did-something any-nontrivial))
-                 (setf did-something (or (insert-lvar-cut lvar) did-something)))
-               did-something))
+                         (and head did-something maybe-widening))
+                 (setf did-something (or (insert-lvar-cut lvar) did-something)
+                       maybe-widening nil))
+               (values did-something maybe-widening)))
       (cut-lvar lvar :head t))))
 
 (defun best-modular-version (width signedp)
