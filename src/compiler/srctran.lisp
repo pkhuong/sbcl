@@ -2911,7 +2911,9 @@
                                   `(,(ecase signedp
                                        ((nil) 'unsigned-byte)
                                        ((t) 'signed-byte))
-                                     ,width)))))
+                                     ,width))))
+        ;; track if any function call was replaced.
+        (any-nontrivial nil))
     (labels ((reoptimize-node (node name)
                (setf (node-derived-type node)
                      (fun-type-returns
@@ -3000,7 +3002,8 @@
                                             (funcall modular-fun node width)))
                                          :exit-if-null))
                           (unless (eql modular-fun :good)
-                            (setq did-something t)
+                            (setq any-nontrivial t
+                                  did-something t)
                             (change-ref-leaf
                              fun-ref
                              (find-free-fun name "in a strange place"))
@@ -3012,7 +3015,7 @@
                           (when did-something
                             (reoptimize-node node name))
                           (values t did-something))))))))
-             (cut-lvar (lvar &aux did-something must-insert)
+             (cut-lvar (lvar &key head &aux did-something must-insert)
                "Cut all the LVAR's use nodes. If any of them wasn't handled
                 and its type is too wide for the operation we wish to perform
                 insert an explicit bit-width narrowing operation (LOGAND or
@@ -3033,10 +3036,11 @@
                                                   (csubtypep (single-value-type
                                                               (node-derived-type node))
                                                              type)))))))
-               (when must-insert
+               (when (or must-insert
+                         (and head any-nontrivial))
                  (setf did-something (or (insert-lvar-cut lvar) did-something)))
                did-something))
-      (cut-lvar lvar))))
+      (cut-lvar lvar :head t))))
 
 (defun best-modular-version (width signedp)
   ;; 1. exact width-matched :untagged
