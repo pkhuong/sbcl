@@ -1049,22 +1049,23 @@
                     (setq ,n (ir2-block-number (global-conflicts-block ,c)))))
                (scan (g l lc)
                  `(do ()
-                      ((>= ,g ,l))
-                    (advance ,l ,lc))))
+                      ((>= ,l ,g))
+		    (advance ,l ,lc))))
 
       (loop
-        ;; x-conf, y-conf true, x-num, y-num corresponding block numbers.
-        (scan x-num y-num y-conf)
-        (scan y-num x-num x-conf)
-        (when (= x-num y-num)
-          (let ((ltn-num-x (global-conflicts-number x-conf)))
-            (unless (and ltn-num-x
-                         (global-conflicts-number y-conf)
-                         (zerop (sbit (global-conflicts-conflicts y-conf)
-                                      ltn-num-x)))
-              (return t))
-            (advance x-num x-conf)
-            (advance y-num y-conf)))))))
+	 ;; x-conf, y-conf true, x-num, y-num corresponding block numbers.
+	 (scan x-num y-num y-conf)
+	 (scan y-num x-num x-conf)
+
+	 (when (= x-num y-num)
+	   (let ((ltn-num-x (global-conflicts-number x-conf))
+		 (ltn-num-y (global-conflicts-number y-conf)))
+	     (unless (and ltn-num-x ltn-num-y
+			  (zerop (sbit (global-conflicts-conflicts y-conf)
+				       ltn-num-x)))
+	       (return t))
+	     (advance x-num x-conf)
+	     (advance y-num y-conf)))))))
 
 ;;; Return true if X and Y are distinct and the lifetimes of X and Y
 ;;; overlap at any point.
