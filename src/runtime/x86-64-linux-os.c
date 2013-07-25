@@ -14,6 +14,8 @@
  * files for more information.
  */
 
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stddef.h>
 #include <sys/param.h>
