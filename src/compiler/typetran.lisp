@@ -49,6 +49,35 @@
     (%deftransform name '(function (t) *) #'fold-type-predicate)
     name))
 
+;;;; Constraint-propagation IR1 hacks
+(defknown derive-type (t t boolean) (values)
+    (always-translatable))
+
+(defknown dead-branch () nil
+    (always-translatable))
+
+(deftransform derive-type ((var type not-p) (t (constant-arg t) (constant-arg boolean))
+                           * :node node)
+  (cond ((and (ref-p (lvar-uses var))
+              (rest (leaf-refs (ref-leaf (lvar-uses var)))))
+         (let* ((dtype (lvar-type var))
+                (type (lvar-value type))
+                (type (if (ctype-p type)
+                          type
+                          (careful-specifier-type type)))
+                (not-p (lvar-value not-p)))
+           (cond ((not type)
+                  `(values))
+                 ((if (not not-p)
+                      (eq (type-intersection2 dtype type) *empty-type*) ; type mismatch
+                      (csubtypep dtype type)) ; type definitely match
+                  `(dead-branch))
+                 (t
+                  (delay-ir1-transform node :constraint)
+                  (give-up-ir1-transform)))))
+        (t
+         `(values))))
+
 ;;;; IR1 transforms
 
 ;;; If we discover the type argument is constant during IR1
@@ -601,36 +630,50 @@
         (let ((pred (cdr (assoc ctype *backend-type-predicates*
                                 :test #'type=))))
           (when pred `(,pred ,object)))
-        (typecase ctype
-          (hairy-type
-           (source-transform-hairy-typep object ctype))
-          (negation-type
-           (source-transform-negation-typep object ctype))
-          (union-type
-           (source-transform-union-typep object ctype))
-          (intersection-type
-           (source-transform-intersection-typep object ctype))
-          (member-type
-           `(if (member ,object ',(member-type-members ctype)) t))
-          (args-type
-           (compiler-warn "illegal type specifier for TYPEP: ~S" type)
-           (return-from source-transform-typep (values nil t)))
-          (t nil))
-        (typecase ctype
-          (numeric-type
-           (source-transform-numeric-typep object ctype))
-          (classoid
-           `(%instance-typep ,object ',type))
-          (array-type
-           (source-transform-array-typep object ctype))
-          (cons-type
-           (source-transform-cons-typep object ctype))
-          (character-set-type
-           (source-transform-character-set-typep object ctype))
-          #!+sb-simd-pack
-          (simd-pack-type
-           (source-transform-simd-pack-typep object ctype))
-          (t nil))
+        (let* ((var (gensym "OBJECT"))
+               (flip nil)
+               (form
+                 (typecase ctype
+                   (hairy-type
+                    (source-transform-hairy-typep var ctype))
+                   (negation-type
+                    (prog1
+                        (source-transform-negation-typep var ctype)
+                      (setf flip t
+                            ctype (negation-type-type ctype))))
+                   (union-type
+                    (source-transform-union-typep var ctype))
+                   (intersection-type
+                    (source-transform-intersection-typep var ctype))
+                   (member-type
+                    `(if (member ,var ',(member-type-members ctype)) t))
+                   (args-type
+                    (compiler-warn "illegal type specifier for TYPEP: ~S" type)
+                    (return-from source-transform-typep (values nil t)))
+                   (numeric-type
+                    (source-transform-numeric-typep var ctype))
+                   (classoid
+                    (return-from source-transform-typep
+                      `(%instance-typep ,object ',type)))
+                   (array-type
+                    (source-transform-array-typep var ctype))
+                   (cons-type
+                    (source-transform-cons-typep var ctype))
+                   (character-set-type
+                    (source-transform-character-set-typep var ctype))
+                   #!+sb-simd-pack
+                   (simd-pack-type
+                    (source-transform-simd-pack-typep var ctype))
+                   (t nil))))
+          (and form
+               (let ((type (type-specifier ctype)))
+                 `(let ((,var ,object))
+                    (cond (,form
+                           (derive-type ,var ',type ,flip)
+                           t)
+                          (t
+                           (derive-type ,var ',type ,(not flip))
+                           nil))))))
         `(%typep ,object ',type))))
 
 (define-source-transform typep (object spec &optional env)

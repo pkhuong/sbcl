@@ -954,7 +954,27 @@
            (unless (eq type *universal-type*)
              (conset-add-constraint gen 'typep var type nil)))
          (unless (policy node (> compilation-speed speed))
-           (maybe-add-eql-var-var-constraint var (set-value node) gen))))))
+           (maybe-add-eql-var-var-constraint var (set-value node) gen))))
+      (combination
+       (let ((fun (lvar-fun-name (combination-fun node)))
+             (args (combination-args node))
+             var)
+         (when (and (eql fun 'derive-type)
+                    (= (length args) 3))
+           (destructuring-bind (leaf type not-p)
+               args
+             (when (and (constant-lvar-p type)
+                        (constant-lvar-p not-p)
+                        (setf var (ok-lvar-lambda-var leaf gen)))
+               (let* ((type (lvar-value type))
+                      (not-p (lvar-value not-p))
+                      (type (if (ctype-p type)
+                                 type
+                                 (let ((*compiler-error-context* node))
+                                   (specifier-type type)))))
+                 (unless (eql type *universal-type*)
+                   (conset-add-constraint-to-eql
+                    gen 'typep var type not-p))))))))))
   gen)
 
 (defun constraint-propagate-if (block gen)

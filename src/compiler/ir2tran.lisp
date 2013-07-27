@@ -1834,6 +1834,20 @@
         (ir2-convert-template node block)
         (ir2-convert-full-call node block))))
 
+(defoptimizer (derive-type ltn-annotate) ((leaf type not-p) node policy)
+  ;; do nothing.
+  policy node)
+
+(defoptimizer (derive-type ir2-convert) ((leaf type not-p) call 2block)
+  ;; the return value must not be used
+  (aver (not (combination-lvar call)))
+  ;; do nothing.
+  (values))
+
+(defoptimizer (dead-branch ir2-convert) (() call 2block)
+  (vop nil-fun-returned-error call 2block
+       (emit-constant 'dead-branch)))
+
 ;;; Convert the code in a component into VOPs.
 (defun ir2-convert (component)
   (declare (type component component))

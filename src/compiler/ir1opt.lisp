@@ -385,9 +385,15 @@
                  (unless (join-successor-if-possible block)
                    (return)))
 
-              (when (and (not fastp) (block-reoptimize block) (block-component block))
+              (when (and (not fastp) (block-component block))
                 (aver (not (block-delete-p block)))
-                (ir1-optimize-block block))
+                (cond ((block-reoptimize block)
+                       (ir1-optimize-block block))
+                      ((if-p (block-last block))
+                       ;; IF rewrites look so deeply into the CFG
+                       ;; that we just always try and apply them.
+                       ;; (IF nodes always terminate their block)
+                       (ir1-optimize-if (block-last block)))))
 
               (cond ((and (block-delete-p block) (block-component block))
                      (setq block (clean-component component block)))
@@ -653,17 +659,56 @@
 ;;; Utility: return T if both argument cblocks are equivalent.  For now,
 ;;; detect only blocks that read the same leaf into the same lvar, and
 ;;; continue to the same block.
+(defun derive-type-combination-p (node)
+  (and (combination-p node)
+       (eql (lvar-fun-name (combination-fun node)) 'derive-type)))
+
 (defun cblocks-equivalent-p (x y)
   (declare (type cblock x y))
-  (and (ref-p (block-start-node x))
-       (eq (block-last x) (block-start-node x))
+  (flet ((find-start-node (block)
+           (declare (type cblock block))
+           (do-nodes (node nil block)
+             (unless (or (derive-type-combination-p node)
+                         (and (ref-p node)
+                              (let ((dest (node-dest node)))
+                                (or (not dest)
+                                    (derive-type-combination-p dest)))))
+               (return node)))))
+    (let ((start-x (find-start-node x))
+          (start-y (find-start-node y)))
+      (or (and (not start-x) (not start-y)
+               (equal (block-succ x) (block-succ y)))
+          (and (ref-p start-x)
+               (eq (block-last x) start-x)
 
-       (ref-p (block-start-node y))
-       (eq (block-last y) (block-start-node y))
+               (ref-p start-y)
+               (eq (block-last y) start-y)
 
-       (equal (block-succ x) (block-succ y))
-       (eql (ref-lvar (block-start-node x)) (ref-lvar (block-start-node y)))
-       (eql (ref-leaf (block-start-node x)) (ref-leaf (block-start-node y)))))
+               (equal (block-succ x) (block-succ y))
+               (eql (ref-lvar start-x) (ref-lvar start-y))
+               (eql (ref-leaf start-x) (ref-leaf start-y)))))))
+
+(defun elide-derive-type-nodes (block)
+  (do-nodes (node nil block :restart-p t)
+    (cond ((derive-type-combination-p node)
+           (flush-combination node))
+          ((not (ref-p node))
+           (return)))))
+
+(defun cblock-impossible-p (block)
+  (declare (type cblock block))
+  (do-nodes (node lvar block)
+    (cond ((derive-type-combination-p node))
+          ((and (combination-p node)
+                (eql (lvar-fun-name (combination-fun node)) 'dead-branch))
+           (return block))
+          ((and (ref-p node)
+                (or (not lvar)
+                    (let ((dest (lvar-dest lvar)))
+                      (and (combination-p dest)
+                           (memq (lvar-fun-name (combination-fun dest))
+                                 '(dead-branch derive-type)))))))
+          (t (return nil)))))
 
 ;;; Check whether the predicate is known to be true or false,
 ;;; deleting the IF node in favor of the appropriate branch when this
@@ -686,10 +731,14 @@
                    alternative)
                   ((type= type (specifier-type 'null))
                    consequent)
+                  ((cblock-impossible-p consequent))
+                  ((cblock-impossible-p alternative))
                   ((or (eq consequent alternative) ; Can this happen?
                        (cblocks-equivalent-p alternative consequent))
                    alternative))))
       (when victim
+        (elide-derive-type-nodes (if (eql victim alternative)
+                                     consequent alternative))
         (kill-if-branch-1 node test block victim)
         (return-from ir1-optimize-if (values))))
     (tension-if-if-1 node test block)
