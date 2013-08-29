@@ -547,6 +547,40 @@
     (inst bne LOOP)
     (inst isync)))
 
+(define-vop (raw-instance-cas/word)
+  (:translate %compare-and-swap-raw-instance-ref/word)
+  (:policy :fast-safe)
+  (:args (object :scs (descriptor-reg))
+         (index :scs (any-reg))
+         (old :scs (unsigned-reg))
+         (new :scs (unsigned-reg)))
+  (:arg-types * positive-fixnum unsigned-num unsigned-num)
+  (:temporary (:sc unsigned-reg) offset)
+  (:results (result :scs (unsigned-reg) :from :load))
+  (:result-types unsigned-num)
+  (:generator 4
+    (loadw offset object 0 instance-pointer-lowtag)
+    ;; offset = (offset >> n-widetag-bits) << 2
+    (inst rlwinm offset offset (- 32 (- n-widetag-bits 2)) (- n-widetag-bits 2) 29)
+    (inst subf offset index offset)
+    (inst addi
+          offset
+          offset
+          (- (* (1- instance-slots-offset) n-word-bytes)
+             instance-pointer-lowtag))
+    ;; load the slot value, add DIFF, write the sum back, and return
+    ;; the original slot value, atomically, and include a memory
+    ;; barrier.
+    (inst sync)
+    LOOP
+    (inst lwarx result offset object)
+    (inst cmpw result old)
+    (inst bne EXIT)
+    (inst stwcx. new offset object)
+    (inst bne LOOP)
+    EXIT
+    (inst isync)))
+
 (define-vop (raw-instance-ref/word)
   (:translate %raw-instance-ref/word)
   (:policy :fast-safe)

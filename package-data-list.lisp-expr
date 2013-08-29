@@ -1407,6 +1407,8 @@ is a good idea, but see SB-SYS re. blurring of boundaries."
                "%SCALB" "%SCALBN"
                #!+(or x86 x86-64 ppc)
                "%RAW-INSTANCE-ATOMIC-INCF/WORD"
+               #!+(or x86 x86-64 ppc)
+               "%COMPARE-AND-SWAP-RAW-INSTANCE-REF/WORD"
                "%RAW-INSTANCE-REF/WORD" "%RAW-INSTANCE-SET/WORD"
                "%RAW-INSTANCE-REF/SINGLE" "%RAW-INSTANCE-SET/SINGLE"
                "%RAW-INSTANCE-REF/DOUBLE" "%RAW-INSTANCE-SET/DOUBLE"

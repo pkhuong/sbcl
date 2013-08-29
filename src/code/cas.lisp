@@ -121,11 +121,12 @@ EXPERIMENTAL: Interface subject to change."
   (let* ((structure (dd-name dd))
          (slotd (find name (dd-slots dd) :key #'dsd-accessor-name))
          (index (dsd-index slotd))
-         (type (dsd-type slotd)))
-    (unless (eq t (dsd-raw-type slotd))
+         (type (dsd-type slotd))
+         (raw-type (dsd-raw-type slotd)))
+    (unless (memq raw-type '(t word))
       (error "Cannot use COMPARE-AND-SWAP with structure accessor ~
-                for a typed slot: ~S"
-             place))
+                for ~S, a slot of raw type ~S"
+             place raw-type))
     (when (dsd-read-only slotd)
       (error "Cannot use COMPARE-AND-SWAP with structure accessor ~
                 for a read-only slot: ~S"
@@ -137,12 +138,17 @@ EXPERIMENTAL: Interface subject to change."
                 (list arg)
                 old
                 new
-                `(truly-the (values ,type &optional)
-                            (%compare-and-swap-instance-ref
-                             (the ,structure ,instance)
-                             ,index
-                             (the ,type ,old)
-                             (the ,type ,new)))
+                `(truly-the
+                  (values ,type &optional)
+                  (,(ecase raw-type
+                      ((t)
+                       '%compare-and-swap-instance-ref)
+                      (word
+                       '%compare-and-swap-raw-instance-ref/word))
+                   (the ,structure ,instance)
+                   ,index
+                   (the ,type ,old)
+                   (the ,type ,new)))
                 `(,op ,instance))))))
 
 (def!macro define-cas-expander (accessor lambda-list &body body)
@@ -253,5 +259,7 @@ been defined. (See SB-EXT:CAS for more information.)
   (def %compare-and-swap-instance-ref (instance index) %instance-ref %instance-set)
   (def %compare-and-swap-symbol-plist (symbol) symbol-plist)
   (def %compare-and-swap-symbol-value (symbol) symbol-value)
-  (def %compare-and-swap-svref (vector index) svref))
+  (def %compare-and-swap-svref (vector index) svref)
+  (def %compare-and-swap-raw-instance-ref/word (instance index)
+    %raw-instance-ref/word %raw-instance-set/word))
 

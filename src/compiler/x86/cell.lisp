@@ -570,6 +570,31 @@
     (inst xadd (make-ea-for-raw-slot object index tmp 1) diff :lock)
     (move result diff)))
 
+(define-vop (raw-instance-cas/word)
+  (:translate %compare-and-swap-raw-instance-ref/word)
+  (:policy :fast-safe)
+  (:args (object :scs (descriptor-reg) :to :result)
+         (offset :scs (any-reg immediate) :to :result)
+         (old-value :scs (unsigned-reg) :target eax)
+         (new-value :scs (unsigned-reg) :to :result))
+  (:arg-types * tagged-num unsigned-num unsigned-num)
+  (:temporary (:sc unsigned-reg :offset eax-offset
+                   :from (:argument 2) :to :result
+                   :target result) eax)
+  (:temporary (:sc unsigned-reg) tmp)
+  (:results (result :scs (unsigned-reg)))
+  (:result-types unsigned-num)
+  (:generator 5
+    (move eax old-value)
+    (loadw tmp object 0 instance-pointer-lowtag)
+    (inst shr tmp n-widetag-bits)
+    (when (sc-is offset any-reg)
+      (inst shl tmp n-fixnum-tag-bits)
+      (inst sub tmp offset))
+    (inst cmpxchg (make-ea-for-raw-slot object offset tmp 1) new-value
+          :lock)
+    (move result eax)))
+
 (define-vop (raw-instance-ref/single)
   (:translate %raw-instance-ref/single)
   (:policy :fast-safe)

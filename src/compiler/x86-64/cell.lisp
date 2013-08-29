@@ -621,6 +621,54 @@
     (inst xadd (make-ea-for-raw-slot object tmp :index index) diff :lock)
     (move result diff)))
 
+(define-vop (raw-instance-cas-c/word)
+  (:translate %compare-and-swap-raw-instance-ref/word)
+  (:policy :fast-safe)
+  (:args (object :scs (descriptor-reg) :to :result)
+         (old-value :scs (unsigned-reg) :target rax)
+         (new-value :scs (unsigned-reg) :to :result))
+  (:arg-types * (:constant (load/store-index #.n-word-bytes
+                                             #.instance-pointer-lowtag
+                                             #.instance-slots-offset))
+              unsigned-num unsigned-num)
+  (:info index)
+  (:temporary (:sc unsigned-reg :offset rax-offset
+                   :from (:argument 1) :to :result
+                   :target result) rax)
+  (:temporary (:sc unsigned-reg) tmp)
+  (:results (result :scs (unsigned-reg)))
+  (:result-types unsigned-num)
+  (:generator 4
+    (move rax old-value)
+    (loadw tmp object 0 instance-pointer-lowtag)
+    (inst shr tmp n-widetag-bits)
+    (inst cmpxchg (make-ea-for-raw-slot object tmp :index index) new-value
+          :lock)
+    (move result rax)))
+
+(define-vop (raw-instance-cas/word)
+  (:translate %compare-and-swap-raw-instance-ref/word)
+  (:policy :fast-safe)
+  (:args (object :scs (descriptor-reg) :to :result)
+         (offset :scs (unsigned-reg) :to :result)
+         (old-value :scs (unsigned-reg) :target rax)
+         (new-value :scs (unsigned-reg) :to :result))
+  (:arg-types * unsigned-num unsigned-num unsigned-num)
+  (:temporary (:sc unsigned-reg :offset rax-offset
+                   :from (:argument 2) :to :result
+                   :target result) rax)
+  (:temporary (:sc unsigned-reg) tmp)
+  (:results (result :scs (unsigned-reg)))
+  (:result-types unsigned-num)
+  (:generator 5
+    (loadw tmp object 0 instance-pointer-lowtag)
+    (move rax old-value)
+    (inst shr tmp n-widetag-bits)
+    (inst sub tmp offset)
+    (inst cmpxchg (make-ea-for-raw-slot object tmp :index 0) new-value
+          :lock)
+    (move result rax)))
+
 (define-vop (raw-instance-ref/single)
   (:translate %raw-instance-ref/single)
   (:policy :fast-safe)

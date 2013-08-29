@@ -172,6 +172,10 @@
 (defknown %raw-instance-atomic-incf/word (instance index sb!vm:word) sb!vm:word
     (always-translatable))
 #!+(or x86 x86-64 ppc)
+(defknown %compare-and-swap-raw-instance-ref/word
+    (instance index sb!vm:word sb!vm:word) sb!vm:word
+    (always-translatable))
+#!+(or x86 x86-64 ppc)
 (defknown %array-atomic-incf/word (t index sb!vm:word) sb!vm:word
   (always-translatable))
 
