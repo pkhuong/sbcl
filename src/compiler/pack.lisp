@@ -61,7 +61,7 @@
             (if (eq (global-conflicts-kind conf) :live)
                 (when (/= (sbit loc-live num) 0)
                   (return t))
-                  )
+
                 ;; global-conflicts-number TN's local TN number in
                 ;; BLOCK. :LIVE TNs don't have local numbers.
                 (when (/= (sbit (svref loc-confs num)
@@ -1667,9 +1667,9 @@
 
 
          (collect ((vertices) (unbounded-tns))
-		  
-	   ;; Pack wired TNs first.
-	   (do ((tn (ir2-component-wired-tns 2comp) (tn-next tn)))
+
+           ;; Pack wired TNs first.
+           (do ((tn (ir2-component-wired-tns 2comp) (tn-next tn)))
                ((null tn))
              (pack-wired-tn tn optimize)
              (let ((vertex (make-vertex tn :wired)))
@@ -1717,8 +1717,8 @@
                      ;; well revert to the old behaviour of just
                      ;; packing TNs linearly as they appear.
                      (unless *loop-analyze*
-		       (cond  ((equal (sb-kind (sc-sb (tn-sc tn))) :unbounded)
-			       (unbounded-tns tn))
+                       (cond  ((equal (sb-kind (sc-sb (tn-sc tn))) :unbounded)
+                               (unbounded-tns tn))
                                ;;(pack-tn tn nil optimize)
                               ;; sb is register and costs smaller
                               ;; zero, then pack in an alternate on
@@ -1730,7 +1730,7 @@
                                  (dolist (a alternates)
                                    (when (equal (sb-kind (sc-sb a)) :unbounded)
                                      (setf (tn-sc tn) a)
-				     (unbounded-tns tn)
+                                     (unbounded-tns tn)
                                      ;;(pack-tn tn nil optimize)
                                      (return)))))
                               ((and (not (equal (sb-kind (sc-sb (tn-sc tn))) :unbounded))
@@ -1741,11 +1741,11 @@
                               (t (aver nil)))
 
                        ;; (pack-tn tn nil optimize :allow-unbounded-sc nil)
-		       )
+                       )
                      ;; (tns tn)
-		     )))))
-           
-	 ;; FIXME: comment does not match the code any more 
+                     )))))
+
+         ;; FIXME: comment does not match the code any more
          ;; Pack any leftover normal TNs that could not be allocated
          ;; to finite SCs, or TNs that do not appear in any local TN
          ;; map (e.g. :MORE TNs).  Since we'll likely be allocating
@@ -1756,11 +1756,11 @@
          ;;
          ;; Collect in reverse order to give priority to older TNs.
 
-	   (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
+           (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
                ((null tn))
-	   ;; FIXME: insert function instead of the same conditional
-	   (cond  ((equal (sb-kind (sc-sb (tn-sc tn))) :unbounded)
-			       (unbounded-tns tn))
+           ;; FIXME: insert function instead of the same conditional
+           (cond  ((equal (sb-kind (sc-sb (tn-sc tn))) :unbounded)
+                               (unbounded-tns tn))
                                ;;(pack-tn tn nil optimize)
                               ;; sb is register and costs smaller
                               ;; zero, then pack in an alternate on
@@ -1772,13 +1772,13 @@
                                  (dolist (a alternates)
                                    (when (equal (sb-kind (sc-sb a)) :unbounded)
                                      (setf (tn-sc tn) a)
-				     (unbounded-tns tn)
+                                     (unbounded-tns tn)
                                      ;;(pack-tn tn nil optimize)
                                      (return)))))
                               ((and (not (equal (sb-kind (sc-sb (tn-sc tn))) :unbounded))
                                     (>= (tn-cost tn) 0))
                                (let ((vertex (make-vertex tn :normal)))
-                                 (unless (member vertex (vertices)) 
+                                 (unless (member vertex (vertices))
                                    (vertices vertex))))
                               (t (aver nil))))
 
@@ -1786,7 +1786,7 @@
                (tns '()))
            ;; (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
            ;;     ((null tn))
-	   (dolist (tn (unbounded-tns))
+           (dolist (tn (unbounded-tns))
              (unless (tn-offset tn)
                (let ((key (cons tn (tn-lexical-depth tn))))
                  (if (memq (tn-kind tn) '(:environment :debug-environment
@@ -1801,15 +1801,15 @@
              ;; first pack TNs that are known to have simple
              ;; live ranges (contiguous lexical scopes)
              (pack-tns contiguous-tns)
-             (pack-tns tns))) 
+             (pack-tns tns)))
 
-	 ;;TODO: comment
-	 (let* ((vertices-temp (vertices))
-		(vertices (pack-colored (iterate-color vertices-temp))))
-	   (dolist (vertex vertices)
-	     (let ((tn (vertex-tn vertex)))
-	       (unless (tn-offset tn)
-		 (pack-tn tn nil optimize)))))) 
+         ;;TODO: comment
+         (let* ((vertices-temp (vertices))
+                (vertices (pack-colored (iterate-color vertices-temp))))
+           (dolist (vertex vertices)
+             (let ((tn (vertex-tn vertex)))
+               (unless (tn-offset tn)
+                 (pack-tn tn nil optimize))))))
 
          ;; Do load TN packing and emit saves.
          (let ((*repack-blocks* nil))
@@ -1932,8 +1932,8 @@
 
 (defun sort-according-to-pack-type (vertices)
   (sort (copy-list vertices)
-	(lambda (x y) (string-not-lessp (subseq  (string (vertex-pack-type x)) 0 1)
-					(subseq  (string (vertex-pack-type y)) 0 1)))))
+        (lambda (x y) (string-not-lessp (subseq  (string (vertex-pack-type x)) 0 1)
+                                        (subseq  (string (vertex-pack-type y)) 0 1)))))
 
 (defun sort-according-to-degree-cost (verticies)
   (sort (copy-list  verticies)
