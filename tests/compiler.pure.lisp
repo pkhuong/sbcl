@@ -1,4 +1,5 @@
 
+
 ;;;; various compiler tests without side effects
 
 ;;;; This software is part of the SBCL system. See the README file for
@@ -4880,3 +4881,26 @@
     (declare (ignore warnings-p))
     (assert (functionp fun))
     (assert failure-p)))
+
+(with-test (:name :propagate-complex-type-tests)
+  (flet ((test (type value)
+           (let ((ftype (sb-kernel:%simple-fun-type
+                         (compile nil `(lambda (x)
+                                         (if (typep x ',type)
+                                             x
+                                             ',value))))))
+             (assert (typep ftype `(cons (eql function))))
+             (assert (= 3 (length ftype)))
+             (let* ((return (third ftype))
+                    (rtype (second return)))
+               (assert (typep return `(cons (eql values)
+                                            (cons t
+                                                  (cons (eql &optional)
+                                                        null)))))
+               (assert (and (subtypep rtype type)
+                            (subtypep type rtype)))))))
+    (mapc (lambda (params)
+            (apply #'test params))
+          `(((unsigned-byte 17) 0)
+            ((member 1 3 5 7) 5)
+            ((or symbol (eql 42)) t)))))
