@@ -131,6 +131,20 @@
   ;; If true, the function can stack-allocate the result. The
   ;; COMBINATION node is passed as an argument.
   (stack-allocate-result nil :type (or function null))
+  ;; If true, the function can add flow-sensitive type information
+  ;; after its execution. The COMBINATION node is passed as an argument,
+  ;; and the function returns a sequence of constraints.  A constraint is
+  ;; a triplet of constraint-kind (a symbol) and arguments, either LVARs,
+  ;; LAMBDA-VARs, or CTYPEs.
+  (constraint-propagate nil :type (or function null))
+  ;; If true, the function can add flow-sensitive type information
+  ;; depending on the truthiness of its return value.  Returns two
+  ;; values, a LVAR and a CTYPE. The LVAR is of that CTYPE iff the
+  ;; function returns true.
+  ;; It may also return additional third and fourth values. Each is
+  ;; a sequence of constraints, for the consequent and alternative
+  ;; branches.
+  (constraint-propagate-if nil :type (or function null))
   ;; all the templates that could be used to translate this function
   ;; into IR2, sorted by increasing cost.
   (templates nil :type list)
