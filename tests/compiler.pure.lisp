@@ -4904,3 +4904,17 @@
           `(((unsigned-byte 17) 0)
             ((member 1 3 5 7) 5)
             ((or symbol (eql 42)) t)))))
+
+(with-test (:name :constant-fold-complex-type-tests)
+  (assert (equal (sb-kernel:%simple-fun-type
+                  (compile nil `(lambda (x)
+                                  (if (typep x '(member 1 3))
+                                      (typep x '(member 1 3 15))
+                                      t))))
+                 `(function (t) (values (member t) &optional))))
+  (assert (equal (sb-kernel:%simple-fun-type
+                  (compile nil `(lambda (x)
+                                  (declare (type (member 1 3) x))
+                                  (typep x '(member 1 3 15)))))
+                 `(function ((or (integer 1 1) (integer 3 3)))
+                            (values (member t) &optional)))))
