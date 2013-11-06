@@ -1050,7 +1050,7 @@
                (scan (g l lc)
                  `(do ()
                       ((>= ,l ,g))
-		    (advance ,l ,lc))))
+                    (advance ,l ,lc))))
 
       (loop
         ;; x-conf, y-conf true, x-num, y-num corresponding block numbers.
