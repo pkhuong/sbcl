@@ -2145,7 +2145,7 @@
 ; coloring the interference graph
 ; assumption ; k registers are free
 
-(defun color (interference)
+(defun color-interference-graph (interference)
   (setf sb!c::*precoloring-stack* '())
   (setf sb!c::*prespilling-stack* '())
 
@@ -2279,7 +2279,7 @@
                                                   (tn-cost (vertex-tn b))))
                                               (t nil))))))
                     ;; (number-of-colored-before (length (filter-colored (interference-vertices interference))))
-                    (colored (color interference))
+                    (colored (color-interference-graph interference))
                     (spill-candidates  (filter-uncolored (filter-normal  (interference-vertices colored)))) ;; filter -uncolored
                     ;; (number-of-colored (length (filter-colored (interference-vertices colored))))
 
