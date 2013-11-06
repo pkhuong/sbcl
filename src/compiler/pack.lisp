@@ -1416,13 +1416,14 @@
           (let ((locations (sc-locations sc)))
             (when optimize
               (setf locations
-                    (stable-sort (copy-list locations) #'>
-                                 :key (lambda (location-offset)
-                                        (loop for offset from location-offset
-                                              repeat element-size
-                                              maximize (svref
-                                                        (finite-sb-always-live-count sb)
-                                                        offset))))))
+                    (schwartzian-stable-sort-list
+                     locations '>
+                     :key (lambda (location-offset)
+                            (loop for offset from location-offset
+                                  repeat element-size
+                                  maximize (svref
+                                            (finite-sb-always-live-count sb)
+                                            offset))))))
             (dolist (offset locations)
               (when (or use-reserved-locs
                         (not (member offset
@@ -1905,22 +1906,6 @@
   ;; count-if
   (count-if-not #'vertex-invisible (vertex-incidence vertex)))
 
-(defun sort-according-to-degree (vertices)
-  (sort (copy-list vertices)
-        (lambda (a b) (< (vertex-degree a) (vertex-degree b)))))
-
-(defun sort-according-to-pack-type (vertices)
-  (sort (copy-list vertices)
-        (lambda (x y) (string-not-lessp (subseq  (string (vertex-pack-type x)) 0 1)
-                                        (subseq  (string (vertex-pack-type y)) 0 1)))))
-
-(defun sort-according-to-degree-cost (verticies)
-  (sort (copy-list  verticies)
-        (lambda (a b) (cond (( < (vertex-degree a) (vertex-degree b)) t)
-                            ((=  (vertex-degree a) (vertex-degree b))
-                             (> (spill-cost (vertex-tn a)) (spill-cost (vertex-tn b))))
-                            (t nil)))))
-
 (defun filter-visible (vertices)
   (remove-if (lambda (a) (vertex-invisible a)) vertices))
 
@@ -2090,15 +2075,14 @@
     (let ((precoloring-stack '())
           (prespilling-stack '()))
       (let* ((vertices (filter-uncolored (interference-vertices interference-graph)))
-             (annotated-vertices (mapcar (lambda (vertex)
-                                           (cons vertex (spill-cost
-                                                         (vertex-tn vertex))))
-                                         vertices))
-             (sorted-vertices (stable-sort annotated-vertices '< :key 'cdr)))
+             (sorted-vertices (schwartzian-stable-sort-list
+                               vertices '<
+                               :key (lambda (vertex)
+                                      (spill-cost (vertex-tn vertex))))))
         ;; walk the vertices from least important to most important TN wrt
         ;; spill cost.  That way the TNs we really don't want to spill are
         ;; at the head of the colouring lists.
-        (loop for (vertex . nil) in sorted-vertices do
+        (loop for vertex in sorted-vertices do
           (unless (vertex-color vertex)
             (eliminate-vertex vertex)
             ;; FIXME: some interference will be with vertices that
