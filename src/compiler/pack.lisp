@@ -1834,7 +1834,7 @@
 
 (defparameter *loop-depth-weight* 1)
 (defun spill-cost (tn &optional (loop-weight *loop-depth-weight*))
-  (* (+ (max  loop-weight 1) (tn-loop-depth tn)) (tn-cost tn)))
+  (* (+ (max loop-weight 1) (tn-loop-depth tn)) (tn-cost tn)))
 
 ;; interference graph
 (def!struct (interference
