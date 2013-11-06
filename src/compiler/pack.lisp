@@ -2114,7 +2114,7 @@
 
 ; coloring the interference graph
 ; assumption ; k registers are free
-(defun color-interference-graph (interference)
+(defun partition-and-order-vertices (interference-graph)
   (flet ((domain-size (vertex)
            "The number of potential colors for that vertex."
            ;; FIXME: is it necessary to subtract reserved locations?
@@ -2122,48 +2122,49 @@
            (length (sc-locations (vertex-sc vertex))))
          (mark-as-spill-candidate (vertex)
            (setf (vertex-spill-candidate vertex) t))
-         (remove-vertex-from-graph (vertex)
-           (setf (vertex-invisible vertex) t))
-         (color-vertex (vertex color)
-           (setf (vertex-color vertex) color
-                 (vertex-invisible vertex) nil)))
+         (eliminate-vertex (vertex)
+           (setf (vertex-invisible vertex) t)))
     (let ((precoloring-stack '())
           (prespilling-stack '()))
-      (let* ((vertices (filter-uncolored (interference-vertices interference)))
+      (let* ((vertices (filter-uncolored (interference-vertices interference-graph)))
              (annotated-vertices (mapcar (lambda (vertex)
                                            (cons vertex (spill-cost
                                                          (vertex-tn vertex))))
                                          vertices))
              (sorted-vertices (stable-sort annotated-vertices '< :key 'cdr)))
+        ;; walk the vertices from least important to most important TN wrt
+        ;; spill cost.  That way the TNs we really don't want to spill are
+        ;; at the head of the colouring lists.
         (loop for (vertex . nil) in sorted-vertices do
           (unless (vertex-color vertex)
-            (remove-vertex-from-graph vertex)
+            (eliminate-vertex vertex)
             (cond ((< (vertex-degree vertex) (domain-size vertex))
                    (push vertex precoloring-stack))
                   (t
                    (mark-as-spill-candidate vertex)
                    (push vertex prespilling-stack))))))
+      (values precoloring-stack prespilling-stack))))
 
-      ;; Walk the precoloring/prespilling stacks in order:
-      ;;  the vertices were walked in increasing order of spill cost,
-      ;;  so the last-pushed vertices should be heavily favoured.
-      (let ((lookup (make-tn-offset-mapping interference)))
-        (dolist (vertex precoloring-stack)
-          (let ((color (generate-color vertex lookup)))
-            (cond (color
-                   (color-vertex vertex color))
-                  (t
+(defun color-interference-graph (interference-graph)
+  (let ((tn-vertex (make-tn-offset-mapping interference-graph)))
+    (flet ((color-vertices (vertices probably-colored-p)
+             (dolist (vertex vertices)
+               (let ((color (generate-color vertex tn-vertex)))
+                 (unless (or color (not probably-colored-p))
                    ;; FIXME: is that just debugging output?
                    (print  (list "vertex inc " (length (vertex-incidence vertex))
                                  "visibles " (length (filter-visible (vertex-incidence vertex)))
                                  "colors" (colors-in (vertex-incidence vertex))
                                  "length colo " (length (colors-in (filter-visible (vertex-incidence vertex))))
-                                 "sc-length" (length (sc-locations (vertex-sc vertex)))))))))
-        (dolist (vertex prespilling-stack)
-          (let ((color (generate-color vertex lookup)))
-            (when color
-              (color-vertex vertex color)))))))
-  interference)
+                                 "sc-length" (length (sc-locations (vertex-sc vertex))))))
+                 (when color
+                   (setf (vertex-color vertex) color
+                         (vertex-invisible vertex) nil))))))
+      (multiple-value-bind (probably-colored probably-spilled)
+          (partition-and-order-vertices interference-graph)
+        (color-vertices probably-colored t)
+        (color-vertices probably-spilled nil))))
+  interference-graph)
 
 (defparameter *iterations* 500)
 
