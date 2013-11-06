@@ -2035,81 +2035,41 @@
     (values best-color best-compatible)))
 
 ;; assuming that each neighbor of the vertex has the same sb
-(defun generate-color (vertex lookup)
-  (let* (#+no (incidence (vertex-incidence vertex))
-         #+no (visibles (filter-visible incidence))
-         (sc (vertex-sc vertex))
-         #+no (all-locations (sc-locations sc))
-         (reserved (sc-reserve-locations sc))
-         ;; FIXME; is it necessary?
-         #+no (locations all-locations) ;; (remove-if (lambda (x) (member x reserved)) all-locations))
-         ;(element-size (sc-element-size sc))
-         #+no (colors (mapcar  (lambda (c)  (vertex-color c)) visibles))
-         ;(conflict-offsets (mapcar #'car colors))
-         #+no (ref-locs (remove nil (find-ok-target-offset-vertex (vertex-tn vertex) sc lookup))))
-
-    ;; iterate over SB locations with SC index
-    (assert (= (length reserved) 0))
-
-    ;; (print (list "visible" (length visibles) "total" (length incidence) (vertex-tn vertex) ))
-    ;; (print (list "ref-locs " ref-locs))
-
-    #+no (print (list :colors-for-me (possible-colors vertex)))
+(defun find-vertex-color (vertex tn-vertex-mapping)
+  (let* ((sc (vertex-sc vertex))
+         (reserved (sc-reserve-locations sc)))
+    (aver (null reserved)) ;; FIXME: We don't handle reserved
+                           ;; locations yet
     (let ((colors (possible-colors vertex)))
-      #+no (unless colors
-        (let ((*print-level* 3))
-          (print (list :no-colors-for-me vertex)))
-        (print (list :neighbors
-                     (sort (remove-duplicates (mapcar #'car (neighbor-colors vertex))) #'<)))
-        (print (list :sc (sc-locations (vertex-sc vertex)))))
       (when colors
-        (let ((targets (target-vertices vertex lookup)))
+        (let ((targets (target-vertices vertex tn-vertex-mapping)))
           (multiple-value-bind (color recolor-vertices)
               (if targets
                   (color-for-vertices targets colors)
-                  (first colors))
+                  (values (first colors) nil))
+            ;; FIXME: can this happen during normal code, or is that a
+            ;; BUG?
             (unless color
               (let ((*print-level* 3))
                 (print :failed-to-align-with-targets)
-                (dolist (target (target-vertices vertex lookup))
+                (dolist (target (target-vertices vertex tn-vertex-mapping))
                   (print (list :target target))
                   (print (possible-colors target)))
                 (print (list :colors-for-me
                              vertex
-                             (possible-colors vertex)))
-                #+no (when (not (possible-colors vertex))
-                       (print (vertex-incidence vertex)))))
+                             (possible-colors vertex)))))
             (when color
-              #+no (print (list :color-for-all color))
-              #+no (let ((*print-level* 4))
-                     (print (list :recolor recolor-vertices)))
+              ;; FIXME: must the targets be recolored here?
               (dolist (target recolor-vertices)
-                (assert (car (vertex-color target)))
+                (aver (car (vertex-color target)))
                 (unless (eql color (car (vertex-color target)))
-                  (assert (eq (sc-sb (vertex-sc vertex))
-                              (sc-sb (vertex-sc target))))
-                  (assert (not (tn-offset (vertex-tn target))))
-                  (assert (color-possible-p color target))
+                  (aver (eq (sc-sb (vertex-sc vertex))
+                            (sc-sb (vertex-sc target))))
+                  (aver (not (tn-offset (vertex-tn target))))
+                  ;; this check seems slow. Is it necessary?
+                  (aver (color-possible-p color target))
                   (setf (car (vertex-color target)) color)))
-              #+no (let ((*print-level* 4))
-                     (print (list :recolored recolor-vertices)))
-              (return-from generate-color (cons color sc)))))))
-
-    #+no (dolist (loc (append ref-locs
-                         (remove-if (lambda (x) (member x ref-locs)) locations)))
-      ;; (print (list "location tried " loc))
-      ;; iterate over colored incidence elements
-      (when (color-possible-p loc vertex)
-        ;;(print (list "sc length loc"  sc all-locations loc))
-        (cond
-          ((not ref-locs))
-          ((member loc ref-locs)
-           (print (list "success" loc)))
-          (t
-           (print (list "failed" loc ref-locs))))
-        (return-from generate-color (cons loc sc))))
-
-    #+no (print :no-color)
+              (return-from find-vertex-color (cons color sc)))))))
     nil))
 
 ; coloring the interference graph
@@ -2152,7 +2112,7 @@
   (let ((tn-vertex (make-tn-offset-mapping interference-graph)))
     (flet ((color-vertices (vertices probably-colored-p)
              (dolist (vertex vertices)
-               (let ((color (generate-color vertex tn-vertex)))
+               (let ((color (find-vertex-color vertex tn-vertex)))
                  (unless (or color (not probably-colored-p))
                    ;; FIXME: is that just debugging output?
                    (print  (list "vertex inc " (length (vertex-incidence vertex))
