@@ -2010,13 +2010,16 @@
           (w (frob-slot #'tn-writes)))
       (remove-duplicates (append r w)))))
 
-(defun color-for-vertices (vertices
-                           &optional
-                           (colors (remove-duplicates
-                                    (mapcan #'possible-colors vertices))))
+;; Choose the "best" color for these vertices: a color is good if as
+;;  many of these vertices simultaneously take that color, and those
+;;  that can't have a low spill cost.
+(defun color-for-vertices (vertices colors)
   (let ((best-color      nil)
         (best-compatible '())
         (best-cost       nil))
+    ;; TODO: sort vertices by spill cost, so that high-spill cost ones
+    ;; are more likely to be compatible?  We're trying to find a maximal
+    ;; 1-colorable subgraph here, ie. a maximum independent set :\
     (dolist (color colors)
       (let ((compatible '())
             (cost 0))
