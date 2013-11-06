@@ -1372,12 +1372,12 @@
   (let ((table (make-hash-table)))
     (dolist (vertex (interference-vertices graph))
       (setf (gethash (vertex-tn vertex) table) vertex))
-    (flet ((lookup (tn)
+    (flet ((tn->vertex (tn)
              (let ((vertex (gethash tn table)))
                (when vertex
                  (values (car (vertex-color vertex))
                          vertex)))))
-      #'lookup)))
+      #'tn->vertex)))
 
 ;;;; location selection
 
