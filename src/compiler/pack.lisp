@@ -2139,82 +2139,51 @@
   (color-vertex vertex color)
   (setf (vertex-invisible vertex) nil))
 
-(defparameter sb!c::*precoloring-stack* '())
-(defparameter sb!c::*prespilling-stack* '())
-
 ; coloring the interference graph
 ; assumption ; k registers are free
-
 (defun color-interference-graph (interference)
-  (setf sb!c::*precoloring-stack* '())
-  (setf sb!c::*prespilling-stack* '())
-
-  (let ((verts (filter-uncolored (interference-vertices interference))))
+  (let ((precoloring-stack '())
+        (prespilling-stack '())
+        (verts (filter-uncolored (interference-vertices interference))))
     (labels ((remove-one ()
                (when verts
-               (let* ((value  (reduce #'min ;;  #'max vertices :key #'vertex-degree))
-                                         (mapcar #'vertex-tn verts)
-                                      :key #'spill-cost))
-                      (vertex (dolist (vertex verts)
-                                (when  (= (spill-cost (vertex-tn vertex)) value) (return vertex)))))
-                 (setf verts   (remove vertex verts))
-                  vertex)))
-             ;; (remove-one-briggs ()
-             ;;   (dolist (vertex verts)
-             ;;          (when (< (vertex-degree vertex) (vertex-k vertex))
-             ;;            (setf verts (remove vertex verts))
-             ;;            (return-from remove-one-briggs vertex)))
-             ;;   (when verts
-             ;;          (let ((any-vertex (first verts)))
-             ;;            (setf verts (remove any-vertex verts))
-             ;;            any-vertex)))
-             )
+                 (let* ((value  (reduce #'min ;;  #'max vertices :key #'vertex-degree))
+                                        (mapcar #'vertex-tn verts)
+                                        :key #'spill-cost))
+                        (vertex (dolist (vertex verts)
+                                  (when  (= (spill-cost (vertex-tn vertex)) value) (return vertex)))))
+                   (setf verts   (remove vertex verts))
+                   vertex))))
 
       (do ((vertex (remove-one) (remove-one)))
           ((null vertex))
+        (unless (vertex-color vertex)
+          (let ((k (vertex-k vertex)))
+            (if (< (vertex-degree vertex) k)
+                (progn
+                  (color-candidate vertex)
+                  (push vertex precoloring-stack))
+                (progn
+                  (spill-candidate vertex)
+                  (push vertex prespilling-stack)))))))
 
+    (let ((lookup (make-tn-offset-mapping interference)))
+      (dolist (vertex precoloring-stack)
+        (let ((color (generate-color vertex lookup)))
+          (if color
+              (assign-color color vertex)
+              (print  (list "vertex inc " (length (vertex-incidence vertex))
+                            "visibles " (length (filter-visible (vertex-incidence vertex)))
+                            "colors" (colors-in (vertex-incidence vertex))
+                            "length colo " (length (colors-in (filter-visible (vertex-incidence vertex))))
+                            "sc-length" (length (sc-locations (vertex-sc vertex)))))
+              )))
 
-  ;; (let ((sorted-vertex (sort-according-to-degree (interference-vertices interference))))
-  ;;       (do ((vertex (first sorted-vertex)  (first sorted-vertex)))
-  ;;           ((null vertex))
-  ;;         (setf sorted-vertex (sort-according-to-degree (filter-visible (rest sorted-vertex))))
-
-
- ;; (dolist (vertex (interference-vertices interference))
-       (unless (vertex-color vertex)
-;       (print (vertex-tn vertex))
-        (let ((k (vertex-k vertex)))
-          (if (< (vertex-degree vertex) k)
-              (progn
-                (color-candidate vertex)
-                (push vertex sb!c::*precoloring-stack*))
-              (progn
-                (spill-candidate vertex)
-                (push vertex sb!c::*prespilling-stack*))))
-        ;;(print (list "processed vertex" vertex (vertex-degree vertex)))
-          ))))
-
-  (let ((lookup (make-tn-offset-mapping interference)))
-
-  (dolist (vertex  sb!c::*precoloring-stack*)
-    (let ((color (generate-color vertex lookup)))
-      ;;(print (list "color + tn"  (vertex-tn vertex) color))
-      (if color
-        (assign-color color vertex)
-        (print  (list "vertex inc " (length (vertex-incidence vertex))
-                      "visibles " (length (filter-visible (vertex-incidence vertex)))
-                      "colors" (colors-in (vertex-incidence vertex))
-                      "length colo " (length (colors-in (filter-visible (vertex-incidence vertex))))
-                      "sc-length" (length (sc-locations (vertex-sc vertex)))))
-        )))
-
-  (do ((vertex  (pop sb!c::*prespilling-stack*)  (pop sb!c::*prespilling-stack*)))
-        ((null vertex))
-      (let ((color (generate-color vertex lookup)))
-        ;;(print (list "color + tn" (vertex-tn vertex) color))
-        (when color
-          (assign-color color vertex)))))
-
+      (do ((vertex  (pop prespilling-stack) (pop prespilling-stack)))
+          ((null vertex))
+        (let ((color (generate-color vertex lookup)))
+          (when color
+            (assign-color color vertex))))))
   interference)
 
 (defparameter *iterations* 500)
