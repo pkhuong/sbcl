@@ -1905,10 +1905,6 @@
   ;; count-if
   (count-if-not #'vertex-invisible (vertex-incidence vertex)))
 
-;; assign color different than the colored neighbors
-(defun color-vertex (vertex color)
-  (setf (vertex-color vertex) color))
-
 (defun sort-according-to-degree (vertices)
   (sort (copy-list vertices)
         (lambda (a b) (< (vertex-degree a) (vertex-degree b)))))
@@ -2116,12 +2112,6 @@
     #+no (print :no-color)
     nil))
 
-;; assign color to the last slot on the stack
-;; iterate over stack
-(defun assign-color (color vertex)
-  (color-vertex vertex color)
-  (setf (vertex-invisible vertex) nil))
-
 ; coloring the interference graph
 ; assumption ; k registers are free
 (defun color-interference-graph (interference)
@@ -2133,7 +2123,10 @@
          (mark-as-spill-candidate (vertex)
            (setf (vertex-spill-candidate vertex) t))
          (remove-vertex-from-graph (vertex)
-           (setf (vertex-invisible vertex) t)))
+           (setf (vertex-invisible vertex) t))
+         (color-vertex (vertex color)
+           (setf (vertex-color vertex) color
+                 (vertex-invisible vertex) nil)))
     (let ((precoloring-stack '())
           (prespilling-stack '()))
       (let* ((vertices (filter-uncolored (interference-vertices interference)))
@@ -2158,7 +2151,7 @@
         (dolist (vertex precoloring-stack)
           (let ((color (generate-color vertex lookup)))
             (cond (color
-                   (assign-color color vertex))
+                   (color-vertex vertex color))
                   (t
                    ;; FIXME: is that just debugging output?
                    (print  (list "vertex inc " (length (vertex-incidence vertex))
@@ -2169,7 +2162,7 @@
         (dolist (vertex prespilling-stack)
           (let ((color (generate-color vertex lookup)))
             (when color
-              (assign-color color vertex)))))))
+              (color-vertex vertex color)))))))
   interference)
 
 (defparameter *iterations* 500)
