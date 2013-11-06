@@ -1894,17 +1894,6 @@
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
 
-;; select vertex that has a degree K;
-;; FIXME: possibilities for a heuristic
-(defun spill-candidate (vertex)
-  (setf (vertex-spill-candidate vertex) t)
-  (setf (vertex-invisible vertex) t)
-  vertex)
-
-(defun color-candidate (vertex)
-  (setf (vertex-invisible vertex) t)
-  vertex)
-
 (defun colors-in (incidence)
   (let* ((colors (mapcar #'vertex-color incidence))
          (offsets (mapcar #'car colors))
@@ -2140,7 +2129,11 @@
            "The number of potential colors for that vertex."
            ;; FIXME: is it necessary to subtract reserved locations?
            ;;  I'm pretty sure it is -- PK
-           (length (sc-locations (vertex-sc vertex)))))
+           (length (sc-locations (vertex-sc vertex))))
+         (mark-as-spill-candidate (vertex)
+           (setf (vertex-spill-candidate vertex) t))
+         (remove-vertex-from-graph (vertex)
+           (setf (vertex-invisible vertex) t)))
     (let ((precoloring-stack '())
           (prespilling-stack '()))
       (let* ((vertices (filter-uncolored (interference-vertices interference)))
@@ -2151,27 +2144,29 @@
              (sorted-vertices (stable-sort annotated-vertices '< :key 'cdr)))
         (loop for (vertex . nil) in sorted-vertices do
           (unless (vertex-color vertex)
+            (remove-vertex-from-graph vertex)
             (cond ((< (vertex-degree vertex) (domain-size vertex))
-                   (color-candidate vertex)
                    (push vertex precoloring-stack))
                   (t
-                   (spill-candidate vertex)
+                   (mark-as-spill-candidate vertex)
                    (push vertex prespilling-stack))))))
 
+      ;; Walk the precoloring/prespilling stacks in order:
+      ;;  the vertices were walked in increasing order of spill cost,
+      ;;  so the last-pushed vertices should be heavily favoured.
       (let ((lookup (make-tn-offset-mapping interference)))
         (dolist (vertex precoloring-stack)
           (let ((color (generate-color vertex lookup)))
-            (if color
-                (assign-color color vertex)
-                (print  (list "vertex inc " (length (vertex-incidence vertex))
-                              "visibles " (length (filter-visible (vertex-incidence vertex)))
-                              "colors" (colors-in (vertex-incidence vertex))
-                              "length colo " (length (colors-in (filter-visible (vertex-incidence vertex))))
-                              "sc-length" (length (sc-locations (vertex-sc vertex)))))
-                )))
-
-        (do ((vertex  (pop prespilling-stack) (pop prespilling-stack)))
-            ((null vertex))
+            (cond (color
+                   (assign-color color vertex))
+                  (t
+                   ;; FIXME: is that just debugging output?
+                   (print  (list "vertex inc " (length (vertex-incidence vertex))
+                                 "visibles " (length (filter-visible (vertex-incidence vertex)))
+                                 "colors" (colors-in (vertex-incidence vertex))
+                                 "length colo " (length (colors-in (filter-visible (vertex-incidence vertex))))
+                                 "sc-length" (length (sc-locations (vertex-sc vertex)))))))))
+        (dolist (vertex prespilling-stack)
           (let ((color (generate-color vertex lookup)))
             (when color
               (assign-color color vertex)))))))
