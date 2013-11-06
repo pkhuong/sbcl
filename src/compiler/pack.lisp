@@ -1952,20 +1952,34 @@
        (not (color-conflict-p (cons color (vertex-sc vertex))
                               (neighbor-colors vertex)))))
 
-;; TODO reserved?
-(defun possible-colors (vertex
-                        &optional (colors (sc-locations (vertex-sc vertex))))
+(defun vertex-domain (vertex)
   (declare (type vertex vertex))
-  (remove-if (lambda (color)
-               (not (color-possible-p color vertex)))
-             (stable-sort (copy-list colors) #'> ;; TODO separate function?
-               :key (lambda (color)
-                      (loop for offset from color
-                         repeat (sc-element-size (vertex-sc vertex))
-                         maximize (svref
-                                   (finite-sb-always-live-count (sc-sb (vertex-sc vertex)))
-                                   offset))))))
+  (flet ((color-always-live-conflict (color)
+           ;; Counts, for all the offsets in the SB, the max # of
+           ;; basic blocks in which that location is used by an
+           ;; :always-live TN.  This measure is an approxmation of the
+           ;; pressure on that specific location.
+           (loop with sb = (sc-sb (vertex-sc vertex))
+                 for offset from color
+                 repeat (sc-element-size (vertex-sc vertex))
+                 maximize (aref (finite-sb-always-live-count sb) offset))))
+    (declare (dynamic-extent color-always-live-conflict))
+    (let* ((sc (vertex-sc vertex))
+           (reserved (sc-reserve-locations sc))
+           (allowed (remove-if-not (lambda (color)
+                                     (and (color-possible-p color vertex)
+                                          ;; common case is there are
+                                          ;; no reserve locs
+                                          (not (and reserved
+                                                    (memq color reserved)))))
+                                   (sc-locations sc))))
+      (schwartzian-stable-sort-list allowed #'>
+                                    :key #'color-always-live-conflict))))
 
+;; See FIND-OK-TARGET-OFFSET.  This and F-O-T-O should definitely be
+;; rewritten.  The goal here is to find the set of vertices that we'd
+;; like to share the same location as vertex, because of :TARGET
+;; fields in VOP definitions.
 (defun target-vertices (vertex tn-offset)
   (flet ((frob-slot (slot-fun)
            (declare (type function slot-fun))
@@ -2028,7 +2042,7 @@
          (reserved (sc-reserve-locations sc)))
     (aver (null reserved)) ;; FIXME: We don't handle reserved
                            ;; locations yet
-    (let ((colors (possible-colors vertex)))
+    (let ((colors (vertex-domain vertex)))
       (when colors
         (let ((targets (target-vertices vertex tn-vertex-mapping)))
           (multiple-value-bind (color recolor-vertices)
@@ -2042,10 +2056,10 @@
                 (print :failed-to-align-with-targets)
                 (dolist (target (target-vertices vertex tn-vertex-mapping))
                   (print (list :target target))
-                  (print (possible-colors target)))
+                  (print (vertex-domain target)))
                 (print (list :colors-for-me
                              vertex
-                             (possible-colors vertex)))))
+                             (vertex-domain vertex)))))
             (when color
               ;; FIXME: must the targets be recolored here?
               (dolist (target recolor-vertices)
