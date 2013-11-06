@@ -2138,6 +2138,9 @@
         (loop for (vertex . nil) in sorted-vertices do
           (unless (vertex-color vertex)
             (eliminate-vertex vertex)
+            ;; FIXME: some interference will be with vertices that don't belong
+            ;;  in the right SB or don't take the same number of slots. Make
+            ;;  this smarter.
             (cond ((< (vertex-degree vertex) (domain-size vertex))
                    (push vertex precoloring-stack))
                   (t
@@ -2162,7 +2165,10 @@
                          (vertex-invisible vertex) nil))))))
       (multiple-value-bind (probably-colored probably-spilled)
           (partition-and-order-vertices interference-graph)
+        ;; If this were done correctly (see FIXME above), all probably colored would
+        ;; find a color.
         (color-vertices probably-colored t)
+        ;; These might benefit from further ordering... LexBFS?
         (color-vertices probably-spilled nil))))
   interference-graph)
 
