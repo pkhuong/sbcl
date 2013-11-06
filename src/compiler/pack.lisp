@@ -2138,9 +2138,9 @@
         (loop for (vertex . nil) in sorted-vertices do
           (unless (vertex-color vertex)
             (eliminate-vertex vertex)
-            ;; FIXME: some interference will be with vertices that don't belong
-            ;;  in the right SB or don't take the same number of slots. Make
-            ;;  this smarter.
+            ;; FIXME: some interference will be with vertices that
+            ;;  don't take the same number of slots. Make this
+            ;;  smarter.
             (cond ((< (vertex-degree vertex) (domain-size vertex))
                    (push vertex precoloring-stack))
                   (t
