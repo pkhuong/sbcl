@@ -1894,12 +1894,6 @@
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
 
-;; FIXME is it necessary to subtract the reserved locations
-(defun vertex-k (vertex)
-  (let* ((sc   (vertex-sc vertex))
-         (k (length (sc-locations sc))))
-    k))
-
 ;; select vertex that has a degree K;
 ;; FIXME: possibilities for a heuristic
 (defun spill-candidate (vertex)
@@ -2142,48 +2136,45 @@
 ; coloring the interference graph
 ; assumption ; k registers are free
 (defun color-interference-graph (interference)
-  (let ((precoloring-stack '())
-        (prespilling-stack '())
-        (verts (filter-uncolored (interference-vertices interference))))
-    (labels ((remove-one ()
-               (when verts
-                 (let* ((value  (reduce #'min ;;  #'max vertices :key #'vertex-degree))
-                                        (mapcar #'vertex-tn verts)
-                                        :key #'spill-cost))
-                        (vertex (dolist (vertex verts)
-                                  (when  (= (spill-cost (vertex-tn vertex)) value) (return vertex)))))
-                   (setf verts   (remove vertex verts))
-                   vertex))))
+  (flet ((domain-size (vertex)
+           "The number of potential colors for that vertex."
+           ;; FIXME: is it necessary to subtract reserved locations?
+           ;;  I'm pretty sure it is -- PK
+           (length (sc-locations (vertex-sc vertex)))))
+    (let ((precoloring-stack '())
+          (prespilling-stack '()))
+      (let* ((vertices (filter-uncolored (interference-vertices interference)))
+             (annotated-vertices (mapcar (lambda (vertex)
+                                           (cons vertex (spill-cost
+                                                         (vertex-tn vertex))))
+                                         vertices))
+             (sorted-vertices (stable-sort annotated-vertices '< :key 'cdr)))
+        (loop for (vertex . nil) in sorted-vertices do
+          (unless (vertex-color vertex)
+            (cond ((< (vertex-degree vertex) (domain-size vertex))
+                   (color-candidate vertex)
+                   (push vertex precoloring-stack))
+                  (t
+                   (spill-candidate vertex)
+                   (push vertex prespilling-stack))))))
 
-      (do ((vertex (remove-one) (remove-one)))
-          ((null vertex))
-        (unless (vertex-color vertex)
-          (let ((k (vertex-k vertex)))
-            (if (< (vertex-degree vertex) k)
-                (progn
-                  (color-candidate vertex)
-                  (push vertex precoloring-stack))
-                (progn
-                  (spill-candidate vertex)
-                  (push vertex prespilling-stack)))))))
+      (let ((lookup (make-tn-offset-mapping interference)))
+        (dolist (vertex precoloring-stack)
+          (let ((color (generate-color vertex lookup)))
+            (if color
+                (assign-color color vertex)
+                (print  (list "vertex inc " (length (vertex-incidence vertex))
+                              "visibles " (length (filter-visible (vertex-incidence vertex)))
+                              "colors" (colors-in (vertex-incidence vertex))
+                              "length colo " (length (colors-in (filter-visible (vertex-incidence vertex))))
+                              "sc-length" (length (sc-locations (vertex-sc vertex)))))
+                )))
 
-    (let ((lookup (make-tn-offset-mapping interference)))
-      (dolist (vertex precoloring-stack)
-        (let ((color (generate-color vertex lookup)))
-          (if color
-              (assign-color color vertex)
-              (print  (list "vertex inc " (length (vertex-incidence vertex))
-                            "visibles " (length (filter-visible (vertex-incidence vertex)))
-                            "colors" (colors-in (vertex-incidence vertex))
-                            "length colo " (length (colors-in (filter-visible (vertex-incidence vertex))))
-                            "sc-length" (length (sc-locations (vertex-sc vertex)))))
-              )))
-
-      (do ((vertex  (pop prespilling-stack) (pop prespilling-stack)))
-          ((null vertex))
-        (let ((color (generate-color vertex lookup)))
-          (when color
-            (assign-color color vertex))))))
+        (do ((vertex  (pop prespilling-stack) (pop prespilling-stack)))
+            ((null vertex))
+          (let ((color (generate-color vertex lookup)))
+            (when color
+              (assign-color color vertex)))))))
   interference)
 
 (defparameter *iterations* 500)
