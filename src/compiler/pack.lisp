@@ -1963,7 +1963,7 @@
                  for offset from color
                  repeat (sc-element-size (vertex-sc vertex))
                  maximize (aref (finite-sb-always-live-count sb) offset))))
-    (declare (dynamic-extent color-always-live-conflict))
+    (declare (dynamic-extent #'color-always-live-conflict))
     (let* ((sc (vertex-sc vertex))
            (reserved (sc-reserve-locations sc))
            (allowed (remove-if-not (lambda (color)
