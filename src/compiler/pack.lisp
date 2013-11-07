@@ -1896,10 +1896,10 @@
   (tn-sc (vertex-tn vertex)))
 
 (defun filter-uncolored (vertices)
-  (remove-if (lambda (a) (not (equal (vertex-color a) nil))) vertices))
+  (remove-if #'vertex-color vertices))
 
 (defun filter-normal (vertices)
-  (remove-if-not (lambda (a) (equal (vertex-pack-type a) :normal)) vertices))
+  (remove :normal vertices :test-not #'eql :key #'vertex-pack-type))
 
 ;; Return non-nil if COLOR conflicts with any of NEIGHBOR-COLORS.
 ;; Take into account element sizes of the respective SCs.
