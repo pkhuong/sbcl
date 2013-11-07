@@ -2164,10 +2164,11 @@
                                         (< cost best-cost))
                                 (setf best-cost cost
                                       best-spill vertex)))))
+                     (mapc #'candidate spill-candidates)
+                     ;; Compile times become much too long if this is enabled...
+                     #+nil
                      (dolist (candidate spill-candidates)
                        (candidate candidate)
-                       ;; Compile times become much too long if this is enabled...
-                       #+nil
                        (if color-flag
                            (mapc #'candidate (collect-min-spill-candidates candidate))
                            (dolist (neighbour (vertex-incidence candidate))
