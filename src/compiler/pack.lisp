@@ -1895,9 +1895,6 @@
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
 
-(defun filter-uncolored (vertices)
-  (remove-if #'vertex-color vertices))
-
 (defun filter-normal (vertices)
   (remove :normal vertices :test-not #'eql :key #'vertex-pack-type))
 
@@ -2160,28 +2157,33 @@
         (number-iterations (min iterations (length vertices)))
         (rest-vertices vertices))
     ;(print number-iterations)
-  (labels ((iter (vert)
+  (labels ((spill-candidates (vertices)
+             (remove-if-not (lambda (vertex)
+                              (and (eql :normal (vertex-pack-type vertex))
+                                   (not (vertex-color vertex))))
+                            vertices))
+           (iter (vert)
              ;;(print "iterating")
              (let* ((interference (construct-interference
-                                  #+no  vert
-                                       (stable-sort
-                                          (copy-list  vert)
-                                          (lambda (a b)
-                                            (cond
-                                              ((> (tn-loop-depth (vertex-tn a))
-                                                  (tn-loop-depth (vertex-tn b)))
-                                               t)
-                                              ((= (tn-loop-depth (vertex-tn a))
-                                                  (tn-loop-depth (vertex-tn b)))
-                                               (> (tn-cost (vertex-tn a))
-                                                  (tn-cost (vertex-tn b))))
-                                              (t nil))))))
+                                   #+no  vert
+                                   (stable-sort
+                                    (copy-list  vert)
+                                    (lambda (a b)
+                                      (cond
+                                        ((> (tn-loop-depth (vertex-tn a))
+                                            (tn-loop-depth (vertex-tn b)))
+                                         t)
+                                        ((= (tn-loop-depth (vertex-tn a))
+                                            (tn-loop-depth (vertex-tn b)))
+                                         (> (tn-cost (vertex-tn a))
+                                            (tn-cost (vertex-tn b))))
+                                        (t nil))))))
                     ;; (number-of-colored-before (length (filter-colored (interference-vertices interference))))
                     (colored (color-interference-graph interference))
-                    (spill-candidates  (filter-uncolored (filter-normal  (interference-vertices colored)))) ;; filter -uncolored
+                    (spill-candidates  (spill-candidates (interference-vertices colored))) ;; filter -uncolored
                     ;; (number-of-colored (length (filter-colored (interference-vertices colored))))
 
-)
+                    )
 
                ;;(print (list "spill candidate" spill-candidates))
                (when spill-candidates
@@ -2193,27 +2195,27 @@
                                                (if *candidate-color-flag*
                                                    (collect-min-spill-candidates candidate)
                                                    (filter-normal (vertex-incidence candidate)))))
-                                                    ;; #'> :key #'vertex-degree))
-                                               #+no (let ((neighbors
-                                                      (sort (copy-list
-                                                             (filter-normal
-                                                              (vertex-incidence candidate)))
-                                                            #'> :key #'vertex-degree)))
-                                                 (subseq neighbors 0 (min (length neighbors) 4)))
+                                            ;; #'> :key #'vertex-degree))
+                                            #+no (let ((neighbors
+                                                         (sort (copy-list
+                                                                (filter-normal
+                                                                 (vertex-incidence candidate)))
+                                                               #'> :key #'vertex-degree)))
+                                                   (subseq neighbors 0 (min (length neighbors) 4)))
                                             spill-candidates)))
                         (sorted-vertices (stable-sort
                                           offenders
                                           #+no (copy-list spill-candidates)
                                           (lambda (a b)
                                             #+no (cond
-                                              ((< (tn-loop-depth (vertex-tn a))
-                                                  (tn-loop-depth (vertex-tn b)))
-                                               t)
-                                              ((= (tn-loop-depth (vertex-tn a))
-                                                  (tn-loop-depth (vertex-tn b)))
-                                               (< (tn-cost (vertex-tn a))
-                                                  (tn-cost (vertex-tn b))))
-                                              (t nil))
+                                                   ((< (tn-loop-depth (vertex-tn a))
+                                                       (tn-loop-depth (vertex-tn b)))
+                                                    t)
+                                                   ((= (tn-loop-depth (vertex-tn a))
+                                                       (tn-loop-depth (vertex-tn b)))
+                                                    (< (tn-cost (vertex-tn a))
+                                                       (tn-cost (vertex-tn b))))
+                                                   (t nil))
                                             (< (spill-cost (vertex-tn a)) (spill-cost (vertex-tn b)))
                                             )))
                         (lowest-cost-spill (first sorted-vertices)))
@@ -2232,7 +2234,7 @@
                    )))))
 
     (do  ((colored  (iter rest-vertices) (iter rest-vertices)))
-         ((or  (= number-iterations 0)  (null (filter-normal (filter-uncolored rest-vertices)))))
+         ((or  (= number-iterations 0)  (null (spill-candidates rest-vertices))))
       (decf number-iterations)
       (print number-iterations)
       ;; (print colored)
