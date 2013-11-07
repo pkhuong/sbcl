@@ -1453,7 +1453,7 @@
 (defun pack-tn (tn restricted optimize
                 &key (allow-unbounded-sc t) (force-unbounded-sc nil))
   (declare (type tn tn))
-  (aver (or allow-unbounded-sc force-unbounded-sc))
+  (when force-unbounded-sc (aver allow-unbounded-sc))
   (let* ((original (original-tn tn))
          (fsc (tn-sc tn))
          (alternates (unless restricted (sc-alternate-scs fsc)))
@@ -1465,8 +1465,8 @@
     (do ((sc fsc (pop alternates)))
         ((null sc)
          (failed-to-pack-error tn restricted))
-      (when (and (neq (sb-kind (sc-sb sc)) :unbounded)
-                 force-unbounded-sc)
+      (when (and force-unbounded-sc
+                 (neq (sb-kind (sc-sb sc)) :unbounded))
         (go next))
       (unless (or allow-unbounded-sc
                   (neq (sb-kind (sc-sb sc)) :unbounded))
