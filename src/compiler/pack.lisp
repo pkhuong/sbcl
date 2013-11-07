@@ -752,7 +752,7 @@
 ;;; stack in units of the number of references. We count all
 ;;; references as +1, and subtract out REGISTER-SAVE-PENALTY for each
 ;;; place where we would have to save a register.
-(defparameter *write-cost* 2)
+(defvar *write-cost* 2)
 (defun assign-tn-costs (component)
   (do-ir2-blocks (block component)
     (do ((vop (ir2-block-start-vop block) (vop-next vop)))
@@ -1626,7 +1626,7 @@
 
 
 ;; method :new or :old
-(defparameter *reg-alloc-method* :new)
+(defvar *reg-alloc-method* :new)
 
 
 (defun pack (component)
@@ -1833,7 +1833,7 @@
          (values))
     (clean-up-pack-structures)))
 
-(defparameter *loop-depth-weight* 1)
+(defvar *loop-depth-weight* 1)
 (defun spill-cost (tn &optional (loop-weight *loop-depth-weight*))
   (* (+ (max loop-weight 1) (tn-loop-depth tn)) (tn-cost tn)))
 
@@ -2112,7 +2112,7 @@
         (color-vertices probably-spilled nil))))
   interference-graph)
 
-(defparameter *iterations* 500)
+(defvar *iterations* 500)
 
 (defun spill-cost< (a b)
   (cond
@@ -2150,7 +2150,7 @@
                ((and cell (>= spillcost-neighbor spillcost-cell)) t)
                (t (push (cons color neighbor) colors)))))))
 
-(defparameter *candidate-color-flag* t)
+(defvar *candidate-color-flag* t)
 ;; fixme: add a global var for the number of iterations
 (defun iterate-color (vertices &optional (iterations *iterations*))
   (let ((spill-list '())
