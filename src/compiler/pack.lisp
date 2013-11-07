@@ -2196,23 +2196,28 @@
                  (setf graph (remove-vertex-from-interference-graph
                               to-spill graph :reset t)))
                (let* ((colored (color-interference-graph graph))
-                      (spill-candidates (spill-candidates (interference-vertices colored))))
+                      (spill-candidates (spill-candidates (interference-vertices colored)))
+                      (color-flag *candidate-color-flag*)
+                      best-cost
+                      best-spill)
                  (when spill-candidates
-                   (let* ((offenders (remove-duplicates
-                                      (mapcan (lambda (candidate)
-                                                (list*
-                                                 candidate
-                                                 (if *candidate-color-flag*
-                                                     (collect-min-spill-candidates candidate)
-                                                     (filter-normal (vertex-incidence candidate)))))
-                                              spill-candidates)))
-                          (sorted-vertices (stable-sort offenders #'<
-                                                        :key (lambda (vertex)
-                                                               (spill-cost (vertex-tn vertex)))))
-                          (lowest-cost-spill (first sorted-vertices)))
-                     (setf (vertex-color lowest-cost-spill) nil)
-                     (push lowest-cost-spill spill-list)
-                     lowest-cost-spill)))))
+                   (flet ((candidate (vertex)
+                            (let ((cost (spill-cost (vertex-tn vertex))))
+                              (when (or (null best-cost)
+                                        (< cost best-cost))
+                                (setf best-cost cost
+                                      best-spill vertex)))))
+                     (dolist (candidate spill-candidates)
+                       (candidate candidate)
+                       (if color-flag
+                           (mapc #'candidate (collect-min-spill-candidates candidate))
+                           (dolist (neighbour (vertex-incidence candidate))
+                             (when (eql (vertex-pack-type neighbour) :normal)
+                               (candidate neighbour))))))
+                   (aver best-spill)
+                   (setf (vertex-color best-spill) nil)
+                   (push best-spill spill-list)
+                   best-spill))))
       (loop repeat number-iterations
             while (setf to-spill (iter to-spill))))
     (let ((rest-vertices (interference-vertices graph)))
