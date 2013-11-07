@@ -2156,6 +2156,7 @@
                      (color-flag *candidate-color-flag*)
                      best-cost
                      best-spill)
+                 (declare (ignorable color-flag))
                  (when spill-candidates
                    (flet ((candidate (vertex)
                             (let ((cost (spill-cost (vertex-tn vertex))))
@@ -2165,6 +2166,8 @@
                                       best-spill vertex)))))
                      (dolist (candidate spill-candidates)
                        (candidate candidate)
+                       ;; Compile times become much too long if this is enabled...
+                       #+nil
                        (if color-flag
                            (mapc #'candidate (collect-min-spill-candidates candidate))
                            (dolist (neighbour (vertex-incidence candidate))
