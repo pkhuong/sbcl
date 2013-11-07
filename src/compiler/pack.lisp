@@ -1950,7 +1950,8 @@
                 (not (tn-offset (vertex-tn vertex))))
            (= color (car (vertex-color vertex))))
        (not (color-conflict-p (cons color (vertex-sc vertex))
-                              (neighbor-colors vertex)))))
+                              (let ((neighbours (filter-visible (vertex-incidence vertex))))
+                                (mapcar #'vertex-color neighbours))))))
 
 (defun vertex-domain (vertex)
   (declare (type vertex vertex))
