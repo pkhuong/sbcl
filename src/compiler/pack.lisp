@@ -2062,27 +2062,26 @@
            (setf (vertex-spill-candidate vertex) t))
          (eliminate-vertex (vertex)
            (setf (vertex-invisible vertex) t)))
-    (let ((precoloring-stack '())
-          (prespilling-stack '()))
-      (let* ((vertices (filter-uncolored (interference-vertices interference-graph)))
-             (sorted-vertices (schwartzian-stable-sort-list
-                               vertices '<
-                               :key (lambda (vertex)
-                                      (spill-cost (vertex-tn vertex))))))
-        ;; walk the vertices from least important to most important TN wrt
-        ;; spill cost.  That way the TNs we really don't want to spill are
-        ;; at the head of the colouring lists.
-        (loop for vertex in sorted-vertices do
-          (unless (vertex-color vertex)
-            (eliminate-vertex vertex)
-            ;; FIXME: some interference will be with vertices that
-            ;;  don't take the same number of slots. Make this
-            ;;  smarter.
-            (cond ((< (degree vertex) (domain-size vertex))
-                   (push vertex precoloring-stack))
-                  (t
-                   (mark-as-spill-candidate vertex)
-                   (push vertex prespilling-stack))))))
+    (let* ((precoloring-stack '())
+           (prespilling-stack '())
+           (vertices (remove-if #'vertex-color (interference-vertices interference-graph)))
+           (sorted-vertices (schwartzian-stable-sort-list
+                             vertices '<
+                             :key (lambda (vertex)
+                                    (spill-cost (vertex-tn vertex))))))
+      ;; walk the vertices from least important to most important TN wrt
+      ;; spill cost.  That way the TNs we really don't want to spill are
+      ;; at the head of the colouring lists.
+      (loop for vertex in sorted-vertices do
+        (aver (not (vertex-color vertex))) ; we already took those out above
+        (eliminate-vertex vertex)
+        ;; FIXME: some interference will be with vertices that don't
+        ;;  take the same number of slots. Find a smarter heuristic.
+        (cond ((< (degree vertex) (domain-size vertex))
+               (push vertex precoloring-stack))
+              (t
+               (mark-as-spill-candidate vertex)
+               (push vertex prespilling-stack))))
       (values precoloring-stack prespilling-stack))))
 
 (defun color-interference-graph (interference-graph)
