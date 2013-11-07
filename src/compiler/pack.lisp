@@ -2229,33 +2229,16 @@
       (append spill-list rest-vertices))))
 
 (defun pack-colored (colored-vertices)
-;;  (print "pack-colored")
-  ;;(let (;(vertices (sort-according-to-pack-type colored-vertices))
-    ;;     (index 0))
-    (dolist (vertex colored-vertices) ;;  vertices)
-
-      (let* ((color (vertex-color vertex))
-             (offset (car color))
-             (tn (vertex-tn vertex))
-             (tn-offset (tn-offset tn)))
-            ;; (tn-kind (tn-kind tn))
-             ;;(pack-type (vertex-pack-type vertex))
-
-        ;; (dolist (neighbor (vertex-incidence vertex))
-        ;;   (assert  (not (equal (vertex-color vertex) (vertex-color neighbor)))))
-
-
-        ;; colored  but the tn is not packed yet
-        (when (and offset (not tn-offset))
-          (assert (not (conflicts-in-sc  tn (tn-sc tn) offset)))
-          ;;(print "packing colored tn" tn)
-          (setf (tn-offset tn) offset)
-
-
-          (pack-wired-tn (vertex-tn vertex) nil))))
-              ;; no color generated and the tn is not packed
-     colored-vertices)
-
+  (dolist (vertex colored-vertices)
+    (let* ((color (vertex-color vertex))
+           (offset (car color))
+           (tn (vertex-tn vertex))
+           (tn-offset (tn-offset tn)))
+      (when (and offset (not tn-offset))
+        (assert (not (conflicts-in-sc tn (tn-sc tn) offset)))
+        (setf (tn-offset tn) offset)
+        (pack-wired-tn (vertex-tn vertex) nil))))
+  colored-vertices)
 
 (defun pack-old (component)
   (unwind-protect
