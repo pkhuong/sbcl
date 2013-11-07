@@ -2161,13 +2161,14 @@
     (dolist (neighbor (filter-normal (vertex-incidence vertex)))
       (let* ((color (car (vertex-color neighbor)))
              (cell (assoc color colors))
-             (spillcost-neighbor  (spill-cost (vertex-tn neighbor)))
+             (spillcost-neighbor (spill-cost (vertex-tn neighbor)))
              (spillcost-cell (when cell (spill-cost (vertex-tn (cdr cell))))))
         (cond  ((and cell (< spillcost-neighbor spillcost-cell))
                 (setf colors (remove cell colors))
                 (push (cons color neighbor) colors))
                ((and cell (>= spillcost-neighbor spillcost-cell)) t)
-               (t (push (cons color neighbor) colors)))))))
+               (t (push (cons color neighbor) colors)))))
+    (remove nil (mapcar #'cdr colors))))
 
 (defvar *candidate-color-flag* t) ;; FIXME: what does that mean?
 
