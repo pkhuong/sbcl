@@ -1871,21 +1871,20 @@
 
 (defun remove-vertex-from-interference-graph (vertex graph &key reset)
   (declare (type vertex vertex) (type interference graph))
-  (let* ((vertices (if reset
-                       (loop for v in (interference-vertices graph)
-                             unless (eql v vertex)
-                               do (let* ((tn (vertex-tn v))
-                                         (offset (tn-offset tn))
-                                         (sc (tn-sc tn)))
-                                    (setf (vertex-invisible v) nil
-                                          (vertex-color v)
-                                          (and offset
-                                               (cons offset sc))))
-                             collect v)
-                       (remove vertex
-                               (interference-vertices graph))))
-         (graph (make-interference vertices)))
-    (dolist (neighbour (vertex-incidence vertex) graph)
+  (let ((vertices (if reset
+                      (loop for v in (interference-vertices graph)
+                            unless (eql v vertex)
+                              do (let* ((tn (vertex-tn v))
+                                        (offset (tn-offset tn))
+                                        (sc (tn-sc tn)))
+                                   (setf (vertex-invisible v) nil
+                                         (vertex-color v)
+                                         (and offset
+                                              (cons offset sc))))
+                              and collect v)
+                      (remove vertex
+                              (interference-vertices graph)))))
+    (dolist (neighbour (vertex-incidence vertex) (make-interference vertices))
       (setf (vertex-incidence neighbour)
             (remove vertex (vertex-incidence neighbour))))))
 
@@ -2174,7 +2173,8 @@
 
 (defun iterate-color (vertices &optional (iterations *iterations*))
   (let* ((spill-list '())
-         (number-iterations (min iterations (length vertices)))
+         (nvertices (length vertices))
+         (number-iterations (min iterations nvertices))
          (sorted-vertices (stable-sort ;; FIXME: why the sort?
                            (copy-list vertices)
                            (lambda (a b)
@@ -2193,9 +2193,6 @@
                               vertices))
              (iter (to-spill)
                (when to-spill
-                 (setf sorted-vertices (remove to-spill sorted-vertices)
-                       graph (construct-interference sorted-vertices))
-                 #+nil
                  (setf graph (remove-vertex-from-interference-graph
                               to-spill graph :reset t)))
                (let* ((colored (color-interference-graph graph))
@@ -2221,7 +2218,7 @@
     (let ((rest-vertices (interference-vertices graph)))
       (when to-spill
         (setf rest-vertices (remove to-spill rest-vertices)))
-      (assert (= (length vertices) (+ (length spill-list) (length rest-vertices))))
+      (assert (= nvertices (+ (length spill-list) (length rest-vertices))))
       (append spill-list rest-vertices))))
 
 (defun pack-colored (colored-vertices)
