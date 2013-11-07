@@ -1895,15 +1895,6 @@
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
 
-(defun filter-invisible (vertices)
-  (remove-if (lambda (a) (not (vertex-invisible a))) vertices))
-
-(defun filter-color-candidate (vertices)
-  (remove-if (lambda (a)  (vertex-spill-candidate a)) vertices))
-
-(defun filter-colored (vertices)
-  (remove-if (lambda (a) (equal (vertex-color a) nil)) vertices))
-
 (defun filter-uncolored (vertices)
   (remove-if (lambda (a) (not (equal (vertex-color a) nil))) vertices))
 
