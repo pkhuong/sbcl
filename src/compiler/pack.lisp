@@ -1869,6 +1869,26 @@
                     (push b (vertex-incidence a))))))
     interference))
 
+(defun remove-vertex-from-interference-graph (vertex graph &key reset)
+  (declare (type vertex vertex) (type interference graph))
+  (let* ((vertices (if reset
+                       (loop for v in (interference-vertices graph)
+                             unless (eql v vertex)
+                               do (let* ((tn (vertex-tn v))
+                                         (offset (tn-offset tn))
+                                         (sc (tn-sc tn)))
+                                    (setf (vertex-invisible v) nil
+                                          (vertex-color v)
+                                          (and offset
+                                               (cons offset sc))))
+                             collect v)
+                       (remove vertex
+                               (interference-vertices graph))))
+         (graph (make-interference vertices)))
+    (dolist (neighbour (vertex-incidence vertex) graph)
+      (setf (vertex-incidence neighbour)
+            (remove vertex (vertex-incidence neighbour))))))
+
  ;; vertex in an interference graph
  (def!struct  (vertex
                (:constructor make-vertex (tn pack-type)))
@@ -2153,24 +2173,32 @@
 (defvar *candidate-color-flag* t) ;; FIXME: what does that mean?
 
 (defun iterate-color (vertices &optional (iterations *iterations*))
-  (let ((spill-list '())
-        (number-iterations (min iterations (length vertices)))
-        (rest-vertices (stable-sort ;; FIXME: why the sort?
-                        (copy-list vertices)
-                        (lambda (a b)
-                          (or (> (tn-loop-depth (vertex-tn a))
-                                 (tn-loop-depth (vertex-tn b)))
-                              (and (= (tn-loop-depth (vertex-tn a))
-                                      (tn-loop-depth (vertex-tn b)))
-                                   (> (tn-cost (vertex-tn a))
-                                      (tn-cost (vertex-tn b)))))))))
+  (let* ((spill-list '())
+         (number-iterations (min iterations (length vertices)))
+         (sorted-vertices (stable-sort ;; FIXME: why the sort?
+                           (copy-list vertices)
+                           (lambda (a b)
+                             (or (> (tn-loop-depth (vertex-tn a))
+                                    (tn-loop-depth (vertex-tn b)))
+                                 (and (= (tn-loop-depth (vertex-tn a))
+                                         (tn-loop-depth (vertex-tn b)))
+                                      (> (tn-cost (vertex-tn a))
+                                         (tn-cost (vertex-tn b))))))))
+         (graph (construct-interference sorted-vertices))
+         to-spill)
     (labels ((spill-candidates (vertices)
                (remove-if-not (lambda (vertex)
                                 (and (eql :normal (vertex-pack-type vertex))
                                      (not (vertex-color vertex))))
                               vertices))
-             (iter ()
-               (let* ((colored (color-interference-graph (construct-interference rest-vertices)))
+             (iter (to-spill)
+               (when to-spill
+                 (setf sorted-vertices (remove to-spill sorted-vertices)
+                       graph (construct-interference sorted-vertices))
+                 #+nil
+                 (setf graph (remove-vertex-from-interference-graph
+                              to-spill graph :reset t)))
+               (let* ((colored (color-interference-graph graph))
                       (spill-candidates (spill-candidates (interference-vertices colored))))
                  (when spill-candidates
                    (let* ((offenders (remove-duplicates
@@ -2187,12 +2215,14 @@
                           (lowest-cost-spill (first sorted-vertices)))
                      (setf (vertex-color lowest-cost-spill) nil)
                      (push lowest-cost-spill spill-list)
-                     (setf rest-vertices (delete lowest-cost-spill rest-vertices)))
-                   t))))
+                     lowest-cost-spill)))))
       (loop repeat number-iterations
-            while (iter)))
-    (assert (equal (length vertices) (+ (length spill-list) (length rest-vertices))))
-    (append spill-list rest-vertices)))
+            while (setf to-spill (iter to-spill))))
+    (let ((rest-vertices (interference-vertices graph)))
+      (when to-spill
+        (setf rest-vertices (remove to-spill rest-vertices)))
+      (assert (= (length vertices) (+ (length spill-list) (length rest-vertices))))
+      (append spill-list rest-vertices))))
 
 (defun pack-colored (colored-vertices)
 ;;  (print "pack-colored")
