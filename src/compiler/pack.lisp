@@ -1450,8 +1450,10 @@
 ;;; If we are attempting to pack in the SC of the save TN for a TN
 ;;; with a :SPECIFIED-SAVE TN, then we pack in that location, instead
 ;;; of allocating a new stack location.
-(defun pack-tn (tn restricted optimize &key (allow-unbounded-sc t))
+(defun pack-tn (tn restricted optimize
+                &key (allow-unbounded-sc t) (force-unbounded-sc nil))
   (declare (type tn tn))
+  (aver (or allow-unbounded-sc force-unbounded-sc))
   (let* ((original (original-tn tn))
          (fsc (tn-sc tn))
          (alternates (unless restricted (sc-alternate-scs fsc)))
@@ -1463,6 +1465,9 @@
     (do ((sc fsc (pop alternates)))
         ((null sc)
          (failed-to-pack-error tn restricted))
+      (when (and (neq (sb-kind (sc-sb sc)) :unbounded)
+                 force-unbounded-sc)
+        (go next))
       (unless (or allow-unbounded-sc
                   (neq (sb-kind (sc-sb sc)) :unbounded))
         (return nil))
@@ -1486,7 +1491,8 @@
             (add-location-conflicts original sc loc optimize)
             (setf (tn-sc tn) sc)
             (setf (tn-offset tn) loc)
-            (return t))))))
+            (return t))))
+      next))
   (values))
 
 ;;; Pack a wired TN, checking that the offset is in bounds for the SB,
@@ -1733,7 +1739,10 @@
                     (dolist (tn (stable-sort tns #'< :key #'cdr))
                       (let ((tn (car tn)))
                         (unless (tn-offset tn)
-                          (pack-tn tn nil optimize))))))
+                          (pack-tn tn nil optimize
+                                   ;; TNs with very negative spill
+                                   ;; costs are forced on the stack
+                                   :force-unbounded-sc (minusp (tn-cost tn))))))))
              ;; first pack TNs that are known to have simple
              ;; live ranges (contiguous lexical scopes)
              (pack-tns contiguous-tns)
