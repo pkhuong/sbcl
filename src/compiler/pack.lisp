@@ -1895,9 +1895,6 @@
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
 
-(defun filter-visible (vertices)
-  (remove-if (lambda (a) (vertex-invisible a)) vertices))
-
 (defun filter-invisible (vertices)
   (remove-if (lambda (a) (not (vertex-invisible a))) vertices))
 
@@ -1938,8 +1935,10 @@
                 (not (tn-offset (vertex-tn vertex))))
            (= color (car (vertex-color vertex))))
        (not (color-conflict-p (cons color (vertex-sc vertex))
-                              (let ((neighbours (filter-visible (vertex-incidence vertex))))
-                                (mapcar #'vertex-color neighbours))))))
+                              (mapcan (lambda (neighbour)
+                                        (and (not (vertex-invisible neighbour))
+                                             (list (vertex-color neighbour))))
+                                      (vertex-incidence vertex))))))
 
 (defun vertex-domain (vertex)
   (declare (type vertex vertex))
@@ -2107,12 +2106,13 @@
                              (mapcar (lambda (vertex)
                                        (car (vertex-color vertex)))
                                      incidence))))
-                     (print  (list "vertex inc " (length (vertex-incidence vertex))
-                                   "visibles " (length (filter-visible (vertex-incidence vertex)))
-                                   "colors" (colors-in (vertex-incidence vertex))
-                                   "length colo " (length (colors-in (filter-visible
-                                                                      (vertex-incidence vertex))))
-                                   "sc-length" (length (sc-locations (vertex-sc vertex)))))))
+                     (let ((visible-neighbours (remove-if #'vertex-invisible
+                                                          (vertex-incidence vertex))))
+                       (print  (list "vertex inc " (length (vertex-incidence vertex))
+                                     "visibles " (length visible-neighbours)
+                                     "colors" (colors-in (vertex-incidence vertex))
+                                     "length colo " (length (colors-in visible-neighbours))
+                                     "sc-length" (length (sc-locations (vertex-sc vertex))))))))
                  (when color
                    (setf (vertex-color vertex) color
                          (vertex-invisible vertex) nil))))))
