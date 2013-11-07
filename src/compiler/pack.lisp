@@ -2038,41 +2038,36 @@
 
 ;; assuming that each neighbor of the vertex has the same sb
 (defun find-vertex-color (vertex tn-vertex-mapping)
-  (let* ((sc (vertex-sc vertex))
-         (reserved (sc-reserve-locations sc)))
-    (aver (null reserved)) ;; FIXME: We don't handle reserved
-                           ;; locations yet
-    (let ((colors (vertex-domain vertex)))
-      (when colors
-        (let ((targets (target-vertices vertex tn-vertex-mapping)))
-          (multiple-value-bind (color recolor-vertices)
-              (if targets
-                  (color-for-vertices targets colors)
-                  (values (first colors) nil))
-            ;; FIXME: can this happen during normal code, or is that a
-            ;; BUG?
-            (unless color
-              (let ((*print-level* 3))
-                (print :failed-to-align-with-targets)
-                (dolist (target (target-vertices vertex tn-vertex-mapping))
-                  (print (list :target target))
-                  (print (vertex-domain target)))
-                (print (list :colors-for-me
-                             vertex
-                             (vertex-domain vertex)))))
-            (when color
-              ;; FIXME: must the targets be recolored here?
-              (dolist (target recolor-vertices)
-                (aver (car (vertex-color target)))
-                (unless (eql color (car (vertex-color target)))
-                  (aver (eq (sc-sb (vertex-sc vertex))
-                            (sc-sb (vertex-sc target))))
-                  (aver (not (tn-offset (vertex-tn target))))
-                  ;; this check seems slow. Is it necessary?
-                  (aver (color-possible-p color target))
-                  (setf (car (vertex-color target)) color)))
-              (return-from find-vertex-color (cons color sc)))))))
-    nil))
+  (awhen (vertex-domain vertex)
+    (let ((targets (target-vertices vertex tn-vertex-mapping))
+          (sc (vertex-sc vertex)))
+      (multiple-value-bind (color recolor-vertices)
+          (if targets
+              (color-for-vertices targets it)
+              (values (first it) nil))
+        ;; FIXME: can this happen during normal code, or is that a
+        ;; BUG?
+        (unless color
+          (let ((*print-level* 3))
+            (print :failed-to-align-with-targets)
+            (dolist (target (target-vertices vertex tn-vertex-mapping))
+              (print (list :target target))
+              (print (vertex-domain target)))
+            (print (list :colors-for-me
+                         vertex
+                         (vertex-domain vertex)))))
+        (when color
+          ;; FIXME: must the targets be recolored here?
+          (dolist (target recolor-vertices)
+            (aver (car (vertex-color target)))
+            (unless (eql color (car (vertex-color target)))
+              (aver (eq (sc-sb sc)
+                        (sc-sb (vertex-sc target))))
+              (aver (not (tn-offset (vertex-tn target))))
+              ;; this check seems slow. Is it necessary?
+              (aver (color-possible-p color target))
+              (setf (car (vertex-color target)) color)))
+          (return-from find-vertex-color (cons color sc)))))))
 
 ; coloring the interference graph
 ; assumption ; k registers are free
