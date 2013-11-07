@@ -2148,26 +2148,27 @@
 ;; neighbors for which some other neighbor has the same color.
 (defun collect-spill-candidates (vertex)
   (let ((colors '()))
-    (dolist (neighbor (filter-normal (vertex-incidence vertex)))
-      (let* ((color (car (vertex-color neighbor)))
-             (cell (assoc color colors)))
-        (if cell
-            (setf (cdr cell) nil)
-            (push (cons color neighbor) colors))))
+    (loop for neighbour in (vertex-incidence vertex)
+          when (eql :normal (vertex-pack-type neighbour))
+            do (let* ((color (car (vertex-color neighbor)))
+                      (cell (assoc color colors)))
+                 (if cell
+                     (setf (cdr cell) nil)
+                     (push (cons color neighbor) colors))))
     (remove nil (mapcar #'cdr colors))))
 
 (defun collect-min-spill-candidates (vertex)
   (let ((colors '()))
-    (dolist (neighbor (filter-normal (vertex-incidence vertex)))
-      (let* ((color (car (vertex-color neighbor)))
-             (cell (assoc color colors))
-             (spillcost-neighbor (spill-cost (vertex-tn neighbor)))
-             (spillcost-cell (when cell (spill-cost (vertex-tn (cdr cell))))))
-        (cond  ((and cell (< spillcost-neighbor spillcost-cell))
-                (setf colors (remove cell colors))
-                (push (cons color neighbor) colors))
-               ((and cell (>= spillcost-neighbor spillcost-cell)) t)
-               (t (push (cons color neighbor) colors)))))
+    (loop for neighbour in (vertex-incidence vertex)
+          when (eql :normal (vertex-pack-type neighbour))
+            do (let* ((color (car (vertex-color neighbor)))
+                      (cell (assoc color colors))
+                      (cost-neighbor (spill-cost (vertex-tn neighbor))))
+                 (cond (cell
+                        (when (< cost-neighbor (spill-cost
+                                                (vertex-tn (cdr cell))))
+                          (setf (cdr cell) neighbor)))
+                       (t (push (cons color neighbor) colors)))))
     (remove nil (mapcar #'cdr colors))))
 
 (defvar *candidate-color-flag* t) ;; FIXME: what does that mean?
