@@ -1666,22 +1666,18 @@
                (when target-fun
                  (funcall target-fun vop)))))
 
-
-         (collect ((vertices) (unbounded-tns))
-
+         (collect ((vertices))
            ;; Pack wired TNs first.
            (do ((tn (ir2-component-wired-tns 2comp) (tn-next tn)))
                ((null tn))
              (pack-wired-tn tn optimize)
              (vertices (make-vertex tn :wired)))
-
            ;; Pack restricted component TNs.
            (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
                ((null tn))
              (when (eq (tn-kind tn) :component)
                (pack-tn tn t optimize)
                (vertices (make-vertex tn :restricted))))
-
            ;; Pack other restricted TNs.
            (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
                ((null tn))
@@ -1695,97 +1691,53 @@
              (assign-tn-costs component)
              (assign-tn-depths-sum component))
 
-           ;; Allocate normal TNs, starting with the TNs that are used
-           ;; in deep loops.  Only allocate in finite SCs (i.e. not on
-           ;; the stack).
-           (do-ir2-blocks (block component)
-             (let ((ltns (ir2-block-local-tns block)))
-               (do ((i (1- (ir2-block-local-tn-count block)) (1- i)))
-                   ((minusp i))
-                 (declare (fixnum i))
-                 (let ((tn (svref ltns i)))
-                   (unless (or (null tn)
-                               (eq tn :more)
-                               (tn-offset tn))
-                     (cond ((equal (sb-kind (sc-sb (tn-sc tn))) :unbounded)
-                            (unbounded-tns tn))
-                           ;; sb is register and costs smaller
-                           ;; zero, then pack in an alternate on
-                           ;; the stack
-                           ((and (equal (sb-kind (sc-sb (tn-sc tn))) :finite)
-                                 (< (tn-cost tn) 0))
-                            (let*  ((fsc (tn-sc tn))
-                                    (alternates (sc-alternate-scs fsc)))
-                              (dolist (a alternates)
-                                (when (equal (sb-kind (sc-sb a)) :unbounded)
-                                  (setf (tn-sc tn) a)
-                                  (unbounded-tns tn)
-                                  ;;(pack-tn tn nil optimize)
-                                  (return)))))
-                           ((and (not (equal (sb-kind (sc-sb (tn-sc tn))) :unbounded))
-                                 (>= (tn-cost tn) 0))
-                            (vertices (make-vertex tn :normal)))
-                           (t (aver nil))))))))
-
-           ;; FIXME: comment does not match the code any more
-           ;; Pack any leftover normal TNs that could not be allocated
-           ;; to finite SCs, or TNs that do not appear in any local TN
-           ;; map (e.g. :MORE TNs).  Since we'll likely be allocating
-           ;; on the stack, first allocate TNs that are associated with
-           ;; code at shallow lexical depths: this will allocate long
-           ;; live ranges (i.e. TNs with more conflicts) first, and
-           ;; hopefully minimise stack fragmentation.
-           ;;
-           ;; Collect in reverse order to give priority to older TNs.
+           ;; Now that all pre-packed TNs are registered as vertices,
+           ;; work on normal ones.  Walk through all normal TNs, and
+           ;; determine whether we should try to allocate them
+           ;; registers or stick them straight to the stack.
            (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
                ((null tn))
-             (cond  ((equal (sb-kind (sc-sb (tn-sc tn))) :unbounded)
-                     (unbounded-tns tn))
-                    ;;(pack-tn tn nil optimize)
-                    ;; sb is register and costs smaller
-                    ;; zero, then pack in an alternate on
-                    ;; the stack
-                    ((and (equal (sb-kind (sc-sb (tn-sc tn))) :finite)
-                          (< (tn-cost tn) 0))
-                     (let*  ((fsc (tn-sc tn))
-                             (alternates (sc-alternate-scs fsc)))
-                       (dolist (a alternates)
-                         (when (equal (sb-kind (sc-sb a)) :unbounded)
-                           (setf (tn-sc tn) a)
-                           (unbounded-tns tn)
-                           ;;(pack-tn tn nil optimize)
-                           (return)))))
-                    ((and (not (equal (sb-kind (sc-sb (tn-sc tn))) :unbounded))
-                          (>= (tn-cost tn) 0))
-                     (vertices (make-vertex tn :normal)))
-                    (t (aver nil))))
+             ;; Only consider TNs that aren't forced on the stack and
+             ;; for which the spill cost is non-negative (i.e. not
+             ;; live across so many calls that it's simpler to just
+             ;; leave them on the stack)
+             (when (and (not (tn-offset tn))
+                        (neq (tn-kind tn) :more)
+                        (neq (sb-kind (sc-sb (tn-sc tn))) :unbounded)
+                        (>= (tn-cost tn) 0))
+               ;; otherwise, we'll let the final pass handle them.
+               (vertices (make-vertex tn :normal))))
+           ;; Iteratively find a coloring/spill partition, and
+           ;; allocate those for which we have a location
+           (pack-colored (iterate-color (vertices))))
 
-           (let ((contiguous-tns '())
-                 (tns '()))
-             (dolist (tn (unbounded-tns))
-               (unless (tn-offset tn)
-                 (let ((key (cons tn (tn-lexical-depth tn))))
-                   (if (memq (tn-kind tn) '(:environment :debug-environment
-                                            :component))
-                       (push key contiguous-tns)
-                       (push key tns)))))
-             (flet ((pack-tns (tns)
-                      (dolist (tn (stable-sort tns #'< :key #'cdr))
-                        (let ((tn (car tn)))
-                          (unless (tn-offset tn)
-                            (pack-tn tn nil optimize))))))
-               ;; first pack TNs that are known to have simple
-               ;; live ranges (contiguous lexical scopes)
-               (pack-tns contiguous-tns)
-               (pack-tns tns)))
-
-         ;;TODO: comment
-         (let* ((vertices-temp (vertices))
-                (vertices (pack-colored (iterate-color vertices-temp))))
-           (dolist (vertex vertices)
-             (let ((tn (vertex-tn vertex)))
-               (unless (tn-offset tn)
-                 (pack-tn tn nil optimize))))))
+         ;; Pack any leftover normal TN that is not already
+         ;; allocated to a finite SC, or TNs that do not appear in
+         ;; any local TN map (e.g. :MORE TNs).  Since we'll likely
+         ;; be allocating on the stack, first allocate TNs that are
+         ;; associated with code at shallow lexical depths: this
+         ;; will allocate long live ranges (i.e. TNs with more
+         ;; conflicts) first, and hopefully minimise stack
+         ;; fragmentation.
+         (let ((contiguous-tns '())
+               (tns '()))
+           (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
+               ((null tn))
+             (unless (tn-offset tn)
+               (let ((key (cons tn (tn-lexical-depth tn))))
+                 (if (memq (tn-kind tn) '(:environment :debug-environment
+                                          :component))
+                     (push key contiguous-tns)
+                     (push key tns)))))
+           (flet ((pack-tns (tns)
+                    (dolist (tn (stable-sort tns #'< :key #'cdr))
+                      (let ((tn (car tn)))
+                        (unless (tn-offset tn)
+                          (pack-tn tn nil optimize))))))
+             ;; first pack TNs that are known to have simple
+             ;; live ranges (contiguous lexical scopes)
+             (pack-tns contiguous-tns)
+             (pack-tns tns)))
 
          ;; Do load TN packing and emit saves.
          (let ((*repack-blocks* nil))
