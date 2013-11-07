@@ -1914,9 +1914,6 @@
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
 
-(defun filter-normal (vertices)
-  (remove :normal vertices :test-not #'eql :key #'vertex-pack-type))
-
 ;; Return non-nil if COLOR conflicts with any of NEIGHBOR-COLORS.
 ;; Take into account element sizes of the respective SCs.
 (defun color-conflict-p (color neighbor-colors)
@@ -2148,8 +2145,8 @@
 ;; neighbors for which some other neighbor has the same color.
 (defun collect-spill-candidates (vertex)
   (let ((colors '()))
-    (loop for neighbour in (vertex-incidence vertex)
-          when (eql :normal (vertex-pack-type neighbour))
+    (loop for neighbor in (vertex-incidence vertex)
+          when (eql :normal (vertex-pack-type neighbor))
             do (let* ((color (car (vertex-color neighbor)))
                       (cell (assoc color colors)))
                  (if cell
@@ -2159,8 +2156,8 @@
 
 (defun collect-min-spill-candidates (vertex)
   (let ((colors '()))
-    (loop for neighbour in (vertex-incidence vertex)
-          when (eql :normal (vertex-pack-type neighbour))
+    (loop for neighbor in (vertex-incidence vertex)
+          when (eql :normal (vertex-pack-type neighbor))
             do (let* ((color (car (vertex-color neighbor)))
                       (cell (assoc color colors))
                       (cost-neighbor (spill-cost (vertex-tn neighbor))))
