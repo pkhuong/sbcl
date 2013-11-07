@@ -1928,17 +1928,19 @@
 ;; Take into account element sizes of the respective SCs.
 (defun color-conflict-p (color neighbor-colors)
   (declare (type (cons integer sc) color))
-  (destructuring-bind (offset . sc) color
-    (let ((element-size (sc-element-size sc)))
-      (loop for neighbor-color in neighbor-colors
-            thereis
-            (destructuring-bind (neighbor-offset . neighbor-sc) neighbor-color
-              (let ((neighbor-element-size (sc-element-size neighbor-sc)))
-                (dotimes (i element-size)
-                  (when (<= neighbor-offset
-                            (+ offset i)
-                            (+ neighbor-offset neighbor-element-size -1))
-                    (return t)))))))))
+  (flet ((intervals-intersect-p (x x-width y y-width)
+           (when (< y x)
+             (rotatef x y)
+             (rotatef x-width y-width))
+           ;; x <= y. [x, x+x-width] and [y, y+y-width) intersect iff
+           ;; y \in [x, x+x-width).
+            (< y (+ x x-width))))
+    (destructuring-bind (offset . sc) color
+      (let ((element-size (sc-element-size sc)))
+        (loop for (neighbor-offset . neighbor-sc) in neighbor-colors
+              thereis (intervals-intersect-p
+                       offset element-size
+                       neighbor-offset (sc-element-size neighbor-sc)))))))
 
 ;; Assumes that VERTEX with pack-type :WIRED.
 (defun color-possible-p (color vertex)
