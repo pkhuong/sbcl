@@ -2009,8 +2009,10 @@
         (best-compatible '())
         (best-cost       nil))
     ;; TODO: sort vertices by spill cost, so that high-spill cost ones
-    ;; are more likely to be compatible?  We're trying to find a maximal
-    ;; 1-colorable subgraph here, ie. a maximum independent set :\
+    ;; are more likely to be compatible?  We're trying to find a
+    ;; maximal 1-colorable subgraph here, ie. a maximum independent
+    ;; set :\ Still, a heuristic like first attempting to pack in
+    ;; max-cost vertices may be useful
     (dolist (color colors)
       (let ((compatible '())
             (cost 0))
