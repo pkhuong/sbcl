@@ -1895,12 +1895,6 @@
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
 
-(defun colors-in (incidence)
-  (let* ((colors (mapcar #'vertex-color incidence))
-         (offsets (mapcar #'car colors))
-         (color-set (remove-duplicates offsets)))
-     color-set))
-
  ;; length of the adjacency list
 (defun vertex-degree (vertex)
   ;; count-if
@@ -2111,11 +2105,17 @@
                (let ((color (find-vertex-color vertex tn-vertex)))
                  (unless (or color (not probably-colored-p))
                    ;; FIXME: is that just debugging output?
-                   (print  (list "vertex inc " (length (vertex-incidence vertex))
-                                 "visibles " (length (filter-visible (vertex-incidence vertex)))
-                                 "colors" (colors-in (vertex-incidence vertex))
-                                 "length colo " (length (colors-in (filter-visible (vertex-incidence vertex))))
-                                 "sc-length" (length (sc-locations (vertex-sc vertex))))))
+                   (flet ((colors-in (incidence)
+                            (delete-duplicates
+                             (mapcar (lambda (vertex)
+                                       (car (vertex-color vertex)))
+                                     incidence))))
+                     (print  (list "vertex inc " (length (vertex-incidence vertex))
+                                   "visibles " (length (filter-visible (vertex-incidence vertex)))
+                                   "colors" (colors-in (vertex-incidence vertex))
+                                   "length colo " (length (colors-in (filter-visible
+                                                                      (vertex-incidence vertex))))
+                                   "sc-length" (length (sc-locations (vertex-sc vertex)))))))
                  (when color
                    (setf (vertex-color vertex) color
                          (vertex-invisible vertex) nil))))))
