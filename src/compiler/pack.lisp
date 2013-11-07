@@ -2197,7 +2197,8 @@
                  (setf graph (remove-vertex-from-interference-graph
                               to-spill graph :reset t)))
                (color-interference-graph graph)
-               (let ((spill-candidates (spill-candidates graph))
+               (let ((spill-candidates (spill-candidates
+                                        (interference-vertices graph)))
                      (color-flag *candidate-color-flag*)
                      best-cost
                      best-spill)
