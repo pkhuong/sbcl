@@ -1895,11 +1895,6 @@
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
 
- ;; length of the adjacency list
-(defun vertex-degree (vertex)
-  ;; count-if
-  (count-if-not #'vertex-invisible (vertex-incidence vertex)))
-
 (defun filter-visible (vertices)
   (remove-if (lambda (a) (vertex-invisible a)) vertices))
 
@@ -2071,6 +2066,8 @@
            ;; FIXME: is it necessary to subtract reserved locations?
            ;;  I'm pretty sure it is -- PK
            (length (sc-locations (vertex-sc vertex))))
+         (degree (vertex)
+           (count-if-not #'vertex-invisible (vertex-incidence vertex)))
          (mark-as-spill-candidate (vertex)
            (setf (vertex-spill-candidate vertex) t))
          (eliminate-vertex (vertex)
@@ -2091,7 +2088,7 @@
             ;; FIXME: some interference will be with vertices that
             ;;  don't take the same number of slots. Make this
             ;;  smarter.
-            (cond ((< (vertex-degree vertex) (domain-size vertex))
+            (cond ((< (degree vertex) (domain-size vertex))
                    (push vertex precoloring-stack))
                   (t
                    (mark-as-spill-candidate vertex)
