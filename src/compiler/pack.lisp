@@ -2130,30 +2130,7 @@
 
 (defvar *iterations* 500)
 
-(defun spill-cost< (a b)
-  (cond
-    ((< (tn-loop-depth (vertex-tn a))
-        (tn-loop-depth (vertex-tn b)))
-     t)
-    ((= (tn-loop-depth (vertex-tn a))
-        (tn-loop-depth (vertex-tn b)))
-     (< (tn-cost (vertex-tn a))
-        (tn-cost (vertex-tn b))))
-    (t nil)))
-
-;; Return all :NORMAL neighbors which have a unique color, i.e. ignore
-;; neighbors for which some other neighbor has the same color.
-(defun collect-spill-candidates (vertex)
-  (let ((colors '()))
-    (loop for neighbor in (vertex-incidence vertex)
-          when (eql :normal (vertex-pack-type neighbor))
-            do (let* ((color (car (vertex-color neighbor)))
-                      (cell (assoc color colors)))
-                 (if cell
-                     (setf (cdr cell) nil)
-                     (push (cons color neighbor) colors))))
-    (remove nil (mapcar #'cdr colors))))
-
+;;; Find the least-spill-cost neighbour in each color.
 (defun collect-min-spill-candidates (vertex)
   (let ((colors '()))
     (loop for neighbor in (vertex-incidence vertex)
@@ -2168,7 +2145,9 @@
                        (t (push (cons color neighbor) colors)))))
     (remove nil (mapcar #'cdr colors))))
 
-(defvar *candidate-color-flag* t) ;; FIXME: what does that mean?
+;; If true, try to be clever, but the rest of the spill selection
+;; logic is too simplistic to exploit it.
+(defvar *candidate-color-flag* nil)
 
 (defun iterate-color (vertices &optional (iterations *iterations*))
   (let* ((spill-list '())
