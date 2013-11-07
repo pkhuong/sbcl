@@ -2170,8 +2170,7 @@
                                      (not (vertex-color vertex))))
                               vertices))
              (iter ()
-               (let* ((interference (construct-interference rest-vertices))
-                      (colored (color-interference-graph interference))
+               (let* ((colored (color-interference-graph (construct-interference rest-vertices)))
                       (spill-candidates (spill-candidates (interference-vertices colored))))
                  (when spill-candidates
                    (let* ((offenders (remove-duplicates
@@ -2188,11 +2187,10 @@
                           (lowest-cost-spill (first sorted-vertices)))
                      (setf (vertex-color lowest-cost-spill) nil)
                      (push lowest-cost-spill spill-list)
-                     (setf rest-vertices (delete lowest-cost-spill rest-vertices)))))))
-      (do  ((colored (iter) (iter)))
-           ((or (= number-iterations 0) (null (spill-candidates rest-vertices))))
-        (decf number-iterations)
-        (print number-iterations)))
+                     (setf rest-vertices (delete lowest-cost-spill rest-vertices)))
+                   t))))
+      (loop repeat number-iterations
+            while (iter)))
     (assert (equal (length vertices) (+ (length spill-list) (length rest-vertices))))
     (append spill-list rest-vertices)))
 
