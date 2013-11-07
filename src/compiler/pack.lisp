@@ -1930,18 +1930,15 @@
   (declare (type (cons integer sc) color))
   (destructuring-bind (offset . sc) color
     (let ((element-size (sc-element-size sc)))
-      (dolist (neighbor-color neighbor-colors)
-        (declare (type (cons integer sc) color))
-        (destructuring-bind (neighbor-offset . neighbor-sc) neighbor-color
-          (let ((neighbor-element-size (sc-element-size neighbor-sc)))
-            (dotimes (i element-size)
-              (when (<= neighbor-offset
-                        (+ offset i)
-                        (+ neighbor-offset neighbor-element-size -1))
-                (return-from color-conflict-p t)))))))))
-
-(defun neighbor-colors (vertex)
-  (mapcar #'vertex-color (filter-visible (vertex-incidence vertex))))
+      (loop for neighbor-color in neighbor-colors
+            thereis
+            (destructuring-bind (neighbor-offset . neighbor-sc) neighbor-color
+              (let ((neighbor-element-size (sc-element-size neighbor-sc)))
+                (dotimes (i element-size)
+                  (when (<= neighbor-offset
+                            (+ offset i)
+                            (+ neighbor-offset neighbor-element-size -1))
+                    (return t)))))))))
 
 ;; Assumes that VERTEX with pack-type :WIRED.
 (defun color-possible-p (color vertex)
