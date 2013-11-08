@@ -1626,19 +1626,18 @@
            (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
                ((null tn))
              (unless (tn-offset tn)
-               (let ((key (cons tn (tn-lexical-depth tn))))
-                 (if (memq (tn-kind tn) '(:environment :debug-environment
-                                          :component))
-                     (push key contiguous-tns)
-                     (push key tns)))))
+               (if (memq (tn-kind tn) '(:environment :debug-environment
+                                        :component))
+                   (push tn contiguous-tns)
+                   (push tn tns))))
            (flet ((pack-tns (tns)
-                    (dolist (tn (stable-sort tns #'< :key #'cdr))
-                      (let ((tn (car tn)))
-                        (unless (tn-offset tn)
-                          (pack-tn tn nil optimize
-                                   ;; TNs with very negative spill
-                                   ;; costs are forced on the stack
-                                   :force-unbounded-sc (minusp (tn-cost tn))))))))
+                    (dolist (tn (schwartzian-stable-sort-list
+                                 tns #'< :key #'tn-lexical-depth))
+                      (unless (tn-offset tn)
+                        (pack-tn tn nil optimize
+                                 ;; TNs with very negative spill
+                                 ;; costs are forced on the stack
+                                 :force-unbounded-sc (minusp (tn-cost tn)))))))
              ;; first pack TNs that are known to have simple
              ;; live ranges (contiguous lexical scopes)
              (pack-tns contiguous-tns)
