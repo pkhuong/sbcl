@@ -807,6 +807,14 @@
           (frob (tn-reads tn))
           (frob (tn-writes tn))
           (setf (tn-loop-depth tn) depth))))))
+
+(defun tn-loop-depth-cost-> (x y)
+  (declare (type tn x y))
+  (let ((depth-x (tn-loop-depth x))
+        (depth-y (tn-loop-depth y)))
+    (or (> depth-x depth-y)
+        (and (= depth-x depth-y)
+             (> (tn-cost x) (tn-cost y))))))
 
 ;;;; load TN packing
 
@@ -2014,14 +2022,8 @@
          (nvertices (length vertices))
          (number-iterations (min iterations nvertices))
          (sorted-vertices (stable-sort ;; FIXME: why the sort?
-                           (copy-list vertices)
-                           (lambda (a b)
-                             (or (> (tn-loop-depth (vertex-tn a))
-                                    (tn-loop-depth (vertex-tn b)))
-                                 (and (= (tn-loop-depth (vertex-tn a))
-                                         (tn-loop-depth (vertex-tn b)))
-                                      (> (tn-cost (vertex-tn a))
-                                         (tn-cost (vertex-tn b))))))))
+                           (copy-list vertices) #'tn-loop-depth-cost->
+                           :key #'vertex-tn))
          (graph (construct-interference sorted-vertices))
          to-spill)
     (labels ((spill-candidates (vertices)
@@ -2122,15 +2124,6 @@
               (if *loop-analyze*
                 (pack-tn tn nil optimize :allow-unbounded-sc nil)
                 (tns tn)))))))
-    (dolist (tn (stable-sort (tns)
-                             (lambda (a b)
-                               (cond
-                                 ((> (tn-loop-depth a)
-                                     (tn-loop-depth b))
-                                  t)
-                                 ((= (tn-loop-depth a)
-                                     (tn-loop-depth b))
-                                  (> (tn-cost a) (tn-cost b)))
-                                 (t nil)))))
+    (dolist (tn (stable-sort (tns) #'tn-loop-depth-cost->))
       (unless (tn-offset tn)
         (pack-tn tn nil optimize :allow-unbounded-sc nil)))))
