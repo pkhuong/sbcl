@@ -1285,15 +1285,16 @@
          loc)))
 
 ;;; Scan along the target path from TN, looking at readers or writers.
-;;; When we find a packed TN, return CHECK-OK-TARGET of that TN. If
-;;; there is no target, or if the TN has multiple readers (writers),
-;;; then we return NIL. We also always return NIL after 10 iterations
-;;; to get around potential circularity problems.
+;;; When we find a TN, call CALLEE with that TN, and then resume
+;;; walking down that TN's target.  As soon as there is no target, or
+;;; if the TN has multiple readers (writers), we stop walking the
+;;; targetting chain. We also always stop after 10 iterations to get
+;;; around potential circularity problems.
 ;;;
-;;; FIXME: (30 minutes of reverse engineering?) It'd be nice to
-;;; rewrite the header comment here to explain the interface and its
-;;; motivation, and move remarks about implementation details (like
-;;; 10!) inside.
+;;; Why the single-reader/writer constraint?  As far as I can tell,
+;;; this is concerned with straight pipeline of data, e.g. CASTs.  In
+;;; that case, limiting to chains of length 10 seems to be more than
+;;; enough.
 (declaim (inline %call-with-target-tns))
 (defun %call-with-target-tns (tn callee
                               &key (limit 10) (reads t) (writes t))
