@@ -1266,27 +1266,8 @@
 ;;; If TN can be packed into SC so as to honor a preference to TARGET,
 ;;; then return the offset to pack at, otherwise return NIL. TARGET
 ;;; must be already packed.
-(defun check-ok-target (target tn sc)
+(defun check-ok-target (target tn sc &optional (tn-offset #'tn-offset))
   (declare (type tn target tn) (type sc sc) (inline member))
-  (let* ((loc (tn-offset target))
-         (target-sc (tn-sc target))
-         (target-sb (sc-sb target-sc)))
-    (declare (type index loc))
-    ;; We can honor a preference if:
-    ;; -- TARGET's location is in SC's locations.
-    ;; -- The element sizes of the two SCs are the same.
-    ;; -- TN doesn't conflict with target's location.
-    (if (and (eq target-sb (sc-sb sc))
-             (or (eq (sb-kind target-sb) :unbounded)
-                 (member loc (sc-locations sc)))
-             (= (sc-element-size target-sc) (sc-element-size sc))
-             (not (conflicts-in-sc tn sc loc))
-             (zerop (mod loc (sc-alignment sc))))
-        loc
-        nil)))
-
-(defun check-ok-target-vertex (target  sc &optional (tn-offset #'tn-offset))
-  (declare (type tn target) (type sc sc) (inline member))
   (let* ((loc (funcall tn-offset target))
          (target-sc (tn-sc target))
          (target-sb (sc-sb target-sc)))
@@ -1295,15 +1276,13 @@
     ;; -- TARGET's location is in SC's locations.
     ;; -- The element sizes of the two SCs are the same.
     ;; -- TN doesn't conflict with target's location.
-    (if (and (eq target-sb (sc-sb sc))
-             (or (eq (sb-kind target-sb) :unbounded)
-                 (member loc (sc-locations sc)))
-             (= (sc-element-size target-sc) (sc-element-size sc))
-             ;;(not (conflicts-in-sc tn sc loc))
-             ;; (zerop (mod loc (sc-alignment sc)))
-             )
-        loc
-        nil)))
+    (and (eq target-sb (sc-sb sc))
+         (or (eq (sb-kind target-sb) :unbounded)
+             (member loc (sc-locations sc)))
+         (= (sc-element-size target-sc) (sc-element-size sc))
+         (not (conflicts-in-sc tn sc loc))
+         (zerop (mod loc (sc-alignment sc)))
+         loc)))
 
 ;;; Scan along the target path from TN, looking at readers or writers.
 ;;; When we find a packed TN, return CHECK-OK-TARGET of that TN. If
@@ -1358,7 +1337,7 @@
                       (setq current (tn-ref-tn target))
                       (let ((offset (funcall tn-offset current)))
                         (when offset
-                          (locs (check-ok-target-vertex current  sc tn-offset))))
+                          (locs (check-ok-target current tn sc tn-offset))))
                       (decf count)))))
              (locs))))
     (declare (inline frob-slot)) ; until DYNAMIC-EXTENT works
