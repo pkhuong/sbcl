@@ -1568,9 +1568,8 @@
           most-positive-fixnum
           (length path)))))
 
-
-;; method :new or :old
-(defvar *reg-alloc-method* :new)
+(declaim (type (member :iterative :greedy) *register-allocation-method*))
+(defvar *register-allocation-method* :iterative)
 
 (defun pack (component)
   (unwind-protect
@@ -1608,9 +1607,11 @@
            (assign-tn-costs component)
            (assign-tn-depths component :reducer #'+))
 
-         (if (equal *reg-alloc-method* :new)
-             (pack-new component 2comp optimize)
-             (pack-old component 2comp optimize))
+         (ecase *register-allocation-method*
+           (:greedy
+            (pack-greedy component 2comp optimize))
+           (:iterative
+            (pack-iterative component 2comp optimize)))
 
          ;; Pack any leftover normal TN that is not already
          ;; allocated to a finite SC, or TNs that do not appear in
@@ -1664,7 +1665,7 @@
          (values))
     (clean-up-pack-structures)))
 
-(defun pack-new (component 2comp optimize)
+(defun pack-iterative (component 2comp optimize)
   (declare (type component component) (type ir2-component 2comp)
            (ignore component))
   (collect ((vertices))
@@ -2080,7 +2081,7 @@
         (pack-wired-tn (vertex-tn vertex) nil))))
   colored-vertices)
 
-(defun pack-old (component 2comp optimize)
+(defun pack-greedy (component 2comp optimize)
   (declare (type component component)
            (type ir2-component 2comp))
   ;; Pack wired TNs first.
