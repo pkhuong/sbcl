@@ -1873,38 +1873,19 @@
       (schwartzian-stable-sort-list allowed #'>
                                     :key #'color-always-live-conflict))))
 
-;; See FIND-OK-TARGET-OFFSET.  This and F-O-T-O should definitely be
-;; rewritten.  The goal here is to find the set of vertices that we'd
-;; like to share the same location as vertex, because of :TARGET
-;; fields in VOP definitions.
 (defun target-vertices (vertex tn-offset)
-  (flet ((frob-slot (slot-fun)
-           (declare (type function slot-fun))
-           (collect ((vertices))
-             (let ((count 20)
-                   (current (vertex-tn vertex)))
-               (declare (type index count))
-               (loop
-                  (let ((refs (funcall slot-fun current)))
-                    (unless (and (plusp count)
-                                 refs
-                                 (not (tn-ref-next refs)))
-                      (return nil))
-                    (let ((target (tn-ref-target refs)))
-                      (unless target (return nil))
-                      (setq current (tn-ref-tn target))
-                      (multiple-value-bind (offset vertex1) (funcall tn-offset current)
-                        (when (and offset (not (member vertex1 (vertex-incidence vertex))))
-                          ;; TODO should be assert?
-                          (when (eq (sc-sb (vertex-sc vertex))
-                                    (sc-sb (tn-sc current)))
-                            (vertices vertex1))))
-                      (decf count)))))
-             (vertices))))
-    (declare (inline frob-slot)) ; until DYNAMIC-EXTENT works
-    (let ((r (frob-slot #'tn-reads))
-          (w (frob-slot #'tn-writes)))
-      (remove-duplicates (append r w)))))
+  (declare (type vertex vertex) (type function tn-offset))
+  (let ((sb (sc-sb (vertex-sc vertex)))
+        (neighbors (vertex-incidence vertex))
+        vertices)
+    (do-target-tns (current (vertex-tn vertex) :limit 20)
+      (multiple-value-bind (offset target)
+          (funcall tn-offset current)
+        (when (and offset
+                   (eq sb (sc-sb (tn-sc current)))
+                   (not (member target neighbors)))
+          (pushnew target vertices))))
+    (nreverse vertices)))
 
 ;; Choose the "best" color for these vertices: a color is good if as
 ;;  many of these vertices simultaneously take that color, and those
