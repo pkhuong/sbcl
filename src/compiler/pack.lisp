@@ -1604,9 +1604,10 @@
          ;; Assign costs to normal TNs so we know which ones should always
          ;; be packed on the stack, and which are important not to spill.
          (when *pack-assign-costs*
-           (assign-tn-costs component)
-           (assign-tn-depths component :reducer #'+))
+           (assign-tn-costs component))
 
+         ;; Actually allocate registers for most TNs. After this, only
+         ;; :normal tns may be left unallocated.
          (ecase *register-allocation-method*
            (:greedy
             (pack-greedy component 2comp optimize))
@@ -1665,8 +1666,7 @@
     (clean-up-pack-structures)))
 
 (defun pack-iterative (component 2comp optimize)
-  (declare (type component component) (type ir2-component 2comp)
-           (ignore component))
+  (declare (type component component) (type ir2-component 2comp))
   (collect ((vertices))
     ;; Pack TNs that *must* be in a certain location or SC first,
     ;; but still register them in the interference graph.
@@ -1703,7 +1703,8 @@
                  (>= (tn-cost tn) 0))
         ;; otherwise, we'll let the final pass handle them.
         (vertices (make-vertex tn :normal))))
-
+    ;; Sum loop depths to guide the spilling logic
+    (assign-tn-depths component :reducer #'+)
     ;; Iteratively find a coloring/spill partition, and
     ;; allocate those for which we have a location
     (pack-colored (iterate-color (vertices))))
@@ -2103,6 +2104,8 @@
   ;; Allocate normal TNs, starting with the TNs that are used
   ;; in deep loops.  Only allocate in finite SCs (i.e. not on
   ;; the stack).
+  (when *pack-assign-costs*
+    (assign-tn-depths component))
   (collect ((tns))
     (do-ir2-blocks (block component)
       (let ((ltns (ir2-block-local-tns block)))
