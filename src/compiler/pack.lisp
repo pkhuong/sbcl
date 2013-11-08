@@ -2148,9 +2148,9 @@
               ;; If loop analysis has been disabled we might as
               ;; well revert to the old behaviour of just
               ;; packing TNs linearly as they appear.
-              (unless *loop-analyze*
-                (pack-tn tn nil optimize :allow-unbounded-sc nil))
-              (tns tn))))))
+              (if *loop-analyze*
+                (pack-tn tn nil optimize :allow-unbounded-sc nil)
+                (tns tn)))))))
     (dolist (tn (stable-sort (tns)
                              (lambda (a b)
                                (cond
