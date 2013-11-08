@@ -1295,35 +1295,47 @@
 ;;; motivation, and move remarks about implementation details (like
 ;;; 10!) inside.
 (declaim (inline %call-with-target-tns))
-(defun %call-with-target-tns (tn slot-function callee &key (limit 10))
-  (declare (type tn tn) (type function slot-function callee)
-           (type index limit))
-  (let ((count limit)
-        (current tn))
-    (declare (type index count))
-    (loop
-     (let ((refs (funcall slot-function current)))
-       (unless (and (plusp count)
-                    refs
-                    (not (tn-ref-next refs)))
-         (return nil))
-       (let ((target (tn-ref-target refs)))
-         (unless target (return nil))
-         (setq current (tn-ref-tn target))
-         (funcall callee current)
-         (decf count))))))
+(defun %call-with-target-tns (tn callee
+                              &key (limit 10) (reads t) (writes t))
+  (declare (type tn tn) (type function callee) (type index limit))
+  (flet ((frob-slot (slot-function)
+           (declare (type function slot-function))
+           (let ((count limit)
+                 (current tn))
+             (declare (type index count))
+             (loop
+              (let ((refs (funcall slot-function current)))
+                (unless (and (plusp count)
+                             refs
+                             (not (tn-ref-next refs)))
+                  (return nil))
+                (let ((target (tn-ref-target refs)))
+                  (unless target (return nil))
+                  (setq current (tn-ref-tn target))
+                  (funcall callee current)
+                  (decf count)))))))
+    (when reads
+      (frob-slot #'tn-reads))
+    (when writes
+      (frob-slot #'tn-writes))
+    nil))
+
+(defmacro do-target-tns ((target-variable source-tn
+                          &rest keys &key limit reads writes)
+                         &body body)
+  (declare (ignore limit reads writes))
+  (let ((callback (gensym "CALLBACK")))
+    `(flet ((,callback (,target-variable)
+              ,@body))
+       (declare (dynamic-extent #',callback))
+       (%call-with-target-tns ,source-tn #',callback ,@keys))))
 
 (defun find-ok-target-offset (tn sc)
   (declare (type tn tn) (type sc sc))
-  (flet ((frob-slot (slot-fun)
-           (%call-with-target-tns
-            tn slot-fun
-            (lambda (target)
-              (awhen (and (tn-offset target)
-                          (check-ok-target target tn sc))
-                (return-from find-ok-target-offset it))))))
-    (frob-slot #'tn-reads)
-    (frob-slot #'tn-writes)))
+  (do-target-tns (target tn)
+    (awhen (and (tn-offset target)
+                (check-ok-target target tn sc))
+      (return-from find-ok-target-offset it))))
 
 (defun make-tn-offset-mapping (graph)
   (let ((table (make-hash-table)))
