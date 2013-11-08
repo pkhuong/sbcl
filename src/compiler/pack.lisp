@@ -1305,17 +1305,6 @@
     (awhen (and (tn-offset target)
                 (check-ok-target target tn sc))
       (return-from find-ok-target-offset it))))
-
-(defun make-tn-offset-mapping (graph)
-  (let ((table (make-hash-table)))
-    (dolist (vertex (interference-vertices graph))
-      (setf (gethash (vertex-tn vertex) table) vertex))
-    (flet ((tn->vertex (tn)
-             (let ((vertex (gethash tn table)))
-               (when vertex
-                 (values (car (vertex-color vertex))
-                         vertex)))))
-      #'tn->vertex)))
 
 ;;;; location selection
 
@@ -1787,6 +1776,17 @@
      (spill-candidate nil :type t)
      ;; current status invisible  or not  (on stack or not)
      (invisible nil :type t))
+
+(defun make-tn-offset-mapping (graph)
+  (let ((table (make-hash-table)))
+    (dolist (vertex (interference-vertices graph))
+      (setf (gethash (vertex-tn vertex) table) vertex))
+    (flet ((tn->vertex (tn)
+             (let ((vertex (gethash tn table)))
+               (when vertex
+                 (values (car (vertex-color vertex))
+                         vertex)))))
+      #'tn->vertex)))
 
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
