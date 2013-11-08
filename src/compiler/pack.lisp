@@ -780,7 +780,7 @@
 (defun assign-tn-depths (component &key (reducer #'max))
   (declare (type function reducer))
   (when *loop-analyze*
-    ;; Only we only use tn depth for normal TNs
+    ;; We only use tn depth for normal TNs
     (do ((tn (ir2-component-normal-tns (component-info component))
              (tn-next tn)))
         ((null tn))
