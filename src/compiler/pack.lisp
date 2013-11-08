@@ -61,7 +61,6 @@
             (if (eq (global-conflicts-kind conf) :live)
                 (when (/= (sbit loc-live num) 0)
                   (return t))
-
                 ;; global-conflicts-number TN's local TN number in
                 ;; BLOCK. :LIVE TNs don't have local numbers.
                 (when (/= (sbit (svref loc-confs num)
@@ -773,10 +772,13 @@
           ((null ref))
         (incf cost *write-cost*))
       (setf (tn-cost tn) cost))))
-;; FIXME: unite to one function assign-tn-depths assign-tn-depths-sum
-;;; Iterate over the normal TNs, storing the depth of the deepest loop
-;;; that the TN is used in TN-LOOP-DEPTH.
-(defun assign-tn-depths (component)
+
+;;; Iterate over the normal TNs, folding over the depth of the looops
+;;; that the TN is used in and storing the result in TN-LOOP-DEPTH.
+;;: reducer is the function used to join depth values together. #'max
+;;; gives the maximum depth, #'+ the sum.
+(defun assign-tn-depths (component &key (reducer #'max))
+  (declare (type function reducer))
   (when *loop-analyze*
     (do-ir2-blocks (block component)
       (do ((vop (ir2-block-start-vop block)
@@ -800,45 +802,13 @@
                              ;; (find-all-tns #'vop-refs)
                              ))
             (setf (tn-loop-depth tn)
-                  (max (tn-loop-depth tn)
-                       (let* ((ir1-block (ir2-block-block (vop-block vop)))
-                              (loop (block-loop ir1-block)))
-                         (if loop
-                             (loop-depth loop)
-                             0))))))))))
-
-(defun assign-tn-depths-sum (component)
-  (when *loop-analyze*
-    (do-ir2-blocks (block component)
-      (do ((vop (ir2-block-start-vop block)
-                (vop-next vop)))
-          ((null vop))
-        (flet ((find-all-tns (head-fun)
-                 (collect ((tns))
-                   (do ((ref (funcall head-fun vop) (tn-ref-across ref)))
-                       ((null ref))
-                     (tns (tn-ref-tn ref)))
-                   (tns))))
-          (dolist (tn (nconc (find-all-tns #'vop-args)
-                             (find-all-tns #'vop-results)
-                             (find-all-tns #'vop-temps)
-                             ;; What does "references in this VOP
-                             ;; mean"? Probably something that isn't
-                             ;; useful in this context, since these
-                             ;; TN-REFs are linked with TN-REF-NEXT
-                             ;; instead of TN-REF-ACROSS. --JES
-                             ;; 2004-09-11
-                             ;; (find-all-tns #'vop-refs)
-                             ))
-            (setf (tn-loop-depth tn)
-                  (+ (tn-loop-depth tn)
-                       (let* ((ir1-block (ir2-block-block (vop-block vop)))
-                              (loop (block-loop ir1-block)))
-                         (if loop
-                             (loop-depth loop)
-                             0))))))))))
-
-
+                  (funcall reducer
+                           (tn-loop-depth tn)
+                           (let* ((ir1-block (ir2-block-block (vop-block vop)))
+                                  (loop (block-loop ir1-block)))
+                             (if loop
+                                 (loop-depth loop)
+                                 0))))))))))
 
 ;;;; load TN packing
 
@@ -1638,7 +1608,7 @@
          ;; be packed on the stack, and which are important not to spill.
          (when *pack-assign-costs*
            (assign-tn-costs component)
-           (assign-tn-depths-sum component))
+           (assign-tn-depths component :reducer #'+))
 
          (if (equal *reg-alloc-method* :new)
              (pack-new component 2comp optimize)
