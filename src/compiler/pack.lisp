@@ -2103,27 +2103,32 @@
     (unless (tn-offset tn)
       (pack-tn tn t optimize)))
 
-  ;; Allocate normal TNs, starting with the TNs that are used
-  ;; in deep loops.  Only allocate in finite SCs (i.e. not on
-  ;; the stack).
-  (when *pack-assign-costs*
-    (assign-tn-depths component))
-  (collect ((tns))
-    (do-ir2-blocks (block component)
-      (let ((ltns (ir2-block-local-tns block)))
-        (do ((i (1- (ir2-block-local-tn-count block)) (1- i)))
-            ((minusp i))
-          (declare (fixnum i))
-          (let ((tn (svref ltns i)))
-            (unless (or (null tn)
-                        (eq tn :more)
-                        (tn-offset tn))
-              ;; If loop analysis has been disabled we might as
-              ;; well revert to the old behaviour of just
-              ;; packing TNs linearly as they appear.
-              (if *loop-analyze*
-                (pack-tn tn nil optimize :allow-unbounded-sc nil)
-                (tns tn)))))))
-    (dolist (tn (stable-sort (tns) #'tn-loop-depth-cost->))
-      (unless (tn-offset tn)
-        (pack-tn tn nil optimize :allow-unbounded-sc nil)))))
+  (cond (*loop-analyze*
+         ;; Allocate normal TNs, starting with the TNs that are used
+         ;; in deep loops.  Only allocate in finite SCs (i.e. not on
+         ;; the stack).
+         (when *pack-assign-costs*
+           (assign-tn-depths component))
+         (collect ((tns))
+           (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
+               ((null tn))
+             (unless (or (tn-offset tn)
+                         (eq (tn-kind tn) :more))
+               (tns tn)))
+           (dolist (tn (stable-sort (tns) #'tn-loop-depth-cost->))
+             (unless (tn-offset tn)
+               (pack-tn tn nil optimize :allow-unbounded-sc nil)))))
+        (t
+         ;; If loop analysis has been disabled we might as well revert
+         ;; to the old behaviour of just packing TNs linearly as they
+         ;; appear.
+         (do-ir2-blocks (block component)
+           (let ((ltns (ir2-block-local-tns block)))
+             (do ((i (1- (ir2-block-local-tn-count block)) (1- i)))
+                 ((minusp i))
+               (declare (fixnum i))
+               (let ((tn (svref ltns i)))
+                 (unless (or (null tn)
+                             (eq tn :more)
+                             (tn-offset tn))
+                   (pack-tn tn nil optimize :allow-unbounded-sc nil)))))))))
