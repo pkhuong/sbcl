@@ -1310,42 +1310,12 @@
                 (let ((target (tn-ref-target refs)))
                   (unless target (return nil))
                   (setq current (tn-ref-tn target))
-                  (when (tn-offset current)
-                    (return (check-ok-target current tn sc)))
+                  (awhen (and (tn-offset current)
+                              (check-ok-target current tn sc tn-offset))
+                    (return-from find-ok-target-offset it))
                   (decf count)))))))
-    (declare (inline frob-slot)) ; until DYNAMIC-EXTENT works
-    (or (frob-slot #'tn-reads)
-        (frob-slot #'tn-writes))))
-
-(defun find-ok-target-offset-vertex (tn sc &optional (tn-offset #'tn-offset))
-  (declare (type tn tn) (type sc sc) (type function tn-offset))
-
-  (flet ((frob-slot (slot-fun)
-           (declare (type function slot-fun))
-           (collect ((locs))
-             (let ((count 10)
-                   (current tn))
-               (declare (type index count))
-               (loop
-                  (let ((refs (funcall slot-fun current)))
-                    (unless (and (plusp count)
-                                 refs
-                                 (not (tn-ref-next refs)))
-                      (return nil))
-                    (let ((target (tn-ref-target refs)))
-                      (unless target (return nil))
-                      (setq current (tn-ref-tn target))
-                      (let ((offset (funcall tn-offset current)))
-                        (when offset
-                          (locs (check-ok-target current tn sc tn-offset))))
-                      (decf count)))))
-             (locs))))
-    (declare (inline frob-slot)) ; until DYNAMIC-EXTENT works
-    (let ((r (frob-slot #'tn-reads))
-          (w (frob-slot #'tn-writes)))
-      (remove-duplicates (append r w)))))
-
-
+    (frob-slot #'tn-reads)
+    (frob-slot #'tn-writes)))
 
 (defun make-tn-offset-mapping (graph)
   (let ((table (make-hash-table)))
