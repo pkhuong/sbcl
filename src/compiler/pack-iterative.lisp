@@ -429,6 +429,11 @@
 (defvar *pack-iterations* 500)
 
 ;;; Find the least-spill-cost neighbor in each color.
+
+;;; FIXME: this is too slow and isn't the right interface anymore.
+;;; The code might be fast enough if there were a simple way to detect
+;;; whether a given vertex is a min-candidate for another uncolored
+;;; vertex.
 (defun collect-min-spill-candidates (vertex)
   (let ((colors '()))
     (do-oset-elements (neighbor (vertex-incidence vertex))
@@ -443,11 +448,6 @@
                 (t (push (cons color neighbor) colors))))))
     (remove nil (mapcar #'cdr colors))))
 
-;; If true, try to be clever, but the rest of the spill selection
-;; logic is too simplistic to exploit it.
-;; FIXME: Document this better and export the symbol when it works.
-(defvar *candidate-color-flag* nil)
-
 (defun iterate-color (vertices component
                       &optional (iterations *pack-iterations*))
   (let* ((spill-list '())
@@ -455,51 +455,23 @@
          (number-iterations (min iterations nvertices))
          (graph (make-interference-graph vertices component))
          to-spill)
-    (labels ((spill-candidates (vertices)
-               (remove-if-not (lambda (vertex)
-                                (and (eql :normal (vertex-pack-type vertex))
-                                     (not (vertex-color vertex))))
-                              vertices))
+    (labels ((spill-candidates-p (vertex)
+               (unless (vertex-color vertex)
+                 (aver (eql :normal (vertex-pack-type vertex)))
+                 t))
              (iter (to-spill)
                (when to-spill
+                 (push to-spill spill-list)
                  (setf graph (remove-vertex-from-interference-graph
                               to-spill graph :reset t)))
                (color-interference-graph graph)
-               (let ((spill-candidates (spill-candidates
-                                        (ig-vertices graph)))
-                     (color-flag *candidate-color-flag*)
-                     best-cost
-                     best-spill)
-                 (declare (ignorable color-flag))
-                 (when spill-candidates
-                   (flet ((candidate (vertex)
-                            (let ((cost (tn-spill-cost (vertex-tn vertex))))
-                              (when (or (null best-cost)
-                                        (< cost best-cost))
-                                (setf best-cost cost
-                                      best-spill vertex)))))
-                     (mapc #'candidate spill-candidates)
-                     ;; Compile times become much too long if this is enabled...
-                     #+nil
-                     (dolist (candidate spill-candidates)
-                       (candidate candidate)
-                       (if color-flag
-                           (mapc #'candidate (collect-min-spill-candidates candidate))
-                           (do-oset-elements (neighbor (vertex-incidence candidate))
-                             (when (eql (vertex-pack-type neighbor) :normal)
-                               (candidate neighbor))))))
-                   (aver best-spill)
-                   (setf (vertex-color best-spill) nil)
-                   (push best-spill spill-list)
-                   best-spill))))
+               (find-if #'spill-candidates-p (ig-vertices graph))))
       (loop repeat number-iterations
             while (setf to-spill (iter to-spill))))
-    (let ((rest-vertices (ig-vertices graph)))
-      (when to-spill
-        (setf rest-vertices (remove to-spill rest-vertices)))
-      (aver (= nvertices (+ (length spill-list) (length rest-vertices)
+    (let ((colored (ig-vertices graph)))
+      (aver (= nvertices (+ (length spill-list) (length colored)
                             (length (ig-precolored-vertices graph)))))
-      (append spill-list rest-vertices))))
+      colored)))
 
 (defun pack-colored (colored-vertices)
   (dolist (vertex colored-vertices)
