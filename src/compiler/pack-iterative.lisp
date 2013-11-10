@@ -40,28 +40,22 @@
 (def!struct (vertex
              (:include sset-element)
              (:constructor make-vertex (tn pack-type)))
-  ;; PLACE IN THE GRAPH STRUCTURE
-  ;; incidence list
-  ;; vertices (node numbers) that are adjacent to the node
-  ;; index vector
-  ;; FIXME
+  ;; incidence set, as an ordered list (for reproducibility)
   (incidence (make-ordered-set) :type ordered-set)
   ;; list of potential locations in the TN's preferred SB for the
   ;; vertex, taking into account reserve locations and preallocated
   ;; TNs.
   (initial-domain nil :type list)
   (initial-domain-size 0 :type index)
-  ;; POINTER Back to TN
+  ;; TN this is a vertex for.
   (tn nil :type tn)
-  ;; type of packing necessary
+  ;; type of packing necessary. We should only have to determine
+  ;; colors for :normal TNs/vertices
   (pack-type nil :type (member :normal :wired :restricted))
-  ;; PROPERTIES
   ;; color = (cons offset sc)
   (color nil :type (or cons null))
-  ;; STATUS
-  ;; is at the same time  marked for deletion
-  (spill-candidate nil :type t)
-  ;; current status invisible  or not  (on stack or not)
+  ;; current status, removed from the interference graph or not (on
+  ;; stack or not)
   (invisible nil :type t)
   ;; (tn-spill-cost (vertex-tn vertex))
   (spill-cost 0 :type fixnum))
@@ -381,8 +375,6 @@
          (degree (vertex)
            (count-if-not #'vertex-invisible
                          (oset-members (vertex-incidence vertex))))
-         (mark-as-spill-candidate (vertex)
-           (setf (vertex-spill-candidate vertex) t))
          (eliminate-vertex (vertex)
            (setf (vertex-invisible vertex) t)))
     (let* ((precoloring-stack '())
@@ -399,7 +391,6 @@
         (cond ((< (degree vertex) (domain-size vertex))
                (push vertex precoloring-stack))
               (t
-               (mark-as-spill-candidate vertex)
                (push vertex prespilling-stack))))
       (values precoloring-stack prespilling-stack))))
 
