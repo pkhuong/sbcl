@@ -11,6 +11,9 @@
 ;;;; files for more information.
 
 (in-package "SB!REGALLOC")
+
+;;; Interference graph data structure
+
 ;; vertex in an interference graph
 (def!struct (vertex
              (:constructor make-vertex (tn pack-type)))
@@ -86,6 +89,8 @@
       (setf (vertex-incidence neighbour)
             (remove vertex (vertex-incidence neighbour))))))
 
+;; Give an interference graph, return a function that maps TNs to
+;; vertices, and then to the vertex's assigned offset, if any.
 (defun make-tn-offset-mapping (graph)
   (let ((table (make-hash-table)))
     (dolist (vertex (ig-vertices graph))
@@ -96,7 +101,8 @@
                  (values (car (vertex-color vertex))
                          vertex)))))
       #'tn->vertex)))
-
+
+;;; Support code
 (defvar *loop-depth-weight* 1)
 (defun tn-spill-cost (tn &optional (loop-weight *loop-depth-weight*))
   (* (+ (max loop-weight 1) (tn-loop-depth tn)) (tn-cost tn)))
@@ -120,7 +126,7 @@
                        neighbor-offset (sc-element-size neighbor-sc)))))))
 
 ;; Assumes that VERTEX with pack-type :WIRED.
-(defun color-possible-p (color vertex)
+(defun vertex-color-possible-p (vertex color)
   (declare (type integer color) (type vertex vertex))
   (and (or (and (neq (vertex-pack-type vertex) :wired)
                 (not (tn-offset (vertex-tn vertex))))
@@ -146,7 +152,7 @@
     (let* ((sc (vertex-sc vertex))
            (reserved (sc-reserve-locations sc))
            (allowed (remove-if-not (lambda (color)
-                                     (and (color-possible-p color vertex)
+                                     (and (vertex-color-possible-p vertex color)
                                           ;; common case is there are
                                           ;; no reserve locs
                                           (not (and reserved
@@ -188,7 +194,7 @@
           (when (and (notany (lambda (existing)
                                (member vertex (vertex-incidence existing)))
                              compatible)
-                     (color-possible-p color vertex))
+                     (vertex-color-possible-p vertex color))
             (incf cost (max 1 (tn-spill-cost (vertex-tn vertex))))
             (push vertex compatible)))
         (when (or (null best-cost)
@@ -227,7 +233,7 @@
                         (sc-sb (vertex-sc target))))
               (aver (not (tn-offset (vertex-tn target))))
               ;; this check seems slow. Is it necessary?
-              (aver (color-possible-p color target))
+              (aver (vertex-color-possible-p target color))
               (setf (car (vertex-color target)) color)))
           (return-from find-vertex-color (cons color sc)))))))
 
