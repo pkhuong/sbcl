@@ -1575,9 +1575,9 @@
           most-positive-fixnum
           (length path)))))
 
-(declaim (type (member :iterative :greedy :dynamic)
+(declaim (type (member :iterative :greedy :adaptive)
                *register-allocation-method*))
-(defvar *register-allocation-method* :iterative)
+(defvar *register-allocation-method* :adaptive)
 
 (declaim (ftype function pack-greedy pack-iterative))
 
@@ -1625,9 +1625,9 @@
          (funcall (ecase *register-allocation-method*
                     (:greedy #'pack-greedy)
                     (:iterative #'pack-iterative)
-                    (:dynamic (if speed-3
-                                  #'pack-iterative
-                                  #'pack-greedy)))
+                    (:adaptive (if speed-3
+                                   #'pack-iterative
+                                   #'pack-greedy)))
                   component 2comp optimize)
 
          ;; Pack any leftover normal TN that is not already
