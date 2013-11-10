@@ -72,7 +72,10 @@
 (def!struct (interference-graph
              (:constructor %make-interference-graph)
              (:conc-name #:ig-))
+  ;; sorted set of yet-uncolored (and not necessarily spilled)
+  ;; vertices: vertices with lower spill cost come first.
   (vertices nil :type list)
+  ;; unsorted set of precolored vertices.
   (precolored-vertices nil :type list))
 
 (defun insert-conflict-edges (component
@@ -190,9 +193,17 @@
             collect v into colored
           else
             collect v into uncolored
-          finally (return (%make-interference-graph
-                           :vertices uncolored
-                           :precolored-vertices colored)))))
+         finally (return
+                   ;; we like to walk over vertices to color in order
+                   ;; of spill cost
+                   (let ((uncolored (schwartzian-stable-sort-list
+                                     uncolored #'<
+                                     :key (lambda (vertex)
+                                            (tn-spill-cost
+                                             (vertex-tn vertex))))))
+                     (%make-interference-graph
+                      :vertices uncolored
+                      :precolored-vertices colored))))))
 
 ;; &key reset: whether coloring/invisibility information should be
 ;; removed from all the remaining vertices
@@ -366,15 +377,11 @@
            (setf (vertex-invisible vertex) t)))
     (let* ((precoloring-stack '())
            (prespilling-stack '())
-           (vertices (ig-vertices interference-graph))
-           (sorted-vertices (schwartzian-stable-sort-list
-                             vertices '<
-                             :key (lambda (vertex)
-                                    (tn-spill-cost (vertex-tn vertex))))))
+           (vertices (ig-vertices interference-graph)))
       ;; walk the vertices from least important to most important TN wrt
       ;; spill cost.  That way the TNs we really don't want to spill are
       ;; at the head of the colouring lists.
-      (loop for vertex in sorted-vertices do
+      (loop for vertex in vertices do
         (aver (not (vertex-color vertex))) ; we already took those out above
         (eliminate-vertex vertex)
         ;; FIXME: some interference will be with vertices that don't
@@ -446,10 +453,7 @@
   (let* ((spill-list '())
          (nvertices (length vertices))
          (number-iterations (min iterations nvertices))
-         (sorted-vertices (stable-sort ;; FIXME: why the sort?
-                           (copy-list vertices) #'tn-loop-depth-cost->
-                           :key #'vertex-tn))
-         (graph (make-interference-graph sorted-vertices component))
+         (graph (make-interference-graph vertices component))
          to-spill)
     (labels ((spill-candidates (vertices)
                (remove-if-not (lambda (vertex)
