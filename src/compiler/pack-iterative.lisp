@@ -12,65 +12,36 @@
 
 (in-package "SB!REGALLOC")
 
-(defun pack-iterative (component 2comp optimize)
-  (declare (type component component) (type ir2-component 2comp))
-  (collect ((vertices))
-    ;; Pack TNs that *must* be in a certain location or SC first,
-    ;; but still register them in the interference graph.
-    (do ((tn (ir2-component-wired-tns 2comp) (tn-next tn)))
-        ((null tn))
-      (pack-wired-tn tn optimize)
-      (vertices (make-vertex tn :wired)))
-    ;; Pack restricted component TNs first: they have the longest live
-    ;; ranges, might as well avoid fragmentation when trivial.
-    (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
-        ((null tn))
-      (when (eq (tn-kind tn) :component)
-        (pack-tn tn t optimize)
-        (vertices (make-vertex tn :restricted))))
-    (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
-        ((null tn))
-      (unless (tn-offset tn)
-        (pack-tn tn t optimize))
-      (vertices (make-vertex tn :restricted)))
-
-    ;; Now that all pre-packed TNs are registered as vertices,
-    ;; work on normal ones.  Walk through all normal TNs, and
-    ;; determine whether we should try to allocate them
-    ;; registers or stick them straight to the stack.
-    (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
-        ((null tn))
-      ;; Only consider TNs that aren't forced on the stack and
-      ;; for which the spill cost is non-negative (i.e. not
-      ;; live across so many calls that it's simpler to just
-      ;; leave them on the stack)
-      (when (and (not (tn-offset tn))
-                 (neq (tn-kind tn) :more)
-                 (neq (sb-kind (sc-sb (tn-sc tn))) :unbounded)
-                 (>= (tn-cost tn) 0))
-        ;; otherwise, we'll let the final pass handle them.
-        (vertices (make-vertex tn :normal))))
-    ;; Sum loop depths to guide the spilling logic
-    (assign-tn-depths component :reducer #'+)
-    ;; Iteratively find a coloring/spill partition, and
-    ;; allocate those for which we have a location
-    (pack-colored (iterate-color (vertices))))
-  nil)
-
-(defvar *loop-depth-weight* 1)
-(defun spill-cost (tn &optional (loop-weight *loop-depth-weight*))
-  (* (+ (max loop-weight 1) (tn-loop-depth tn)) (tn-cost tn)))
-
 ;; interference graph
 (def!struct (interference
              (:constructor make-interference (vertices)))
-    (number-vertices 0 :type fixnum)
-    ;; list of vertices in the interference graph
-    (vertices nil :type list))
+  (vertices nil :type list))
 
-;; all TNS types are included in the graph, both with offset and without
+;; vertex in an interference graph
+(def!struct (vertex
+             (:constructor make-vertex (tn pack-type)))
+  ;; PLACE IN THE GRAPH STRUCTURE
+  ;; incidence list
+  ;; vertices (node numbers) that are adjacent to the node
+  ;; index vector
+  ;; FIXME
+  (incidence nil :type list)
+  ;; POINTER Back to TN
+  (tn nil :type tn)
+  ;; type of packing necessary
+  (pack-type nil :type (member :normal :wired :restricted))
+  ;; PROPERTIES
+  ;; color = (cons offset sc)
+  (color nil :type (or cons null))
+  ;; STATUS
+  ;; is at the same time  marked for deletion
+  (spill-candidate nil :type t)
+  ;; current status invisible  or not  (on stack or not)
+  (invisible nil :type t))
+
+;; all TNs types are included in the graph, both with offset and without
 (defun construct-interference (vertices)
-  (let  ((interference (make-interference vertices)))
+  (let ((interference (make-interference vertices)))
     (dolist  (vertex vertices)
       (let* ((tn (vertex-tn vertex))
              (offset (tn-offset tn))
@@ -112,29 +83,6 @@
       (setf (vertex-incidence neighbour)
             (remove vertex (vertex-incidence neighbour))))))
 
- ;; vertex in an interference graph
- (def!struct  (vertex
-               (:constructor make-vertex (tn pack-type)))
-
-     ;; PLACE IN THE GRAPH STRUCTURE
-     ;; incidence list
-     ;; vertices (node numbers) that are adjacent to the node
-     ;; index vector
-     ;; FIXME
-     (incidence nil :type list)
-     ;; POINTER Back to TN
-     (tn nil :type tn)
-     ;; type of packing necessary
-     (pack-type nil :type (member :normal :wired :restricted))
-     ;; PROPERTIES
-     ;; color = (cons offset sc)
-     (color nil :type (or cons null))
-     ;; STATUS
-     ;; is at the same time  marked for deletion
-     (spill-candidate nil :type t)
-     ;; current status invisible  or not  (on stack or not)
-     (invisible nil :type t))
-
 (defun make-tn-offset-mapping (graph)
   (let ((table (make-hash-table)))
     (dolist (vertex (interference-vertices graph))
@@ -145,6 +93,10 @@
                  (values (car (vertex-color vertex))
                          vertex)))))
       #'tn->vertex)))
+
+(defvar *loop-depth-weight* 1)
+(defun spill-cost (tn &optional (loop-weight *loop-depth-weight*))
+  (* (+ (max loop-weight 1) (tn-loop-depth tn)) (tn-cost tn)))
 
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
@@ -432,3 +384,48 @@
         (setf (tn-offset tn) offset)
         (pack-wired-tn (vertex-tn vertex) nil))))
   colored-vertices)
+
+(defun pack-iterative (component 2comp optimize)
+  (declare (type component component) (type ir2-component 2comp))
+  (collect ((vertices))
+    ;; Pack TNs that *must* be in a certain location or SC first,
+    ;; but still register them in the interference graph.
+    (do ((tn (ir2-component-wired-tns 2comp) (tn-next tn)))
+        ((null tn))
+      (pack-wired-tn tn optimize)
+      (vertices (make-vertex tn :wired)))
+    ;; Pack restricted component TNs first: they have the longest live
+    ;; ranges, might as well avoid fragmentation when trivial.
+    (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
+        ((null tn))
+      (when (eq (tn-kind tn) :component)
+        (pack-tn tn t optimize)
+        (vertices (make-vertex tn :restricted))))
+    (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
+        ((null tn))
+      (unless (tn-offset tn)
+        (pack-tn tn t optimize))
+      (vertices (make-vertex tn :restricted)))
+
+    ;; Now that all pre-packed TNs are registered as vertices,
+    ;; work on normal ones.  Walk through all normal TNs, and
+    ;; determine whether we should try to allocate them
+    ;; registers or stick them straight to the stack.
+    (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
+        ((null tn))
+      ;; Only consider TNs that aren't forced on the stack and
+      ;; for which the spill cost is non-negative (i.e. not
+      ;; live across so many calls that it's simpler to just
+      ;; leave them on the stack)
+      (when (and (not (tn-offset tn))
+                 (neq (tn-kind tn) :more)
+                 (neq (sb-kind (sc-sb (tn-sc tn))) :unbounded)
+                 (>= (tn-cost tn) 0))
+        ;; otherwise, we'll let the final pass handle them.
+        (vertices (make-vertex tn :normal))))
+    ;; Sum loop depths to guide the spilling logic
+    (assign-tn-depths component :reducer #'+)
+    ;; Iteratively find a coloring/spill partition, and
+    ;; allocate those for which we have a location
+    (pack-colored (iterate-color (vertices))))
+  nil)
