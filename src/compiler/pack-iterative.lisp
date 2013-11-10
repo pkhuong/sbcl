@@ -70,8 +70,12 @@
   (vertices nil :type list))
 
 ;; all TNs types are included in the graph, both with offset and without
-(defun make-interference-graph (vertices)
-  (let ((interference (%make-interference-graph :vertices vertices)))
+(defun make-interference-graph (vertices component)
+  (let ((interference (%make-interference-graph :vertices vertices))
+        component-vertices
+        global-vertices
+        normal-vertices
+        (tn-vertex (make-hash-table)))
     (loop
       for i upfrom 0
       for vertex in vertices
@@ -82,15 +86,57 @@
                  (vertex-incidence vertex) (make-ordered-set)
                  (vertex-invisible vertex) nil
                  (vertex-color vertex) (and offset
-                                            (cons offset sc)))))
-    (loop for (a . rest) on vertices
-          for tn = (vertex-tn a)
-          for sb = (sc-sb (tn-sc tn))
-          do (loop for b in rest
-                   do (when (and (eql sb (sc-sb (tn-sc (vertex-tn b))))
-                                 (tns-conflict tn (vertex-tn b)))
-                        (aver (oset-adjoin (vertex-incidence b) a))
-                        (aver (oset-adjoin (vertex-incidence a) b)))))
+                                            (cons offset sc)))
+           (cond ((eql :component (tn-kind tn))
+                  (push vertex component-vertices))
+                 ((tn-global-conflicts tn)
+                  (push vertex global-vertices))
+                 (t
+                  (aver (tn-local tn))
+                  (setf (gethash tn tn-vertex) vertex)
+                  (push vertex normal-vertices)))))
+    (flet ((edge (a b)
+             (aver (oset-adjoin (vertex-incidence a) b))
+             (aver (oset-adjoin (vertex-incidence b) a))))
+      ;; COMPONENT vertices conflict with everything
+      (loop for (a . rest) on component-vertices
+            do (dolist (b rest)
+                 (edge a b))
+               (dolist (b global-vertices)
+                 (edge a b))
+               (dolist (b normal-vertices)
+                 (edge a b)))
+      ;; GLOBAL vertices have more complex conflict testing
+      (loop for (a . rest) on global-vertices
+            do (dolist (b rest)
+                 (when (tns-conflict-global-global (vertex-tn a)
+                                                   (vertex-tn b))
+                   (edge a b)))
+               (dolist (b normal-vertices)
+                 (when (tns-conflict-local-global (vertex-tn b)
+                                                  (vertex-tn a))
+                   (edge a b))))
+      ;; LOCAL-LOCAL conflict is easy: just enumerate by IR2 block.
+      (do-ir2-blocks (block component)
+        (let ((local-tns (ir2-block-local-tns block))
+              (n (ir2-block-local-tn-count block)))
+          (dotimes (i n)
+            (binding* ((a (aref local-tns i))
+                       (vertex (and a (neq a :more)
+                                    (gethash a tn-vertex))
+                               :exit-if-null)
+                       (conflicts (tn-local-conflicts a)))
+              (loop for j from (1+ i) below n do
+                (when (plusp (sbit conflicts j))
+                  (let ((b (aref local-tns j)))
+                    (awhen (and b (neq b :more)
+                                (gethash b tn-vertex))
+                      (aver (eq (tn-local a) (tn-local b)))
+                      (edge vertex it))))))))))
+    (dolist (v vertices)
+      (let ((incidence (vertex-incidence v)))
+        (setf (oset-members incidence)
+              (sort (oset-members incidence) #'< :key #'vertex-number))))
     interference))
 
 ;; &key reset: whether coloring/invisibility information should be
@@ -356,14 +402,15 @@
 ;; FIXME: Document this better and export the symbol when it works.
 (defvar *candidate-color-flag* nil)
 
-(defun iterate-color (vertices &optional (iterations *pack-iterations*))
+(defun iterate-color (vertices component
+                      &optional (iterations *pack-iterations*))
   (let* ((spill-list '())
          (nvertices (length vertices))
          (number-iterations (min iterations nvertices))
          (sorted-vertices (stable-sort ;; FIXME: why the sort?
                            (copy-list vertices) #'tn-loop-depth-cost->
                            :key #'vertex-tn))
-         (graph (make-interference-graph sorted-vertices))
+         (graph (make-interference-graph sorted-vertices component))
          to-spill)
     (labels ((spill-candidates (vertices)
                (remove-if-not (lambda (vertex)
@@ -464,5 +511,5 @@
     (assign-tn-depths component :reducer #'+)
     ;; Iteratively find a coloring/spill partition, and
     ;; allocate those for which we have a location
-    (pack-colored (iterate-color (vertices))))
+    (pack-colored (iterate-color (vertices) component)))
   nil)
