@@ -87,13 +87,12 @@
                (edge a b)))
     ;; GLOBAL vertices have more complex conflict testing
     (loop for (a . rest) on global-vertices
+          for tn-a = (vertex-tn a)
           do (dolist (b rest)
-               (when (tns-conflict-global-global (vertex-tn a)
-                                                 (vertex-tn b))
+               (when (tns-conflict-global-global (vertex-tn b) tn-a)
                  (edge a b)))
              (dolist (b local-vertices)
-               (when (tns-conflict-local-global (vertex-tn b)
-                                                (vertex-tn a))
+               (when (tns-conflict-local-global (vertex-tn b) tn-a)
                  (edge a b))))
     ;; LOCAL-LOCAL conflict is easy: just enumerate by IR2 block.
     (do-ir2-blocks (block component)
