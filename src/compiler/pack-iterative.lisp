@@ -71,8 +71,8 @@
 
 (defun insert-conflict-edges (component
                               component-vertices global-vertices
-                              normal-vertices tn-vertex)
-  (declare (type list component-vertices global-vertices normal-vertices)
+                              local-vertices tn-vertex)
+  (declare (type list component-vertices global-vertices local-vertices)
            (type hash-table tn-vertex))
   (flet ((edge (a b)
            (aver (oset-adjoin (vertex-incidence a) b))
@@ -83,7 +83,7 @@
                (edge a b))
              (dolist (b global-vertices)
                (edge a b))
-             (dolist (b normal-vertices)
+             (dolist (b local-vertices)
                (edge a b)))
     ;; GLOBAL vertices have more complex conflict testing
     (loop for (a . rest) on global-vertices
@@ -91,7 +91,7 @@
                (when (tns-conflict-global-global (vertex-tn a)
                                                  (vertex-tn b))
                  (edge a b)))
-             (dolist (b normal-vertices)
+             (dolist (b local-vertices)
                (when (tns-conflict-local-global (vertex-tn b)
                                                 (vertex-tn a))
                  (edge a b))))
@@ -112,14 +112,14 @@
 
 ;; if fewer than *quick-conflict-construction-limit* vertices are
 ;; around, just go for a quadratic loop.
-(defvar *quick-conflict-construction-limit* 20)
+(defvar *quick-conflict-construction-limit* most-positive-fixnum)
 
 ;; all TNs types are included in the graph, both with offset and without
 (defun make-interference-graph (vertices component)
   (let ((interference (%make-interference-graph :vertices vertices))
         component-vertices
         global-vertices
-        normal-vertices
+        local-vertices
         (tn-vertex (make-hash-table))
         nvertices)
     (loop
@@ -140,7 +140,7 @@
                  (t
                   (aver (tn-local tn))
                   (setf (gethash tn tn-vertex) vertex)
-                  (push vertex normal-vertices))))
+                  (push vertex local-vertices))))
       finally (setf nvertices i))
     (if (< nvertices *quick-conflict-construction-limit*)
         (loop for (a . rest) on vertices
@@ -150,7 +150,7 @@
                      (aver (oset-adjoin (vertex-incidence a) b))
                      (aver (oset-adjoin (vertex-incidence b) a)))))
         (insert-conflict-edges component
-                               component-vertices global-vertices normal-vertices
+                               component-vertices global-vertices local-vertices
                                tn-vertex))
     ;; Normalize adjacency list ordering
     (dolist (v vertices)
