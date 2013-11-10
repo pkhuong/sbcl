@@ -148,7 +148,7 @@
     (if (< nvertices *quick-conflict-construction-limit*)
         (loop for (a . rest) on vertices
               for a-tn = (vertex-tn a)
-              do (dolist (b vertices)
+              do (dolist (b rest)
                    (when (tns-conflict a-tn (vertex-tn b))
                      (aver (oset-adjoin (vertex-incidence a) b))
                      (aver (oset-adjoin (vertex-incidence b) a)))))
