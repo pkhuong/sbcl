@@ -69,6 +69,50 @@
              (:conc-name #:ig-))
   (vertices nil :type list))
 
+(defun insert-conflict-edges (component
+                              component-vertices global-vertices
+                              normal-vertices tn-vertex)
+  (declare (type list component-vertices global-vertices normal-vertices)
+           (type hash-table tn-vertex))
+  (flet ((edge (a b)
+           (aver (oset-adjoin (vertex-incidence a) b))
+           (aver (oset-adjoin (vertex-incidence b) a))))
+    ;; COMPONENT vertices conflict with everything
+    (loop for (a . rest) on component-vertices
+          do (dolist (b rest)
+               (edge a b))
+             (dolist (b global-vertices)
+               (edge a b))
+             (dolist (b normal-vertices)
+               (edge a b)))
+    ;; GLOBAL vertices have more complex conflict testing
+    (loop for (a . rest) on global-vertices
+          do (dolist (b rest)
+               (when (tns-conflict-global-global (vertex-tn a)
+                                                 (vertex-tn b))
+                 (edge a b)))
+             (dolist (b normal-vertices)
+               (when (tns-conflict-local-global (vertex-tn b)
+                                                (vertex-tn a))
+                 (edge a b))))
+    ;; LOCAL-LOCAL conflict is easy: just enumerate by IR2 block.
+    (do-ir2-blocks (block component)
+      (let ((local-tns (ir2-block-local-tns block))
+            (n (ir2-block-local-tn-count block)))
+        (dotimes (i n)
+          (binding* ((a (aref local-tns i))
+                     (vertex (and a (neq a :more)
+                                  (gethash a tn-vertex))
+                             :exit-if-null)
+                     (conflicts (tn-local-conflicts a)))
+            (loop for j from (1+ i) below n do
+              (when (plusp (sbit conflicts j))
+                (let ((b (aref local-tns j)))
+                  (awhen (and b (neq b :more)
+                              (gethash b tn-vertex))
+                    (aver (eq (tn-local a) (tn-local b)))
+                    (edge vertex it)))))))))))
+
 ;; all TNs types are included in the graph, both with offset and without
 (defun make-interference-graph (vertices component)
   (let ((interference (%make-interference-graph :vertices vertices))
@@ -95,44 +139,10 @@
                   (aver (tn-local tn))
                   (setf (gethash tn tn-vertex) vertex)
                   (push vertex normal-vertices)))))
-    (flet ((edge (a b)
-             (aver (oset-adjoin (vertex-incidence a) b))
-             (aver (oset-adjoin (vertex-incidence b) a))))
-      ;; COMPONENT vertices conflict with everything
-      (loop for (a . rest) on component-vertices
-            do (dolist (b rest)
-                 (edge a b))
-               (dolist (b global-vertices)
-                 (edge a b))
-               (dolist (b normal-vertices)
-                 (edge a b)))
-      ;; GLOBAL vertices have more complex conflict testing
-      (loop for (a . rest) on global-vertices
-            do (dolist (b rest)
-                 (when (tns-conflict-global-global (vertex-tn a)
-                                                   (vertex-tn b))
-                   (edge a b)))
-               (dolist (b normal-vertices)
-                 (when (tns-conflict-local-global (vertex-tn b)
-                                                  (vertex-tn a))
-                   (edge a b))))
-      ;; LOCAL-LOCAL conflict is easy: just enumerate by IR2 block.
-      (do-ir2-blocks (block component)
-        (let ((local-tns (ir2-block-local-tns block))
-              (n (ir2-block-local-tn-count block)))
-          (dotimes (i n)
-            (binding* ((a (aref local-tns i))
-                       (vertex (and a (neq a :more)
-                                    (gethash a tn-vertex))
-                               :exit-if-null)
-                       (conflicts (tn-local-conflicts a)))
-              (loop for j from (1+ i) below n do
-                (when (plusp (sbit conflicts j))
-                  (let ((b (aref local-tns j)))
-                    (awhen (and b (neq b :more)
-                                (gethash b tn-vertex))
-                      (aver (eq (tn-local a) (tn-local b)))
-                      (edge vertex it))))))))))
+    (insert-conflict-edges component
+                           component-vertices global-vertices normal-vertices
+                           tn-vertex)
+    ;; Normalize adjacency list ordering
     (dolist (v vertices)
       (let ((incidence (vertex-incidence v)))
         (setf (oset-members incidence)
