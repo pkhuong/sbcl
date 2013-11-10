@@ -76,47 +76,14 @@
   ;; vertices: vertices with lower spill cost come first.
   (vertices nil :type list)
   ;; unsorted set of precolored vertices.
-  (precolored-vertices nil :type list))
-
-(defun insert-conflict-edges (component
-                              component-vertices global-vertices
-                              local-vertices tn-vertex)
-  (declare (type list component-vertices global-vertices local-vertices)
-           (type hash-table tn-vertex))
-  (flet ((edge (a b)
-           (aver (oset-adjoin (vertex-incidence a) b))
-           (aver (oset-adjoin (vertex-incidence b) a))))
-    ;; COMPONENT vertices conflict with everything
-    (loop for (a . rest) on component-vertices
-          do (dolist (b rest)
-               (edge a b))
-             (dolist (b global-vertices)
-               (edge a b))
-             (dolist (b local-vertices)
-               (edge a b)))
-    ;; GLOBAL vertices have more complex conflict testing
-    (loop for (a . rest) on global-vertices
-          for tn-a = (vertex-tn a)
-          do (dolist (b rest)
-               (when (tns-conflict-global-global (vertex-tn b) tn-a)
-                 (edge a b)))
-             (dolist (b local-vertices)
-               (when (tns-conflict-local-global (vertex-tn b) tn-a)
-                 (edge a b))))
-    ;; LOCAL-LOCAL conflict is easy: just enumerate by IR2 block.
-    (do-ir2-blocks (block component)
-      (let ((local-tns (ir2-block-local-tns block))
-            (n (ir2-block-local-tn-count block)))
-        (dotimes (i n)
-          (binding* ((a (aref local-tns i))
-                     (vertex (gethash a tn-vertex) :exit-if-null)
-                     (conflicts (tn-local-conflicts a)))
-            (loop for j from (1+ i) below n do
-              (when (plusp (sbit conflicts j))
-                (let ((b (aref local-tns j)))
-                  (awhen (gethash b tn-vertex)
-                    (aver (eq (tn-local a) (tn-local b)))
-                    (edge vertex it)))))))))))
+  (precolored-vertices nil :type list)
+  (tn-vertex (bug "missing arg") :type hash-table)
+  ;; A function that maps TNs to vertices, and then to the vertex's
+  ;; assigned offset, if any.  The offset (or NIL) is returned first,
+  ;; then the vertex as a second value.
+  (tn-vertex-mapping (bug "missing arg") :type function))
+
+;;; Interference graph construction
 
 ;; Supposing that TN is restricted to its preferred SC, what locations
 ;; are available?
@@ -147,8 +114,10 @@
                     (conflicts-in-sc tn sc loc))
           (push loc possible))))))
 
-;; all TNs types are included in the graph, both with offset and without
-(defun make-interference-graph (vertices component)
+;; walk over vertices, precomputing as much information as possible,
+;; and partitioning according to their kind.
+;; Return the partition, and a hash table to map tns to vertices.
+(defun prepare-vertices (vertices)
   (let (component-vertices
         global-vertices
         local-vertices
@@ -167,43 +136,103 @@
                      (vertex-initial-domain-size vertex) (length locs)
                      (vertex-invisible vertex) nil
                      (vertex-color vertex) (and offset
-                                                (cons offset sc)))
-               (cond (offset
-                      ;; already colored, no need to track conflicts.
-                      )
+                                                (cons offset sc))
+                     (gethash tn tn-vertex) vertex)
+               (cond (offset) ; precolored -> no need to track conflict
                      ((eql :component (tn-kind tn))
                       (push vertex component-vertices))
                      ((tn-global-conflicts tn)
                       (push vertex global-vertices))
                      (t
                       (aver (tn-local tn))
-                      (setf (gethash tn tn-vertex) vertex)
                       (push vertex local-vertices)))))
+    (values component-vertices global-vertices local-vertices
+            tn-vertex)))
+
+;; Compute conflict edges between vertices that aren't precolored:
+;; precolored vertices have already been handled via domain
+;; initialisation.
+(defun insert-conflict-edges (component
+                              component-vertices global-vertices
+                              local-vertices tn-vertex)
+  (declare (type list component-vertices global-vertices local-vertices)
+           (type hash-table tn-vertex))
+  (flet ((edge (a b)
+           (declare (type vertex a b))
+           (unless (or (tn-offset (vertex-tn a))  ; precolored -> conflict
+                       (tn-offset (vertex-tn b))) ; implicit via domain
+             (aver (oset-adjoin (vertex-incidence a) b))
+             (aver (oset-adjoin (vertex-incidence b) a)))))
+    ;; COMPONENT vertices conflict with everything
+    (loop for (a . rest) on component-vertices
+          do (dolist (b rest)
+               (edge a b))
+             (dolist (b global-vertices)
+               (edge a b))
+             (dolist (b local-vertices)
+               (edge a b)))
+    ;; GLOBAL vertices have more complex conflict testing
+    (loop for (a . rest) on global-vertices
+          for tn-a = (vertex-tn a)
+          do (dolist (b rest)
+               (when (tns-conflict-global-global (vertex-tn b) tn-a)
+                 (edge a b)))
+             (dolist (b local-vertices)
+               (when (tns-conflict-local-global (vertex-tn b) tn-a)
+                 (edge a b))))
+    ;; LOCAL-LOCAL conflict is easy: just enumerate by IR2 block.
+    (do-ir2-blocks (block component)
+      (let ((local-tns (ir2-block-local-tns block))
+            (n (ir2-block-local-tn-count block)))
+        (dotimes (i n)
+          (binding* ((a (aref local-tns i))
+                     (vertex (gethash a tn-vertex) :exit-if-null)
+                     (tn-local (tn-local a) :exit-if-null)
+                     (conflicts (tn-local-conflicts a)))
+            (unless (tn-offset a)
+              (loop for j from (1+ i) below n do
+                (when (plusp (sbit conflicts j))
+                  (let ((b (aref local-tns j)))
+                    (awhen (and (tn-local b)
+                                (gethash b tn-vertex))
+                      (aver (eq tn-local (tn-local b)))
+                      (edge vertex it))))))))))))
+
+;; Construct the interference graph for these vertices in the component.
+;; All TNs types are included in the graph, both with offset and without,
+;; but only those requiring coloring appear in the VERTICES slot.
+(defun make-interference-graph (vertices component)
+  (multiple-value-bind (component-vertices global-vertices local-vertices
+                        tn-vertex)
+      (prepare-vertices vertices)
     (insert-conflict-edges component
                            component-vertices global-vertices local-vertices
                            tn-vertex)
     ;; Normalize adjacency list ordering, and collect all uncolored
     ;; vertices in the graph.
-    (loop for v in vertices
-          do (let ((incidence (vertex-incidence v)))
-               (setf (oset-members incidence)
-                     (sort (oset-members incidence) #'<
-                           :key #'vertex-number)))
-          if (vertex-color v)
-            collect v into colored
-          else
-            collect v into uncolored
-         finally (return
-                   ;; we like to walk over vertices to color in order
-                   ;; of spill cost
-                   (let ((uncolored (schwartzian-stable-sort-list
-                                     uncolored #'<
-                                     :key (lambda (vertex)
-                                            (tn-spill-cost
-                                             (vertex-tn vertex))))))
-                     (%make-interference-graph
-                      :vertices uncolored
-                      :precolored-vertices colored))))))
+    (collect ((colored)
+              (uncolored))
+      (dolist (v vertices)
+        (let ((incidence (vertex-incidence v)))
+          (setf (oset-members incidence)
+                (sort (oset-members incidence) #'< :key #'vertex-number)))
+        (cond ((vertex-color v)
+               (aver (tn-offset (vertex-tn v)))
+               (colored v))
+              (t
+               (aver (not (tn-offset (vertex-tn v))))
+               (uncolored v))))
+      (%make-interference-graph
+       :vertices (schwartzian-stable-sort-list
+                  (uncolored) #'<
+                  :key (lambda (vertex)
+                         (tn-spill-cost (vertex-tn vertex))))
+       :precolored-vertices (colored)
+       :tn-vertex tn-vertex
+       :tn-vertex-mapping (lambda (tn)
+                            (awhen (gethash tn tn-vertex)
+                              (values (car (vertex-color it))
+                                      it)))))))
 
 ;; &key reset: whether coloring/invisibility information should be
 ;; removed from all the remaining vertices
@@ -212,32 +241,14 @@
   (let ((vertices (if reset
                       (loop for v in (ig-vertices graph)
                             unless (eql v vertex)
-                              do (let* ((tn (vertex-tn v))
-                                        (offset (tn-offset tn)))
-                                   (aver (not offset))
-                                   (setf (vertex-invisible v) nil
-                                         (vertex-color v) nil))
+                              do (aver (not (tn-offset (vertex-tn v))))
+                                 (setf (vertex-invisible v) nil
+                                       (vertex-color v) nil)
                               and collect v)
                       (remove vertex (ig-vertices graph)))))
-    (do-oset-elements (neighbor (vertex-incidence vertex)
-                                 (%make-interference-graph
-                                  :vertices vertices
-                                  :precolored-vertices
-                                  (ig-precolored-vertices graph)))
+    (setf (ig-vertices graph) vertices)
+    (do-oset-elements (neighbor (vertex-incidence vertex) graph)
       (oset-delete (vertex-incidence neighbor) vertex))))
-
-;; Give an interference graph, return a function that maps TNs to
-;; vertices, and then to the vertex's assigned offset, if any.
-(defun make-tn-offset-mapping (graph)
-  (let ((table (make-hash-table)))
-    (dolist (vertex (ig-vertices graph))
-      (setf (gethash (vertex-tn vertex) table) vertex))
-    (flet ((tn->vertex (tn)
-             (let ((vertex (gethash tn table)))
-               (when vertex
-                 (values (car (vertex-color vertex))
-                         vertex)))))
-      #'tn->vertex)))
 
 ;;; Support code
 (defvar *loop-depth-weight* 1)
@@ -389,7 +400,7 @@
 
 ;; Try and color the interference graph once.
 (defun color-interference-graph (interference-graph)
-  (let ((tn-vertex (make-tn-offset-mapping interference-graph)))
+  (let ((tn-vertex (ig-tn-vertex-mapping interference-graph)))
     (flet ((color-vertices (vertices)
              (dolist (vertex vertices)
                (awhen (find-vertex-color vertex tn-vertex)
@@ -443,6 +454,8 @@
                  t))
              (iter (to-spill)
                (when to-spill
+                 (setf (vertex-invisible to-spill) t
+                       (vertex-color to-spill) nil)
                  (push to-spill spill-list)
                  (setf graph (remove-vertex-from-interference-graph
                               to-spill graph :reset t)))
