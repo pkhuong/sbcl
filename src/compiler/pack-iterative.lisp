@@ -125,7 +125,7 @@
                        offset element-size
                        neighbor-offset (sc-element-size neighbor-sc)))))))
 
-;; Assumes that VERTEX with pack-type :WIRED.
+;; Assumes that VERTEX  pack-type is :WIRED.
 (defun vertex-color-possible-p (vertex color)
   (declare (type integer color) (type vertex vertex))
   (and (or (and (neq (vertex-pack-type vertex) :wired)
@@ -137,6 +137,9 @@
                                              (list (vertex-color neighbour))))
                                       (vertex-incidence vertex))))))
 
+;; Sorted list of all possible locations for vertex in its preferred
+;; SC: more heavily loaded (i.e that should be tried first) locations
+;; first.
 (defun vertex-domain (vertex)
   (declare (type vertex vertex))
   (flet ((color-always-live-conflict (color)
@@ -161,7 +164,7 @@
       (schwartzian-stable-sort-list allowed #'>
                                     :key #'color-always-live-conflict))))
 
-(defun target-vertices (vertex tn-offset)
+(defun vertex-target-vertices (vertex tn-offset)
   (declare (type vertex vertex) (type function tn-offset))
   (let ((sb (sc-sb (vertex-sc vertex)))
         (neighbors (vertex-incidence vertex))
@@ -207,7 +210,7 @@
 ;; assuming that each neighbor of the vertex has the same sb
 (defun find-vertex-color (vertex tn-vertex-mapping)
   (awhen (vertex-domain vertex)
-    (let ((targets (target-vertices vertex tn-vertex-mapping))
+    (let ((targets (vertex-target-vertices vertex tn-vertex-mapping))
           (sc (vertex-sc vertex)))
       (multiple-value-bind (color recolor-vertices)
           (if targets
@@ -218,7 +221,7 @@
         (unless color
           (let ((*print-level* 3))
             (print :failed-to-align-with-targets)
-            (dolist (target (target-vertices vertex tn-vertex-mapping))
+            (dolist (target (vertex-target-vertices vertex tn-vertex-mapping))
               (print (list :target target))
               (print (vertex-domain target)))
             (print (list :colors-for-me
