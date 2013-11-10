@@ -241,7 +241,7 @@
 
 (defun partition-and-order-vertices (interference-graph)
   (flet ((domain-size (vertex)
-           (let ((sc (vertex-sc vertex-sc)))
+           (let ((sc (vertex-sc vertex)))
              (- (length (sc-locations sc))
                 (length (sc-reserve-locations sc)))))
          (degree (vertex)
