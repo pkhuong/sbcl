@@ -113,13 +113,18 @@
                     (aver (eq (tn-local a) (tn-local b)))
                     (edge vertex it)))))))))))
 
+;; if fewer than *quick-conflict-construction-limit* vertices are
+;; around, just go for a quadratic loop.
+(defvar *quick-conflict-construction-limit* 20)
+
 ;; all TNs types are included in the graph, both with offset and without
 (defun make-interference-graph (vertices component)
   (let ((interference (%make-interference-graph :vertices vertices))
         component-vertices
         global-vertices
         normal-vertices
-        (tn-vertex (make-hash-table)))
+        (tn-vertex (make-hash-table))
+        nvertices)
     (loop
       for i upfrom 0
       for vertex in vertices
@@ -138,10 +143,18 @@
                  (t
                   (aver (tn-local tn))
                   (setf (gethash tn tn-vertex) vertex)
-                  (push vertex normal-vertices)))))
-    (insert-conflict-edges component
-                           component-vertices global-vertices normal-vertices
-                           tn-vertex)
+                  (push vertex normal-vertices))))
+      finally (setf nvertices i))
+    (if (< nvertices *quick-conflict-construction-limit*)
+        (loop for (a . rest) on vertices
+              for a-tn = (vertex-tn a)
+              do (dolist (b vertices)
+                   (when (tns-conflict a-tn (vertex-tn b))
+                     (aver (oset-adjoin (vertex-incidence a) b))
+                     (aver (oset-adjoin (vertex-incidence b) a)))))
+        (insert-conflict-edges component
+                               component-vertices global-vertices normal-vertices
+                               tn-vertex))
     ;; Normalize adjacency list ordering
     (dolist (v vertices)
       (let ((incidence (vertex-incidence v)))
