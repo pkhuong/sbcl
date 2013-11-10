@@ -395,35 +395,16 @@
 
 (defun color-interference-graph (interference-graph)
   (let ((tn-vertex (make-tn-offset-mapping interference-graph)))
-    (flet ((color-vertices (vertices probably-colored-p)
+    (flet ((color-vertices (vertices)
              (dolist (vertex vertices)
-               (let ((color (find-vertex-color vertex tn-vertex)))
-                 (unless (or color (not probably-colored-p))
-                   ;; FIXME: is that just debugging output?
-                   (flet ((colors-in (incidence)
-                            (delete-duplicates
-                             (mapcar (lambda (vertex)
-                                       (car (vertex-color vertex)))
-                                     (oset-members incidence)))))
-                     (let ((visible-neighbors (remove-if #'vertex-invisible
-                                                          (oset-members
-                                                           (vertex-incidence vertex)))))
-                       (print  (list "vertex inc " (oset-count
-                                                    (vertex-incidence vertex))
-                                     "visibles " (length visible-neighbors)
-                                     "colors" (colors-in (vertex-incidence vertex))
-                                     "length colo " (length (colors-in visible-neighbors))
-                                     "sc-length" (length (sc-locations (vertex-sc vertex))))))))
-                 (when color
-                   (setf (vertex-color vertex) color
-                         (vertex-invisible vertex) nil))))))
+               (awhen (find-vertex-color vertex tn-vertex)
+                 (setf (vertex-color vertex) it
+                       (vertex-invisible vertex) nil)))))
       (multiple-value-bind (probably-colored probably-spilled)
           (partition-and-order-vertices interference-graph)
-        ;; If this were done correctly (see FIXME above), all probably
-        ;; colored would find a color.
-        (color-vertices probably-colored t)
+        (color-vertices probably-colored)
         ;; These might benefit from further ordering... LexBFS?
-        (color-vertices probably-spilled nil))))
+        (color-vertices probably-spilled))))
   interference-graph)
 
 (defvar *pack-iterations* 500)
