@@ -322,6 +322,7 @@
 
 ;; If true, try to be clever, but the rest of the spill selection
 ;; logic is too simplistic to exploit it.
+;; FIXME: Document this better and export the symbol when it works.
 (defvar *candidate-color-flag* nil)
 
 (defun iterate-color (vertices &optional (iterations *pack-iterations*))
