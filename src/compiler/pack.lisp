@@ -1625,9 +1625,7 @@
          (funcall (ecase *register-allocation-method*
                     (:greedy #'pack-greedy)
                     (:iterative #'pack-iterative)
-                    (:adaptive (if speed-3
-                                   #'pack-iterative
-                                   #'pack-greedy)))
+                    (:adaptive (if speed-3 #'pack-iterative #'pack-greedy)))
                   component 2comp optimize)
 
          ;; Pack any leftover normal TN that is not already
