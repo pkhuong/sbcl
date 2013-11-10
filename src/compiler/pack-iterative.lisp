@@ -87,8 +87,8 @@
                       (same-sb (equal (sc-sb (tn-sc (vertex-tn a)))
                                       (sc-sb (tn-sc (vertex-tn b))))))
                   (when (and conflict same-sb)
-                    (assert (not (member a (vertex-incidence b))))
-                    (assert (not (member b (vertex-incidence a))))
+                    (aver (not (member a (vertex-incidence b))))
+                    (aver (not (member b (vertex-incidence a))))
                     (push a (vertex-incidence b))
                     (push b (vertex-incidence a))))))
     interference))
@@ -418,7 +418,7 @@
     (let ((rest-vertices (interference-vertices graph)))
       (when to-spill
         (setf rest-vertices (remove to-spill rest-vertices)))
-      (assert (= nvertices (+ (length spill-list) (length rest-vertices))))
+      (aver (= nvertices (+ (length spill-list) (length rest-vertices))))
       (append spill-list rest-vertices))))
 
 (defun pack-colored (colored-vertices)
@@ -428,7 +428,7 @@
            (tn (vertex-tn vertex))
            (tn-offset (tn-offset tn)))
       (when (and offset (not tn-offset))
-        (assert (not (conflicts-in-sc tn (tn-sc tn) offset)))
+        (aver (not (conflicts-in-sc tn (tn-sc tn) offset)))
         (setf (tn-offset tn) offset)
         (pack-wired-tn (vertex-tn vertex) nil))))
   colored-vertices)
