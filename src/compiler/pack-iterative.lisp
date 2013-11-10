@@ -36,6 +36,7 @@
   ;; current status invisible  or not  (on stack or not)
   (invisible nil :type t))
 
+(declaim (inline vertex-sc))
 (defun vertex-sc (vertex)
   (tn-sc (vertex-tn vertex)))
 
