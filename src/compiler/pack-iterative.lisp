@@ -52,14 +52,15 @@
               (vertex-color vertex) (and offset
                                          (cons offset sc)))))
     (loop for (a . rest) on vertices
-       do (loop for b in rest
-             do (when (and (eql (sc-sb (tn-sc (vertex-tn a)))
-                                (sc-sb (tn-sc (vertex-tn b))))
-                           (tns-conflict (vertex-tn a) (vertex-tn b)))
-                  (aver (not (member a (vertex-incidence b))))
-                  (aver (not (member b (vertex-incidence a))))
-                  (push a (vertex-incidence b))
-                  (push b (vertex-incidence a)))))
+          for tn = (vertex-tn a)
+          for sb = (sc-sb (tn-sc tn))
+          do (loop for b in rest
+                   do (when (and (eql sb (sc-sb (tn-sc (vertex-tn b))))
+                                 (tns-conflict tn (vertex-tn b)))
+                        (aver (not (member a (vertex-incidence b))))
+                        (aver (not (member b (vertex-incidence a))))
+                        (push a (vertex-incidence b))
+                        (push b (vertex-incidence a)))))
     interference))
 
 (defun remove-vertex-from-interference-graph (vertex graph &key reset)
