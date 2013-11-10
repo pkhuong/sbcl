@@ -303,7 +303,7 @@
         (color-vertices probably-spilled nil))))
   interference-graph)
 
-(defvar *iterations* 500)
+(defvar *pack-iterations* 500)
 
 ;;; Find the least-spill-cost neighbour in each color.
 (defun collect-min-spill-candidates (vertex)
@@ -324,7 +324,7 @@
 ;; logic is too simplistic to exploit it.
 (defvar *candidate-color-flag* nil)
 
-(defun iterate-color (vertices &optional (iterations *iterations*))
+(defun iterate-color (vertices &optional (iterations *pack-iterations*))
   (let* ((spill-list '())
          (nvertices (length vertices))
          (number-iterations (min iterations nvertices))
