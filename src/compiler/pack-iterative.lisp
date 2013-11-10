@@ -101,15 +101,12 @@
             (n (ir2-block-local-tn-count block)))
         (dotimes (i n)
           (binding* ((a (aref local-tns i))
-                     (vertex (and a (neq a :more)
-                                  (gethash a tn-vertex))
-                             :exit-if-null)
+                     (vertex (gethash a tn-vertex) :exit-if-null)
                      (conflicts (tn-local-conflicts a)))
             (loop for j from (1+ i) below n do
               (when (plusp (sbit conflicts j))
                 (let ((b (aref local-tns j)))
-                  (awhen (and b (neq b :more)
-                              (gethash b tn-vertex))
+                  (awhen (gethash b tn-vertex)
                     (aver (eq (tn-local a) (tn-local b)))
                     (edge vertex it)))))))))))
 
