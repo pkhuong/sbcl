@@ -62,7 +62,9 @@
   ;; is at the same time  marked for deletion
   (spill-candidate nil :type t)
   ;; current status invisible  or not  (on stack or not)
-  (invisible nil :type t))
+  (invisible nil :type t)
+  ;; (tn-spill-cost (vertex-tn vertex))
+  (spill-cost 0 :type fixnum))
 
 (declaim (inline vertex-sc))
 (defun vertex-sc (vertex)
@@ -134,9 +136,10 @@
                      (vertex-incidence vertex) (make-ordered-set)
                      (vertex-initial-domain vertex) locs
                      (vertex-initial-domain-size vertex) (length locs)
-                     (vertex-invisible vertex) nil
                      (vertex-color vertex) (and offset
                                                 (cons offset sc))
+                     (vertex-invisible vertex) nil
+                     (vertex-spill-cost vertex) (tn-spill-cost tn)
                      (gethash tn tn-vertex) vertex)
                (cond (offset) ; precolored -> no need to track conflict
                      ((eql :component (tn-kind tn))
@@ -228,10 +231,7 @@
                (uncolored v))))
       ;; Later passes like having this list sorted; do it in advance.
       (%make-interference-graph
-       :vertices (schwartzian-stable-sort-list
-                  (uncolored) #'<
-                  :key (lambda (vertex)
-                         (tn-spill-cost (vertex-tn vertex))))
+       :vertices (stable-sort (uncolored) #'< :key #'vertex-spill-cost)
        :precolored-vertices (colored)
        :tn-vertex tn-vertex
        :tn-vertex-mapping (lambda (tn)
@@ -340,7 +340,7 @@
                                             vertex))
                              compatible)
                      (vertex-color-possible-p vertex color))
-            (incf cost (max 1 (tn-spill-cost (vertex-tn vertex))))
+            (incf cost (max 1 (vertex-spill-cost vertex)))
             (push vertex compatible)))
         (when (or (null best-cost)
                   (> cost best-cost))
