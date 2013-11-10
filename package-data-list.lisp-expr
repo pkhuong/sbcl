@@ -2251,7 +2251,10 @@ ISBN 0-262-61074-4, with exceptions as noted in the User Manual."
                      "VOP-REFS" "VOP-RESULTS" "VOP-SAVE-SET" "VOP-TEMPS"
                      ))
       :export ("PACK" "TARGET-IF-DESIRABLE"
-               "*LOOP-DEPTH-WEIGHT*" "*PACK-ITERATIONS*"))
+               "*LOOP-DEPTH-WEIGHT*" "*PACK-ITERATIONS*"
+               "*PACK-ASSIGN-COSTS*" "*PACK-OPTIMIZE-SAVES*"
+               "*TN-WRITE-COSTS*"
+               "*REGISTER-ALLOCATION-METHOD*"))
 
    #s(sb-cold:package-data
       :name "SB!PCL"
