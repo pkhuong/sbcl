@@ -207,7 +207,6 @@
                 best-cost       cost))))
     (values best-color best-compatible)))
 
-;; assuming that each neighbor of the vertex has the same sb
 (defun find-vertex-color (vertex tn-vertex-mapping)
   (awhen (vertex-domain vertex)
     (let ((targets (vertex-target-vertices vertex tn-vertex-mapping))
@@ -240,14 +239,11 @@
               (setf (car (vertex-color target)) color)))
           (return-from find-vertex-color (cons color sc)))))))
 
-; coloring the interference graph
-; assumption ; k registers are free
 (defun partition-and-order-vertices (interference-graph)
   (flet ((domain-size (vertex)
-           "The number of potential colors for that vertex."
-           ;; FIXME: is it necessary to subtract reserved locations?
-           ;;  I'm pretty sure it is -- PK
-           (length (sc-locations (vertex-sc vertex))))
+           (let ((sc (vertex-sc vertex-sc)))
+             (- (length (sc-locations sc))
+                (length (sc-reserve-locations sc)))))
          (degree (vertex)
            (count-if-not #'vertex-invisible (vertex-incidence vertex)))
          (mark-as-spill-candidate (vertex)
@@ -300,8 +296,8 @@
                          (vertex-invisible vertex) nil))))))
       (multiple-value-bind (probably-colored probably-spilled)
           (partition-and-order-vertices interference-graph)
-        ;; If this were done correctly (see FIXME above), all probably colored would
-        ;; find a color.
+        ;; If this were done correctly (see FIXME above), all probably
+        ;; colored would find a color.
         (color-vertices probably-colored t)
         ;; These might benefit from further ordering... LexBFS?
         (color-vertices probably-spilled nil))))
