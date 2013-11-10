@@ -13,8 +13,9 @@
 (in-package "SB!REGALLOC")
 
 ;; interference graph
-(def!struct (interference
-             (:constructor make-interference (vertices)))
+(def!struct (interference-graph
+             (:constructor %make-interference-graph)
+             (:conc-name #:ig-))
   (vertices nil :type list))
 
 ;; vertex in an interference graph
@@ -41,17 +42,15 @@
 
 ;; all TNs types are included in the graph, both with offset and without
 (defun construct-interference (vertices)
-  (let ((interference (make-interference vertices)))
-    (dolist  (vertex vertices)
+  (let ((interference (%make-interference-graph :vertices vertices)))
+    (dolist (vertex vertices)
       (let* ((tn (vertex-tn vertex))
              (offset (tn-offset tn))
              (sc (tn-sc tn)))
         (setf (vertex-incidence vertex) '()
               (vertex-invisible vertex) nil
-              (vertex-color vertex)
-              (when offset
-                (cons  offset sc)))))
-    (setf (interference-vertices interference) vertices)
+              (vertex-color vertex) (and offset
+                                         (cons offset sc)))))
     (loop for (a . rest) on vertices
        do (loop for b in rest
              do (let ((conflict (tns-conflict (vertex-tn a) (vertex-tn b)))
@@ -65,9 +64,9 @@
     interference))
 
 (defun remove-vertex-from-interference-graph (vertex graph &key reset)
-  (declare (type vertex vertex) (type interference graph))
+  (declare (type vertex vertex) (type interference-graph graph))
   (let ((vertices (if reset
-                      (loop for v in (interference-vertices graph)
+                      (loop for v in (ig-vertices graph)
                             unless (eql v vertex)
                               do (let* ((tn (vertex-tn v))
                                         (offset (tn-offset tn))
@@ -77,15 +76,15 @@
                                          (and offset
                                               (cons offset sc))))
                               and collect v)
-                      (remove vertex
-                              (interference-vertices graph)))))
-    (dolist (neighbour (vertex-incidence vertex) (make-interference vertices))
+                      (remove vertex (ig-vertices graph)))))
+    (dolist (neighbour (vertex-incidence vertex)
+                       (%make-interference-graph :vertices vertices))
       (setf (vertex-incidence neighbour)
             (remove vertex (vertex-incidence neighbour))))))
 
 (defun make-tn-offset-mapping (graph)
   (let ((table (make-hash-table)))
-    (dolist (vertex (interference-vertices graph))
+    (dolist (vertex (ig-vertices graph))
       (setf (gethash (vertex-tn vertex) table) vertex))
     (flet ((tn->vertex (tn)
              (let ((vertex (gethash tn table)))
@@ -247,7 +246,7 @@
            (setf (vertex-invisible vertex) t)))
     (let* ((precoloring-stack '())
            (prespilling-stack '())
-           (vertices (remove-if #'vertex-color (interference-vertices interference-graph)))
+           (vertices (remove-if #'vertex-color (ig-vertices interference-graph)))
            (sorted-vertices (schwartzian-stable-sort-list
                              vertices '<
                              :key (lambda (vertex)
@@ -339,7 +338,7 @@
                               to-spill graph :reset t)))
                (color-interference-graph graph)
                (let ((spill-candidates (spill-candidates
-                                        (interference-vertices graph)))
+                                        (ig-vertices graph)))
                      (color-flag *candidate-color-flag*)
                      best-cost
                      best-spill)
@@ -367,7 +366,7 @@
                    best-spill))))
       (loop repeat number-iterations
             while (setf to-spill (iter to-spill))))
-    (let ((rest-vertices (interference-vertices graph)))
+    (let ((rest-vertices (ig-vertices graph)))
       (when to-spill
         (setf rest-vertices (remove to-spill rest-vertices)))
       (aver (= nvertices (+ (length spill-list) (length rest-vertices))))
