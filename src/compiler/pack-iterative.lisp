@@ -181,7 +181,7 @@
 ;; Choose the "best" color for these vertices: a color is good if as
 ;;  many of these vertices simultaneously take that color, and those
 ;;  that can't have a low spill cost.
-(defun color-for-vertices (vertices colors)
+(defun vertices-best-color (vertices colors)
   (let ((best-color      nil)
         (best-compatible '())
         (best-cost       nil))
@@ -214,7 +214,7 @@
           (sc (vertex-sc vertex)))
       (multiple-value-bind (color recolor-vertices)
           (if targets
-              (color-for-vertices targets it)
+              (vertices-best-color targets it)
               (values (first it) nil))
         ;; FIXME: can this happen during normal code, or is that a
         ;; BUG?
