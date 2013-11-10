@@ -13,16 +13,39 @@
 (in-package "SB!REGALLOC")
 
 ;;; Interference graph data structure
+(defstruct (ordered-set
+            (:include sset)
+            (:conc-name #:oset-))
+  (members nil :type list))
+
+(defun oset-adjoin (oset element)
+  (when (sset-adjoin element oset)
+    (push element (oset-members oset))
+    t))
+
+(defun oset-delete (oset element)
+  (when (sset-delete element oset)
+    (setf (oset-members oset)
+          (delete element (oset-members oset)))
+    t))
+
+(defun oset-member (oset element)
+  (sset-member element oset))
+
+(defmacro do-oset-elements ((variable oset &optional return) &body body)
+  `(dolist (,variable (oset-members ,oset) ,return)
+     ,@body))
 
 ;; vertex in an interference graph
 (def!struct (vertex
+             (:include sset-element)
              (:constructor make-vertex (tn pack-type)))
   ;; PLACE IN THE GRAPH STRUCTURE
   ;; incidence list
   ;; vertices (node numbers) that are adjacent to the node
   ;; index vector
   ;; FIXME
-  (incidence nil :type list)
+  (incidence (make-ordered-set) :type ordered-set)
   ;; POINTER Back to TN
   (tn nil :type tn)
   ;; type of packing necessary
@@ -49,24 +72,25 @@
 ;; all TNs types are included in the graph, both with offset and without
 (defun make-interference-graph (vertices)
   (let ((interference (%make-interference-graph :vertices vertices)))
-    (dolist (vertex vertices)
-      (let* ((tn (vertex-tn vertex))
-             (offset (tn-offset tn))
-             (sc (tn-sc tn)))
-        (setf (vertex-incidence vertex) '()
-              (vertex-invisible vertex) nil
-              (vertex-color vertex) (and offset
-                                         (cons offset sc)))))
+    (loop
+      for i upfrom 0
+      for vertex in vertices
+      do (let* ((tn (vertex-tn vertex))
+                (offset (tn-offset tn))
+                (sc (tn-sc tn)))
+           (setf (vertex-number vertex) i
+                 (vertex-incidence vertex) (make-ordered-set)
+                 (vertex-invisible vertex) nil
+                 (vertex-color vertex) (and offset
+                                            (cons offset sc)))))
     (loop for (a . rest) on vertices
           for tn = (vertex-tn a)
           for sb = (sc-sb (tn-sc tn))
           do (loop for b in rest
                    do (when (and (eql sb (sc-sb (tn-sc (vertex-tn b))))
                                  (tns-conflict tn (vertex-tn b)))
-                        (aver (not (member a (vertex-incidence b))))
-                        (aver (not (member b (vertex-incidence a))))
-                        (push a (vertex-incidence b))
-                        (push b (vertex-incidence a)))))
+                        (aver (oset-adjoin (vertex-incidence b) a))
+                        (aver (oset-adjoin (vertex-incidence a) b)))))
     interference))
 
 ;; &key reset: whether coloring/invisibility information should be
@@ -85,10 +109,10 @@
                                               (cons offset sc))))
                               and collect v)
                       (remove vertex (ig-vertices graph)))))
-    (dolist (neighbour (vertex-incidence vertex)
-                       (%make-interference-graph :vertices vertices))
-      (setf (vertex-incidence neighbour)
-            (remove vertex (vertex-incidence neighbour))))))
+    (do-oset-elements (neighbor (vertex-incidence vertex)
+                                 (%make-interference-graph
+                                  :vertices vertices))
+      (oset-delete (vertex-incidence neighbor) vertex))))
 
 ;; Give an interference graph, return a function that maps TNs to
 ;; vertices, and then to the vertex's assigned offset, if any.
@@ -132,11 +156,13 @@
   (and (or (and (neq (vertex-pack-type vertex) :wired)
                 (not (tn-offset (vertex-tn vertex))))
            (= color (car (vertex-color vertex))))
-       (not (color-conflict-p (cons color (vertex-sc vertex))
-                              (mapcan (lambda (neighbour)
-                                        (and (not (vertex-invisible neighbour))
-                                             (list (vertex-color neighbour))))
-                                      (vertex-incidence vertex))))))
+       (not (color-conflict-p
+             (cons color (vertex-sc vertex))
+             (collect ((colors))
+               (do-oset-elements (neighbor (vertex-incidence vertex)
+                                           (colors))
+                 (unless (vertex-invisible neighbor)
+                   (colors (vertex-color neighbor)))))))))
 
 ;; Sorted list of all possible locations for vertex in its preferred
 ;; SC: more heavily loaded (i.e that should be tried first) locations
@@ -175,7 +201,7 @@
           (funcall tn-offset current)
         (when (and offset
                    (eq sb (sc-sb (tn-sc current)))
-                   (not (member target neighbors)))
+                   (not (oset-member neighbors target)))
           (pushnew target vertices))))
     (nreverse vertices)))
 
@@ -196,7 +222,8 @@
             (cost 0))
         (dolist (vertex vertices)
           (when (and (notany (lambda (existing)
-                               (member vertex (vertex-incidence existing)))
+                               (oset-member (vertex-incidence existing)
+                                            vertex))
                              compatible)
                      (vertex-color-possible-p vertex color))
             (incf cost (max 1 (tn-spill-cost (vertex-tn vertex))))
@@ -246,7 +273,8 @@
              (- (length (sc-locations sc))
                 (length (sc-reserve-locations sc)))))
          (degree (vertex)
-           (count-if-not #'vertex-invisible (vertex-incidence vertex)))
+           (count-if-not #'vertex-invisible
+                         (oset-members (vertex-incidence vertex))))
          (mark-as-spill-candidate (vertex)
            (setf (vertex-spill-candidate vertex) t))
          (eliminate-vertex (vertex)
@@ -284,13 +312,15 @@
                             (delete-duplicates
                              (mapcar (lambda (vertex)
                                        (car (vertex-color vertex)))
-                                     incidence))))
-                     (let ((visible-neighbours (remove-if #'vertex-invisible
-                                                          (vertex-incidence vertex))))
-                       (print  (list "vertex inc " (length (vertex-incidence vertex))
-                                     "visibles " (length visible-neighbours)
+                                     (oset-members incidence)))))
+                     (let ((visible-neighbors (remove-if #'vertex-invisible
+                                                          (oset-members
+                                                           (vertex-incidence vertex)))))
+                       (print  (list "vertex inc " (oset-count
+                                                    (vertex-incidence vertex))
+                                     "visibles " (length visible-neighbors)
                                      "colors" (colors-in (vertex-incidence vertex))
-                                     "length colo " (length (colors-in visible-neighbours))
+                                     "length colo " (length (colors-in visible-neighbors))
                                      "sc-length" (length (sc-locations (vertex-sc vertex))))))))
                  (when color
                    (setf (vertex-color vertex) color
@@ -306,19 +336,19 @@
 
 (defvar *pack-iterations* 500)
 
-;;; Find the least-spill-cost neighbour in each color.
+;;; Find the least-spill-cost neighbor in each color.
 (defun collect-min-spill-candidates (vertex)
   (let ((colors '()))
-    (loop for neighbor in (vertex-incidence vertex)
-          when (eql :normal (vertex-pack-type neighbor))
-            do (let* ((color (car (vertex-color neighbor)))
-                      (cell (assoc color colors))
-                      (cost-neighbor (tn-spill-cost (vertex-tn neighbor))))
-                 (cond (cell
-                        (when (< cost-neighbor (tn-spill-cost
-                                                (vertex-tn (cdr cell))))
-                          (setf (cdr cell) neighbor)))
-                       (t (push (cons color neighbor) colors)))))
+    (do-oset-elements (neighbor (vertex-incidence vertex))
+      (when (eql :normal (vertex-pack-type neighbor))
+        (let* ((color (car (vertex-color neighbor)))
+               (cell (assoc color colors))
+               (cost-neighbor (tn-spill-cost (vertex-tn neighbor))))
+          (cond (cell
+                 (when (< cost-neighbor (tn-spill-cost
+                                         (vertex-tn (cdr cell))))
+                   (setf (cdr cell) neighbor)))
+                (t (push (cons color neighbor) colors))))))
     (remove nil (mapcar #'cdr colors))))
 
 ;; If true, try to be clever, but the rest of the spill selection
@@ -365,9 +395,9 @@
                        (candidate candidate)
                        (if color-flag
                            (mapc #'candidate (collect-min-spill-candidates candidate))
-                           (dolist (neighbour (vertex-incidence candidate))
-                             (when (eql (vertex-pack-type neighbour) :normal)
-                               (candidate neighbour))))))
+                           (do-oset-elements (neighbor (vertex-incidence candidate))
+                             (when (eql (vertex-pack-type neighbor) :normal)
+                               (candidate neighbor))))))
                    (aver best-spill)
                    (setf (vertex-color best-spill) nil)
                    (push best-spill spill-list)
