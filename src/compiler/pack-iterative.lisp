@@ -41,7 +41,7 @@
   (invisible nil :type t))
 
 ;; all TNs types are included in the graph, both with offset and without
-(defun construct-interference (vertices)
+(defun make-interference-graph (vertices)
   (let ((interference (%make-interference-graph :vertices vertices)))
     (dolist (vertex vertices)
       (let* ((tn (vertex-tn vertex))
@@ -53,14 +53,13 @@
                                          (cons offset sc)))))
     (loop for (a . rest) on vertices
        do (loop for b in rest
-             do (let ((conflict (tns-conflict (vertex-tn a) (vertex-tn b)))
-                      (same-sb (equal (sc-sb (tn-sc (vertex-tn a)))
-                                      (sc-sb (tn-sc (vertex-tn b))))))
-                  (when (and conflict same-sb)
-                    (aver (not (member a (vertex-incidence b))))
-                    (aver (not (member b (vertex-incidence a))))
-                    (push a (vertex-incidence b))
-                    (push b (vertex-incidence a))))))
+             do (when (and (eql (sc-sb (tn-sc (vertex-tn a)))
+                                (sc-sb (tn-sc (vertex-tn b))))
+                           (tns-conflict (vertex-tn a) (vertex-tn b)))
+                  (aver (not (member a (vertex-incidence b))))
+                  (aver (not (member b (vertex-incidence a))))
+                  (push a (vertex-incidence b))
+                  (push b (vertex-incidence a)))))
     interference))
 
 (defun remove-vertex-from-interference-graph (vertex graph &key reset)
@@ -325,7 +324,7 @@
          (sorted-vertices (stable-sort ;; FIXME: why the sort?
                            (copy-list vertices) #'tn-loop-depth-cost->
                            :key #'vertex-tn))
-         (graph (construct-interference sorted-vertices))
+         (graph (make-interference-graph sorted-vertices))
          to-spill)
     (labels ((spill-candidates (vertices)
                (remove-if-not (lambda (vertex)
