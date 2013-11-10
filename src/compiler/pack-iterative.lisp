@@ -94,7 +94,7 @@
       #'tn->vertex)))
 
 (defvar *loop-depth-weight* 1)
-(defun spill-cost (tn &optional (loop-weight *loop-depth-weight*))
+(defun tn-spill-cost (tn &optional (loop-weight *loop-depth-weight*))
   (* (+ (max loop-weight 1) (tn-loop-depth tn)) (tn-cost tn)))
 
 (defun vertex-sc (vertex)
@@ -188,7 +188,7 @@
                                (member vertex (vertex-incidence existing)))
                              compatible)
                      (color-possible-p color vertex))
-            (incf cost (max 1 (spill-cost (vertex-tn vertex))))
+            (incf cost (max 1 (tn-spill-cost (vertex-tn vertex))))
             (push vertex compatible)))
         (when (or (null best-cost)
                   (> cost best-cost))
@@ -250,7 +250,7 @@
            (sorted-vertices (schwartzian-stable-sort-list
                              vertices '<
                              :key (lambda (vertex)
-                                    (spill-cost (vertex-tn vertex))))))
+                                    (tn-spill-cost (vertex-tn vertex))))))
       ;; walk the vertices from least important to most important TN wrt
       ;; spill cost.  That way the TNs we really don't want to spill are
       ;; at the head of the colouring lists.
@@ -306,9 +306,9 @@
           when (eql :normal (vertex-pack-type neighbor))
             do (let* ((color (car (vertex-color neighbor)))
                       (cell (assoc color colors))
-                      (cost-neighbor (spill-cost (vertex-tn neighbor))))
+                      (cost-neighbor (tn-spill-cost (vertex-tn neighbor))))
                  (cond (cell
-                        (when (< cost-neighbor (spill-cost
+                        (when (< cost-neighbor (tn-spill-cost
                                                 (vertex-tn (cdr cell))))
                           (setf (cdr cell) neighbor)))
                        (t (push (cons color neighbor) colors)))))
@@ -345,7 +345,7 @@
                  (declare (ignorable color-flag))
                  (when spill-candidates
                    (flet ((candidate (vertex)
-                            (let ((cost (spill-cost (vertex-tn vertex))))
+                            (let ((cost (tn-spill-cost (vertex-tn vertex))))
                               (when (or (null best-cost)
                                         (< cost best-cost))
                                 (setf best-cost cost
