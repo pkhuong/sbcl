@@ -11,13 +11,6 @@
 ;;;; files for more information.
 
 (in-package "SB!REGALLOC")
-
-;; interference graph
-(def!struct (interference-graph
-             (:constructor %make-interference-graph)
-             (:conc-name #:ig-))
-  (vertices nil :type list))
-
 ;; vertex in an interference graph
 (def!struct (vertex
              (:constructor make-vertex (tn pack-type)))
@@ -39,6 +32,15 @@
   (spill-candidate nil :type t)
   ;; current status invisible  or not  (on stack or not)
   (invisible nil :type t))
+
+(defun vertex-sc (vertex)
+  (tn-sc (vertex-tn vertex)))
+
+;; interference graph
+(def!struct (interference-graph
+             (:constructor %make-interference-graph)
+             (:conc-name #:ig-))
+  (vertices nil :type list))
 
 ;; all TNs types are included in the graph, both with offset and without
 (defun make-interference-graph (vertices)
@@ -63,6 +65,8 @@
                         (push b (vertex-incidence a)))))
     interference))
 
+;; &key reset: whether coloring/invisibility information should be
+;; removed from all the remaining vertices
 (defun remove-vertex-from-interference-graph (vertex graph &key reset)
   (declare (type vertex vertex) (type interference-graph graph))
   (let ((vertices (if reset
@@ -96,9 +100,6 @@
 (defvar *loop-depth-weight* 1)
 (defun tn-spill-cost (tn &optional (loop-weight *loop-depth-weight*))
   (* (+ (max loop-weight 1) (tn-loop-depth tn)) (tn-cost tn)))
-
-(defun vertex-sc (vertex)
-  (tn-sc (vertex-tn vertex)))
 
 ;; Return non-nil if COLOR conflicts with any of NEIGHBOR-COLORS.
 ;; Take into account element sizes of the respective SCs.
