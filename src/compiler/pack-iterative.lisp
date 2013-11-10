@@ -72,7 +72,8 @@
 (def!struct (interference-graph
              (:constructor %make-interference-graph)
              (:conc-name #:ig-))
-  (vertices nil :type list))
+  (vertices nil :type list)
+  (precolored-vertices nil :type list))
 
 (defun insert-conflict-edges (component
                               component-vertices global-vertices
@@ -145,8 +146,7 @@
 
 ;; all TNs types are included in the graph, both with offset and without
 (defun make-interference-graph (vertices component)
-  (let ((interference (%make-interference-graph :vertices vertices))
-        component-vertices
+  (let (component-vertices
         global-vertices
         local-vertices
         (tn-vertex (make-hash-table)))
@@ -179,12 +179,20 @@
     (insert-conflict-edges component
                            component-vertices global-vertices local-vertices
                            tn-vertex)
-    ;; Normalize adjacency list ordering
-    (dolist (v vertices)
-      (let ((incidence (vertex-incidence v)))
-        (setf (oset-members incidence)
-              (sort (oset-members incidence) #'< :key #'vertex-number))))
-    interference))
+    ;; Normalize adjacency list ordering, and collect all uncolored
+    ;; vertices in the graph.
+    (loop for v in vertices
+          do (let ((incidence (vertex-incidence v)))
+               (setf (oset-members incidence)
+                     (sort (oset-members incidence) #'<
+                           :key #'vertex-number)))
+          if (vertex-color v)
+            collect v into colored
+          else
+            collect v into uncolored
+          finally (return (%make-interference-graph
+                           :vertices uncolored
+                           :precolored-vertices colored)))))
 
 ;; &key reset: whether coloring/invisibility information should be
 ;; removed from all the remaining vertices
@@ -194,17 +202,17 @@
                       (loop for v in (ig-vertices graph)
                             unless (eql v vertex)
                               do (let* ((tn (vertex-tn v))
-                                        (offset (tn-offset tn))
-                                        (sc (tn-sc tn)))
+                                        (offset (tn-offset tn)))
+                                   (aver (not offset))
                                    (setf (vertex-invisible v) nil
-                                         (vertex-color v)
-                                         (and offset
-                                              (cons offset sc))))
+                                         (vertex-color v) nil))
                               and collect v)
                       (remove vertex (ig-vertices graph)))))
     (do-oset-elements (neighbor (vertex-incidence vertex)
                                  (%make-interference-graph
-                                  :vertices vertices))
+                                  :vertices vertices
+                                  :precolored-vertices
+                                  (ig-precolored-vertices graph)))
       (oset-delete (vertex-incidence neighbor) vertex))))
 
 ;; Give an interference graph, return a function that maps TNs to
@@ -358,7 +366,7 @@
            (setf (vertex-invisible vertex) t)))
     (let* ((precoloring-stack '())
            (prespilling-stack '())
-           (vertices (remove-if #'vertex-color (ig-vertices interference-graph)))
+           (vertices (ig-vertices interference-graph))
            (sorted-vertices (schwartzian-stable-sort-list
                              vertices '<
                              :key (lambda (vertex)
@@ -485,7 +493,8 @@
     (let ((rest-vertices (ig-vertices graph)))
       (when to-spill
         (setf rest-vertices (remove to-spill rest-vertices)))
-      (aver (= nvertices (+ (length spill-list) (length rest-vertices))))
+      (aver (= nvertices (+ (length spill-list) (length rest-vertices)
+                            (length (ig-precolored-vertices graph)))))
       (append spill-list rest-vertices))))
 
 (defun pack-colored (colored-vertices)
