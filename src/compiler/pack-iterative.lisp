@@ -46,6 +46,11 @@
   ;; index vector
   ;; FIXME
   (incidence (make-ordered-set) :type ordered-set)
+  ;; list of potential locations in the TN's preferred SB for the
+  ;; vertex, taking into account reserve locations and preallocated
+  ;; TNs.
+  (initial-domain nil :type list)
+  (initial-domain-size 0 :type index)
   ;; POINTER Back to TN
   (tn nil :type tn)
   ;; type of packing necessary
@@ -109,6 +114,35 @@
                     (aver (eq (tn-local a) (tn-local b)))
                     (edge vertex it)))))))))))
 
+;; Supposing that TN is restricted to its preferred SC, what locations
+;; are available?
+(defun restricted-tn-locations (tn)
+  (declare (type tn tn))
+  (let* ((sc (tn-sc tn))
+         (size (sc-element-size sc))
+         (locations (sc-locations sc))
+         (reserve (sc-reserve-locations sc))
+         (sb (sc-sb sc))
+         (always-live (finite-sb-always-live-count sb))
+         (possible '()))
+    (flet ((color-always-live-conflict (color)
+             ;; Counts, for all the offsets in the SB, the max # of
+             ;; basic blocks in which that location is used by an
+             ;; :always-live TN.  This measure is an approximation of
+             ;; the pressure on that specific location.
+             (loop for offset from color
+                   repeat size
+                   maximize (aref always-live offset))))
+      (declare (dynamic-extent #'color-always-live-conflict))
+      ;; try to pack in low-numbered locations in case of ties: their
+      ;; register encoding may be smaller.
+      (dolist (loc locations (schwartzian-stable-sort-list
+                              (nreverse possible) #'>
+                              :key #'color-always-live-conflict))
+        (unless (or (and reserve (memq loc reserve)) ; common case: no reserve
+                    (conflicts-in-sc tn sc loc))
+          (push loc possible))))))
+
 ;; all TNs types are included in the graph, both with offset and without
 (defun make-interference-graph (vertices component)
   (let ((interference (%make-interference-graph :vertices vertices))
@@ -120,13 +154,21 @@
           for vertex in vertices
           do (let* ((tn (vertex-tn vertex))
                     (offset (tn-offset tn))
-                    (sc (tn-sc tn)))
+                    (sc (tn-sc tn))
+                    (locs (if offset
+                              (list offset)
+                              (restricted-tn-locations tn))))
                (setf (vertex-number vertex) i
                      (vertex-incidence vertex) (make-ordered-set)
+                     (vertex-initial-domain vertex) locs
+                     (vertex-initial-domain-size vertex) (length locs)
                      (vertex-invisible vertex) nil
                      (vertex-color vertex) (and offset
                                                 (cons offset sc)))
-               (cond ((eql :component (tn-kind tn))
+               (cond (offset
+                      ;; already colored, no need to track conflicts.
+                      )
+                     ((eql :component (tn-kind tn))
                       (push vertex component-vertices))
                      ((tn-global-conflicts tn)
                       (push vertex global-vertices))
@@ -207,6 +249,7 @@
   (and (or (and (neq (vertex-pack-type vertex) :wired)
                 (not (tn-offset (vertex-tn vertex))))
            (= color (car (vertex-color vertex))))
+       (memq color (vertex-initial-domain vertex))
        (not (color-conflict-p
              (cons color (vertex-sc vertex))
              (collect ((colors))
@@ -220,27 +263,12 @@
 ;; first.
 (defun vertex-domain (vertex)
   (declare (type vertex vertex))
-  (flet ((color-always-live-conflict (color)
-           ;; Counts, for all the offsets in the SB, the max # of
-           ;; basic blocks in which that location is used by an
-           ;; :always-live TN.  This measure is an approxmation of the
-           ;; pressure on that specific location.
-           (loop with sb = (sc-sb (vertex-sc vertex))
-                 for offset from color
-                 repeat (sc-element-size (vertex-sc vertex))
-                 maximize (aref (finite-sb-always-live-count sb) offset))))
-    (declare (dynamic-extent #'color-always-live-conflict))
-    (let* ((sc (vertex-sc vertex))
-           (reserved (sc-reserve-locations sc))
-           (allowed (remove-if-not (lambda (color)
-                                     (and (vertex-color-possible-p vertex color)
-                                          ;; common case is there are
-                                          ;; no reserve locs
-                                          (not (and reserved
-                                                    (memq color reserved)))))
-                                   (sc-locations sc))))
-      (schwartzian-stable-sort-list allowed #'>
-                                    :key #'color-always-live-conflict))))
+  (remove-if-not (lambda (color)
+                   (aver (not (conflicts-in-sc (vertex-tn vertex)
+                                               (vertex-sc vertex)
+                                               color)))
+                   (vertex-color-possible-p vertex color))
+                 (vertex-initial-domain vertex)))
 
 (defun vertex-target-vertices (vertex tn-offset)
   (declare (type vertex vertex) (type function tn-offset))
@@ -320,9 +348,7 @@
 
 (defun partition-and-order-vertices (interference-graph)
   (flet ((domain-size (vertex)
-           (let ((sc (vertex-sc vertex)))
-             (- (length (sc-locations sc))
-                (length (sc-reserve-locations sc)))))
+           (vertex-initial-domain-size vertex))
          (degree (vertex)
            (count-if-not #'vertex-invisible
                          (oset-members (vertex-incidence vertex))))
@@ -478,7 +504,7 @@
   (declare (type component component) (type ir2-component 2comp))
   (collect ((vertices))
     ;; Pack TNs that *must* be in a certain location or SC first,
-    ;; but still register them in the interference graph.
+    ;; but still register them in the interference graph
     (do ((tn (ir2-component-wired-tns 2comp) (tn-next tn)))
         ((null tn))
       (pack-wired-tn tn optimize)
@@ -487,14 +513,13 @@
     ;; ranges, might as well avoid fragmentation when trivial.
     (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
         ((null tn))
+      (vertices (make-vertex tn :restricted))
       (when (eq (tn-kind tn) :component)
-        (pack-tn tn t optimize)
-        (vertices (make-vertex tn :restricted))))
+        (pack-tn tn t optimize)))
     (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
         ((null tn))
       (unless (tn-offset tn)
-        (pack-tn tn t optimize))
-      (vertices (make-vertex tn :restricted)))
+        (pack-tn tn t optimize)))
 
     ;; Now that all pre-packed TNs are registered as vertices,
     ;; work on normal ones.  Walk through all normal TNs, and
