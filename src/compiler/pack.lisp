@@ -1573,7 +1573,7 @@
 (defun pack (component)
   (unwind-protect
        (let ((optimize nil)
-             (speed-3)
+             (speed-3 nil)
              (2comp (component-info component)))
          (init-sb-vectors component)
 
