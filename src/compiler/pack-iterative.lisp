@@ -262,7 +262,7 @@
                        offset element-size
                        neighbor-offset (sc-element-size neighbor-sc)))))))
 
-;; Assumes that VERTEX  pack-type is :WIRED.
+;; Assumes that VERTEX pack-type is :WIRED.
 (defun vertex-color-possible-p (vertex color)
   (declare (type integer color) (type vertex vertex))
   (and (or (and (neq (vertex-pack-type vertex) :wired)
@@ -279,16 +279,16 @@
 
 ;; Sorted list of all possible locations for vertex in its preferred
 ;; SC: more heavily loaded (i.e that should be tried first) locations
-;; first.
+;; first.  vertex-initial-domain is already sorted, only have to
+;; remove offsets that aren't currently available.
 (defun vertex-domain (vertex)
   (declare (type vertex vertex))
   (remove-if-not (lambda (color)
-                   (aver (not (conflicts-in-sc (vertex-tn vertex)
-                                               (vertex-sc vertex)
-                                               color)))
                    (vertex-color-possible-p vertex color))
                  (vertex-initial-domain vertex)))
 
+;; Return a list of vertices that we might want VERTEX to share its
+;; location with.
 (defun vertex-target-vertices (vertex tn-offset)
   (declare (type vertex vertex) (type function tn-offset))
   (let ((sb (sc-sb (vertex-sc vertex)))
@@ -304,8 +304,8 @@
     (nreverse vertices)))
 
 ;; Choose the "best" color for these vertices: a color is good if as
-;;  many of these vertices simultaneously take that color, and those
-;;  that can't have a low spill cost.
+;; many of these vertices simultaneously take that color, and those
+;; that can't have a low spill cost.
 (defun vertices-best-color (vertices colors)
   (let ((best-color      nil)
         (best-compatible '())
@@ -333,38 +333,32 @@
                 best-cost       cost))))
     (values best-color best-compatible)))
 
+;; Greedily choose the color for this vertex, also moving around any
+;; :target vertex to the same color if possible.
 (defun find-vertex-color (vertex tn-vertex-mapping)
   (awhen (vertex-domain vertex)
-    (let ((targets (vertex-target-vertices vertex tn-vertex-mapping))
-          (sc (vertex-sc vertex)))
+    (let* ((targets (vertex-target-vertices vertex tn-vertex-mapping))
+           (sc (vertex-sc vertex))
+           (sb (sc-sb sc)))
       (multiple-value-bind (color recolor-vertices)
           (if targets
               (vertices-best-color targets it)
               (values (first it) nil))
-        ;; FIXME: can this happen during normal code, or is that a
-        ;; BUG?
-        (unless color
-          (let ((*print-level* 3))
-            (print :failed-to-align-with-targets)
-            (dolist (target (vertex-target-vertices vertex tn-vertex-mapping))
-              (print (list :target target))
-              (print (vertex-domain target)))
-            (print (list :colors-for-me
-                         vertex
-                         (vertex-domain vertex)))))
-        (when color
-          ;; FIXME: must the targets be recolored here?
-          (dolist (target recolor-vertices)
-            (aver (car (vertex-color target)))
-            (unless (eql color (car (vertex-color target)))
-              (aver (eq (sc-sb sc)
-                        (sc-sb (vertex-sc target))))
-              (aver (not (tn-offset (vertex-tn target))))
-              ;; this check seems slow. Is it necessary?
-              (aver (vertex-color-possible-p target color))
-              (setf (car (vertex-color target)) color)))
-          (return-from find-vertex-color (cons color sc)))))))
+        (aver color)
+        (dolist (target recolor-vertices)
+          (aver (car (vertex-color target)))
+          (unless (eql color (car (vertex-color target)))
+            (aver (eq sb (sc-sb (vertex-sc target))))
+            (aver (not (tn-offset (vertex-tn target))))
+            #+nil ; this check is slow
+            (aver (vertex-color-possible-p target color))
+            (setf (car (vertex-color target)) color)))
+        (cons color sc)))))
 
+;; Partition vertices into those that are likely to be colored and
+;; those that are likely to be spilled.  Assumes that the interference
+;; graph's vertices are sorted with the least spill cost first, so
+;; that the stacks end up with the greatest spill cost vertices first.
 (defun partition-and-order-vertices (interference-graph)
   (flet ((domain-size (vertex)
            (vertex-initial-domain-size vertex))
@@ -393,6 +387,7 @@
                (push vertex prespilling-stack))))
       (values precoloring-stack prespilling-stack))))
 
+;; Try and color the interference graph once.
 (defun color-interference-graph (interference-graph)
   (let ((tn-vertex (make-tn-offset-mapping interference-graph)))
     (flet ((color-vertices (vertices)
@@ -406,15 +401,19 @@
         ;; These might benefit from further ordering... LexBFS?
         (color-vertices probably-spilled))))
   interference-graph)
+
+;;; Iterative spilling logic.
 
+;; maximum number of spill iterations
 (defvar *pack-iterations* 500)
 
-;;; Find the least-spill-cost neighbor in each color.
+;; Find the least-spill-cost neighbor in each color.
 
-;;; FIXME: this is too slow and isn't the right interface anymore.
-;;; The code might be fast enough if there were a simple way to detect
-;;; whether a given vertex is a min-candidate for another uncolored
-;;; vertex.
+;; FIXME: this is too slow and isn't the right interface anymore.
+;; The code might be fast enough if there were a simple way to detect
+;; whether a given vertex is a min-candidate for another uncolored
+;; vertex.
+#+nil
 (defun collect-min-spill-candidates (vertex)
   (let ((colors '()))
     (do-oset-elements (neighbor (vertex-incidence vertex))
@@ -429,6 +428,8 @@
                 (t (push (cons color neighbor) colors))))))
     (remove nil (mapcar #'cdr colors))))
 
+;; Try to color the graph. If some TNs are left uncolored, find a
+;; spill candidate, force it on the stack, and try again.
 (defun iterate-color (vertices component
                       &optional (iterations *pack-iterations*))
   (let* ((spill-list '())
@@ -454,6 +455,10 @@
                             (length (ig-precolored-vertices graph)))))
       colored)))
 
+
+;;; Nice interface
+
+;; Just pack vertices that have been assigned a color.
 (defun pack-colored (colored-vertices)
   (dolist (vertex colored-vertices)
     (let* ((color (vertex-color vertex))
@@ -466,6 +471,7 @@
         (pack-wired-tn (vertex-tn vertex) nil))))
   colored-vertices)
 
+;; Pack pre-allocated TNs, collect vertices, and color.
 (defun pack-iterative (component 2comp optimize)
   (declare (type component component) (type ir2-component 2comp))
   (collect ((vertices))
