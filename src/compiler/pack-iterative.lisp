@@ -187,16 +187,20 @@
         (dotimes (i n)
           (binding* ((a (aref local-tns i))
                      (vertex (gethash a tn-vertex) :exit-if-null)
-                     (tn-local (tn-local a) :exit-if-null)
-                     (conflicts (tn-local-conflicts a)))
-            (unless (tn-offset a)
+                     (conflicts (tn-local-conflicts a))
+                     (local-a (tn-local a)))
+            ;; skip TNs if they are precolored or GLOBAL
+            (unless (or (tn-offset a)
+                        (tn-global-conflicts a))
               (loop for j from (1+ i) below n do
                 (when (plusp (sbit conflicts j))
                   (let ((b (aref local-tns j)))
-                    (awhen (and (tn-local b)
-                                (gethash b tn-vertex))
-                      (aver (eq tn-local (tn-local b)))
-                      (edge vertex it))))))))))))
+                    (when (and (tn-p b)
+                               ;; same, skip if GLOBAL
+                               (not (tn-global-conflicts b)))
+                      (aver (eq local-a (tn-local b)))
+                      (awhen (gethash b tn-vertex)
+                        (edge vertex it)))))))))))))
 
 ;; Construct the interference graph for these vertices in the component.
 ;; All TNs types are included in the graph, both with offset and without,
@@ -222,6 +226,7 @@
               (t
                (aver (not (tn-offset (vertex-tn v))))
                (uncolored v))))
+      ;; Later passes like having this list sorted; do it in advance.
       (%make-interference-graph
        :vertices (schwartzian-stable-sort-list
                   (uncolored) #'<
