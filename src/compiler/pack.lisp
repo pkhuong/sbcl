@@ -11,7 +11,7 @@
 ;;;; provided with absolutely no warranty. See the COPYING and CREDITS
 ;;;; files for more information.
 
-(in-package "SB!C")
+(in-package "SB!REGALLOC")
 
 ;;; for debugging: some parameters controlling which optimizations we
 ;;; attempt
@@ -1568,6 +1568,7 @@
 (declaim (type (member :iterative :greedy) *register-allocation-method*))
 (defvar *register-allocation-method* :iterative)
 
+(declaim (ftype function pack-greedy pack-iterative))
 (defun pack (component)
   (unwind-protect
        (let ((optimize nil)

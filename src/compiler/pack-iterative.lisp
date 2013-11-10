@@ -10,7 +10,7 @@
 ;;;; provided with absolutely no warranty. See the COPYING and CREDITS
 ;;;; files for more information.
 
-(in-package "SB!C")
+(in-package "SB!REGALLOC")
 
 (defun pack-iterative (component 2comp optimize)
   (declare (type component component) (type ir2-component 2comp))
