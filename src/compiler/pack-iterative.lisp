@@ -415,11 +415,12 @@
 (defvar *pack-iterations* 500)
 
 ;; Find the least-spill-cost neighbor in each color.
-
 ;; FIXME: this is too slow and isn't the right interface anymore.
 ;; The code might be fast enough if there were a simple way to detect
 ;; whether a given vertex is a min-candidate for another uncolored
 ;; vertex.
+;; I'm leaving this around as an idea of what a smart spill choice
+;; might be like.
 #+nil
 (defun collect-min-spill-candidates (vertex)
   (let ((colors '()))
