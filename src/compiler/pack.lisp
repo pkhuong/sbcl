@@ -1385,6 +1385,14 @@
 
 ;;;; pack interface
 
+;; Misc. utilities
+(declaim (inline unbounded-sc-p unbounded-tn-p))
+(defun unbounded-sc-p (sc)
+  (eq (sb-kind (sc-sb sc)) :unbounded))
+
+(defun unbounded-tn-p (tn)
+  (unbounded-sc-p (tn-sc tn)))
+
 ;;; Attempt to pack TN in all possible SCs, first in the SC chosen by
 ;;; representation selection, then in the alternate SCs in the order
 ;;; they were specified in the SC definition. If the TN-COST is
@@ -1410,12 +1418,11 @@
     (do ((sc fsc (pop alternates)))
         ((null sc)
          (failed-to-pack-error tn restricted))
-      (when (and force-unbounded-sc
-                 (neq (sb-kind (sc-sb sc)) :unbounded))
-        (go next))
-      (unless (or allow-unbounded-sc
-                  (neq (sb-kind (sc-sb sc)) :unbounded))
-        (return nil))
+      (let ((boundedp (not (unbounded-sc-p sc))))
+        (when (and force-unbounded-sc boundedp)
+          (go next))
+        (unless (or allow-unbounded-sc boundedp)
+          (return nil)))
       (when (eq sc specified-save-sc)
         (unless (tn-offset save)
           (pack-tn save nil optimize))
@@ -1428,7 +1435,7 @@
                        (select-location original sc)
                        (and restricted
                             (select-location original sc :use-reserved-locs t))
-                       (when (eq (sb-kind (sc-sb sc)) :unbounded)
+                       (when (unbounded-sc-p sc)
                          (grow-sc sc)
                          (or (select-location original sc)
                              (error "failed to pack after growing SC?"))))))
@@ -1628,33 +1635,48 @@
                     (:adaptive (if speed-3 #'pack-iterative #'pack-greedy)))
                   component 2comp optimize)
 
-         ;; Pack any leftover normal TN that is not already
-         ;; allocated to a finite SC, or TNs that do not appear in
-         ;; any local TN map (e.g. :MORE TNs).  Since we'll likely
-         ;; be allocating on the stack, first allocate TNs that are
-         ;; associated with code at shallow lexical depths: this
-         ;; will allocate long live ranges (i.e. TNs with more
-         ;; conflicts) first, and hopefully minimise stack
-         ;; fragmentation.
-         (let ((contiguous-tns '())
+         ;; Pack any leftover normal/restricted TN that is not already
+         ;; allocated to a finite SC, or TNs that do not appear in any
+         ;; local TN map (e.g. :MORE TNs).  Since we'll likely be
+         ;; allocating on the stack, first allocate TNs that are
+         ;; associated with code at shallow lexical depths: this will
+         ;; allocate long live ranges (i.e. TNs with more conflicts)
+         ;; first, and hopefully minimise stack fragmentation.
+         ;; Component TNs are a degenerate case: they are always live.
+         (let ((component-tns '())
+               (contiguous-tns '())
                (tns '()))
-           (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
-               ((null tn))
-             (unless (tn-offset tn)
-               (if (memq (tn-kind tn) '(:environment :debug-environment
-                                        :component))
-                   (push tn contiguous-tns)
-                   (push tn tns))))
-           (flet ((pack-tns (tns)
-                    (dolist (tn (schwartzian-stable-sort-list
-                                 tns #'< :key #'tn-lexical-depth))
+           (flet ((register-tn (tn)
+                    (unless (tn-offset tn)
+                      (case (tn-kind tn)
+                        (:component
+                         (push tn component-tns))
+                        ((:environment :debug-environment)
+                         (push tn contiguous-tns))
+                        (t
+                         (push tn tns))))))
+             (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
+                 ((null tn))
+               ;; by this time, restricted TNs must either be
+               ;; allocated in the right SC or unbounded
+               (aver (or (tn-offset tn) (unbounded-tn-p tn)))
+               (register-tn tn))
+             (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
+                 ((null tn))
+               (register-tn tn)))
+           (flet ((pack-tns (tns &optional in-order)
+                    (dolist (tn (if in-order
+                                    tns
+                                    (schwartzian-stable-sort-list
+                                     tns #'< :key #'tn-lexical-depth)))
                       (unless (tn-offset tn)
                         (pack-tn tn nil optimize
-                                 ;; TNs with very negative spill
-                                 ;; costs are forced on the stack
+                                 ;; TNs with negative spill costs are
+                                 ;; forced on the stack
                                  :force-unbounded-sc (minusp (tn-cost tn)))))))
-             ;; first pack TNs that are known to have simple
-             ;; live ranges (contiguous lexical scopes)
+             ;; first pack TNs that are known to have simple live
+             ;; ranges (contiguous lexical scopes)
+             (pack-tns component-tns t)
              (pack-tns contiguous-tns)
              (pack-tns tns)))
 
@@ -1690,13 +1712,14 @@
   ;; Pack restricted component TNs.
   (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
       ((null tn))
-    (when (eq (tn-kind tn) :component)
+    (when (and (eq (tn-kind tn) :component) (not (unbounded-tn-p tn)))
+      ;; unbounded SCs will be handled in the final pass
       (pack-tn tn t optimize)))
 
   ;; Pack other restricted TNs.
   (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
       ((null tn))
-    (unless (tn-offset tn)
+    (unless (or (tn-offset tn) (unbounded-tn-p tn))
       (pack-tn tn t optimize)))
 
   (cond (*loop-analyze*
@@ -1709,7 +1732,8 @@
            (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
                ((null tn))
              (unless (or (tn-offset tn)
-                         (eq (tn-kind tn) :more))
+                         (eq (tn-kind tn) :more)
+                         (unbounded-tn-p tn))
                (tns tn)))
            (dolist (tn (stable-sort (tns) #'tn-loop-depth-cost->))
              (unless (tn-offset tn)
@@ -1726,5 +1750,6 @@
                (let ((tn (svref ltns i)))
                  (unless (or (null tn)
                              (eq tn :more)
-                             (tn-offset tn))
+                             (tn-offset tn)
+                             (unbounded-tn-p tn))
                    (pack-tn tn nil optimize :allow-unbounded-sc nil)))))))))
