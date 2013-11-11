@@ -80,6 +80,134 @@
   (tn-vertex-mapping (bug "missing arg") :type function))
 
 ;;; Interference graph construction
+;;;
+;;; First, compute conflict edges between vertices that aren't
+;;; precolored: precolored vertices have already been handled via
+;;; domain initialisation.
+;;;
+;;; This area is ripe for hard-to-explain bugs. If PACK-COLORED starts
+;;; AVERing out, it may be useful to comment out most of
+;;; INSERT-CONFLICT-EDGES and test for TNS-CONFLICT in a double loop
+;;; over the concatenation of all three vertex lists.
+
+;; Adjoin symmetric edge (A,B) to both A and B. Unless
+;; PERHAPS-REDUNDANT, aver that these edges are new.
+(defun insert-one-edge (a b &optional perhaps-redundant)
+  (declare (type vertex a b))
+  (aver (neq a b))
+  (unless (or (tn-offset (vertex-tn a))  ; precolored -> conflict
+              (tn-offset (vertex-tn b))) ; implicit via domain
+    (aver (or (oset-adjoin (vertex-incidence a) b)
+              perhaps-redundant))
+    (aver (or (oset-adjoin (vertex-incidence b) a)
+              perhaps-redundant))))
+
+;; Partition the global TNs that appear in that IR2 block, between
+;; those that are LIVE throughout the block and the rest.
+(defun block-gtns (block tn-vertex)
+  (declare (type ir2-block block)
+           (type hash-table tn-vertex))
+  (collect ((live-gtns)
+            (gtns))
+    (do ((conflict (ir2-block-global-tns block)
+                   (global-conflicts-next-blockwise
+                    conflict)))
+        ((null conflict)
+         (values (live-gtns) (gtns)))
+      (let ((tn (global-conflicts-tn conflict)))
+        (awhen (and (not (tn-offset tn))
+                    (not (eql :component (tn-kind tn)))
+                    (gethash tn tn-vertex))
+          (if (eql (global-conflicts-kind conflict) :live)
+              (live-gtns it)
+              (gtns (cons it conflict))))))))
+
+;; Scan CONFLICTS for conflicts with TNs that come after VERTEX in the
+;; local TN order.  Also, add edges with all LIVE-GTNs: they conflict
+;; with everything but are absent from conflict bitvectors.
+(defun insert-block-local-conflicts-for (vertex number conflicts
+                                         local-tns ltn-count
+                                         gtn-p live-gtns tn-vertex)
+  (declare (type vertex vertex) (type local-tn-number number)
+           (type local-tn-bit-vector conflicts)
+           (type local-tn-vector local-tns) (type local-tn-count ltn-count)
+           (type list live-gtns) (type hash-table tn-vertex))
+  ;; conflict with all live gtns
+  (dolist (b live-gtns)
+    (insert-one-edge vertex b gtn-p))
+  ;; and add conflicts if LTN number > number
+  (loop
+    with local = (tn-local (vertex-tn vertex))
+    for j from (1+ number) below ltn-count
+    when (plusp (sbit conflicts j))
+      do (let ((b (aref local-tns j)))
+           (when (tn-p b)
+             (aver (or gtn-p
+                       (tn-global-conflicts b)
+                       (eq local (tn-local b))))
+             (awhen (gethash b tn-vertex)
+               (insert-one-edge vertex it (and gtn-p
+                                               (tn-global-conflicts b))))))))
+
+;; Compute all conflicts in a single IR2 block
+(defun insert-block-local-conflicts (block tn-vertex)
+  (declare (type ir2-block block)
+           (type hash-table tn-vertex))
+  (let* ((local-tns (ir2-block-local-tns block))
+         (n (ir2-block-local-tn-count block)))
+    (multiple-value-bind (live-gtns gtns)
+        (block-gtns block tn-vertex)
+      ;; all live gtns conflict with one another
+      (loop for (a . rest) on live-gtns do
+        (dolist (b rest)
+          (insert-one-edge a b t)))
+      ;; normal gtn-* edges
+      (loop for (a . conflict) in gtns do
+        (let ((number (global-conflicts-number conflict))
+              (conflicts (global-conflicts-conflicts conflict)))
+          (insert-block-local-conflicts-for a number conflicts
+                                            local-tns n
+                                            t live-gtns tn-vertex)))
+      ;; local-* interference
+      (dotimes (i n)
+        (binding* ((a (aref local-tns i))
+                   (vertex (gethash a tn-vertex) :exit-if-null)
+                   (conflicts (tn-local-conflicts a)))
+          (unless (or (tn-offset a)
+                      (tn-global-conflicts a))
+            (insert-block-local-conflicts-for vertex i conflicts
+                                              local-tns n
+                                              nil live-gtns tn-vertex)))))))
+
+;; Compute all conflict edges for component
+;; COMPONENT-VERTICES is a list of vertices for :component TNs,
+;; GLOBAL-VERTICES a list of vertices for TNs with global conflicts,
+;; and LOCAL-VERTICES a list of vertices for local TNs.
+;;
+;; TN-VERTEX is a hash table from TN -> VERTEX, for all vertices that
+;; must be colored.
+(defun insert-conflict-edges (component
+                              component-vertices global-vertices
+                              local-vertices tn-vertex)
+  (declare (type list component-vertices global-vertices local-vertices)
+           (type hash-table tn-vertex))
+  ;; COMPONENT vertices conflict with everything
+  (loop for (a . rest) on component-vertices
+        do (dolist (b rest)
+             (insert-one-edge a b))
+           (dolist (b global-vertices)
+             (insert-one-edge a b))
+           (dolist (b local-vertices)
+             (insert-one-edge a b)))
+  ;; Find the other edges by enumerating IR2 blocks
+  (do-ir2-blocks (block component)
+    (insert-block-local-conflicts block tn-vertex)))
+
+;;; Interference graph construction, the rest: annotating vertex
+;;; structures, and bundling up the conflict graph.
+;;;
+;;; Also, permanently removing a vertex from a graph, without
+;;; reconstructing it from scratch.
 
 ;; Supposing that TN is restricted to its preferred SC, what locations
 ;; are available?
@@ -145,111 +273,6 @@
                       (push vertex local-vertices)))))
     (values component-vertices global-vertices local-vertices
             tn-vertex)))
-
-;; Compute conflict edges between vertices that aren't precolored:
-;; precolored vertices have already been handled via domain
-;; initialisation.
-;;
-;; This area is ripe for hard-to-explain bugs. If PACK-COLORED starts
-;; AVERing out, it may be useful to instead test for TNS-CONFLICT in a
-;; double loop over the concatenation of all three vertex lists.
-(defun insert-one-edge (a b &optional perhaps-redundant)
-  (declare (type vertex a b))
-  (aver (neq a b))
-  (unless (or (tn-offset (vertex-tn a)) ; precolored -> conflict
-              (tn-offset (vertex-tn b))) ; implicit via domain
-    (aver (or (oset-adjoin (vertex-incidence a) b)
-              perhaps-redundant))
-    (aver (or (oset-adjoin (vertex-incidence b) a)
-              perhaps-redundant))))
-
-(defun block-gtns (block tn-vertex)
-  (declare (type ir2-block block)
-           (type hash-table tn-vertex))
-  (collect ((live-gtns)
-            (gtns))
-    (do ((conflict (ir2-block-global-tns block)
-                   (global-conflicts-next-blockwise
-                    conflict)))
-        ((null conflict)
-         (values (live-gtns) (gtns)))
-      (let ((tn (global-conflicts-tn conflict)))
-        (awhen (and (not (tn-offset tn))
-                    (not (eql :component (tn-kind tn)))
-                    (gethash tn tn-vertex))
-          (if (eql (global-conflicts-kind conflict) :live)
-              (live-gtns it)
-              (gtns (cons it conflict))))))))
-
-(defun insert-block-local-conflicts-for (vertex number conflicts
-                                         local-tns ltn-count
-                                         gtn-p live-gtns tn-vertex)
-  (declare (type vertex vertex) (type local-tn-number number)
-           (type local-tn-bit-vector conflicts)
-           (type local-tn-vector local-tns) (type local-tn-count ltn-count)
-           (type list live-gtns) (type hash-table tn-vertex))
-  ;; conflict with all live gtns
-  (dolist (b live-gtns)
-    (insert-one-edge vertex b gtn-p))
-  ;; and add conflicts if LTN number > number
-  (loop
-    with local = (tn-local (vertex-tn vertex))
-    for j from (1+ number) below ltn-count
-    when (plusp (sbit conflicts j))
-      do (let ((b (aref local-tns j)))
-           (when (tn-p b)
-             (aver (or gtn-p
-                       (tn-global-conflicts b)
-                       (eq local (tn-local b))))
-             (awhen (gethash b tn-vertex)
-               (insert-one-edge vertex it (and gtn-p
-                                               (tn-global-conflicts b))))))))
-
-(defun insert-block-local-conflicts (block tn-vertex)
-  (declare (type ir2-block block)
-           (type hash-table tn-vertex))
-  (let* ((local-tns (ir2-block-local-tns block))
-         (n (ir2-block-local-tn-count block)))
-    (multiple-value-bind (live-gtns gtns)
-        (block-gtns block tn-vertex)
-      ;; all live gtns conflict with one another
-      (loop for (a . rest) on live-gtns do
-        (dolist (b rest)
-          (insert-one-edge a b t)))
-      ;; normal gtn-* edges
-      (loop for (a . conflict) in gtns do
-        (let ((number (global-conflicts-number conflict))
-              (conflicts (global-conflicts-conflicts conflict)))
-          (insert-block-local-conflicts-for a number conflicts
-                                            local-tns n
-                                            t live-gtns tn-vertex)))
-      ;; local-* interference
-      (dotimes (i n)
-        (binding* ((a (aref local-tns i))
-                   (vertex (gethash a tn-vertex) :exit-if-null)
-                   (conflicts (tn-local-conflicts a)))
-          (unless (or (tn-offset a)
-                      (tn-global-conflicts a))
-            (insert-block-local-conflicts-for vertex i conflicts
-                                              local-tns n
-                                              nil live-gtns tn-vertex)))))))
-
-(defun insert-conflict-edges (component
-                              component-vertices global-vertices
-                              local-vertices tn-vertex)
-  (declare (type list component-vertices global-vertices local-vertices)
-           (type hash-table tn-vertex))
-  ;; COMPONENT vertices conflict with everything
-  (loop for (a . rest) on component-vertices
-        do (dolist (b rest)
-             (insert-one-edge a b))
-           (dolist (b global-vertices)
-             (insert-one-edge a b))
-           (dolist (b local-vertices)
-             (insert-one-edge a b)))
-  ;; Find the other edges by enumerating IR2 blocks
-  (do-ir2-blocks (block component)
-    (insert-block-local-conflicts block tn-vertex)))
 
 ;; Construct the interference graph for these vertices in the component.
 ;; All TNs types are included in the graph, both with offset and without,
@@ -394,6 +417,8 @@
                 best-compatible compatible
                 best-cost       cost))))
     (values best-color best-compatible)))
+
+;;; Coloring inner loop
 
 ;; Greedily choose the color for this vertex, also moving around any
 ;; :target vertex to the same color if possible.
@@ -537,14 +562,16 @@
 (defun pack-iterative (component 2comp optimize)
   (declare (type component component) (type ir2-component 2comp))
   (collect ((vertices))
-    ;; Pack TNs that *must* be in a certain location or SC first,
-    ;; but still register them in the interference graph
+    ;; Pack TNs that *must* be in a certain location or SC first, but
+    ;; still register them in the interference graph: it's useful to
+    ;; have them in the graph for targetting purposes.
     (do ((tn (ir2-component-wired-tns 2comp) (tn-next tn)))
         ((null tn))
       (pack-wired-tn tn optimize)
       (vertices (make-vertex tn :wired)))
     ;; Pack restricted component TNs first: they have the longest live
     ;; ranges, might as well avoid fragmentation when trivial.
+    ;; Again, keep them in the graph anyway.
     (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
         ((null tn))
       (vertices (make-vertex tn :restricted))
@@ -555,16 +582,15 @@
       (unless (tn-offset tn)
         (pack-tn tn t optimize)))
 
-    ;; Now that all pre-packed TNs are registered as vertices,
-    ;; work on normal ones.  Walk through all normal TNs, and
-    ;; determine whether we should try to allocate them
-    ;; registers or stick them straight to the stack.
+    ;; Now that all pre-packed TNs are registered as vertices, work on
+    ;; normal ones.  Walk through all normal TNs, and determine
+    ;; whether we should try to allocate them registers or stick them
+    ;; straight to the stack.
     (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
         ((null tn))
-      ;; Only consider TNs that aren't forced on the stack and
-      ;; for which the spill cost is non-negative (i.e. not
-      ;; live across so many calls that it's simpler to just
-      ;; leave them on the stack)
+      ;; Only consider TNs that aren't forced on the stack and for
+      ;; which the spill cost is non-negative (i.e. not live across so
+      ;; many calls that it's simpler to just leave them on the stack)
       (when (and (not (tn-offset tn))
                  (neq (tn-kind tn) :more)
                  (neq (sb-kind (sc-sb (tn-sc tn))) :unbounded)
@@ -573,7 +599,7 @@
         (vertices (make-vertex tn :normal))))
     ;; Sum loop depths to guide the spilling logic
     (assign-tn-depths component :reducer #'+)
-    ;; Iteratively find a coloring/spill partition, and
-    ;; allocate those for which we have a location
+    ;; Iteratively find a coloring/spill partition, and allocate those
+    ;; for which we have a location
     (pack-colored (iterate-color (vertices) component)))
   nil)
