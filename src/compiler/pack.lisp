@@ -1386,11 +1386,13 @@
 ;;;; pack interface
 
 ;; Misc. utilities
-(declaim (inline unbounded-sc-p unbounded-tn-p))
+(declaim (inline unbounded-sc-p))
 (defun unbounded-sc-p (sc)
   (eq (sb-kind (sc-sb sc)) :unbounded))
+(declaim (notinline unbounded-sc-p))
 
 (defun unbounded-tn-p (tn)
+  (declare (inline unbounded-sc-p))
   (unbounded-sc-p (tn-sc tn)))
 
 ;;; Attempt to pack TN in all possible SCs, first in the SC chosen by
