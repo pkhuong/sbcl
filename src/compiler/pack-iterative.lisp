@@ -554,7 +554,6 @@
       (aver (= nvertices (+ (length spill-list) (length colored)
                             (length (ig-precolored-vertices graph)))))
       colored)))
-
 
 ;;; Nice interface
 
