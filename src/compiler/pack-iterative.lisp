@@ -497,7 +497,7 @@
 ;; whether a given vertex is a min-candidate for another uncolored
 ;; vertex.
 ;; I'm leaving this around as an idea of what a smart spill choice
-;; might be like.
+;; might be like. -- PK
 #+nil
 (defun collect-min-spill-candidates (vertex)
   (let ((colors '()))
