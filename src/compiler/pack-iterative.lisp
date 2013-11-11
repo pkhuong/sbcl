@@ -151,19 +151,22 @@
 ;; initialisation.
 ;;
 ;; This area is ripe for hard-to-explain bugs. If PACK-COLORED starts
-;; AVERing out, it may be useful to instead use TNS-CONFLICT in a
+;; AVERing out, it may be useful to instead test for TNS-CONFLICT in a
 ;; double loop over the concatenation of all three vertex lists.
 (defun insert-conflict-edges (component
                               component-vertices global-vertices
                               local-vertices tn-vertex)
   (declare (type list component-vertices global-vertices local-vertices)
            (type hash-table tn-vertex))
-  (flet ((edge (a b)
+  (flet ((edge (a b &optional perhaps-redundant)
            (declare (type vertex a b))
+           (aver (neq a b))
            (unless (or (tn-offset (vertex-tn a))  ; precolored -> conflict
                        (tn-offset (vertex-tn b))) ; implicit via domain
-             (aver (oset-adjoin (vertex-incidence a) b))
-             (aver (oset-adjoin (vertex-incidence b) a)))))
+             (aver (or (oset-adjoin (vertex-incidence a) b)
+                       perhaps-redundant))
+             (aver (or (oset-adjoin (vertex-incidence b) a)
+                       perhaps-redundant)))))
     ;; COMPONENT vertices conflict with everything
     (loop for (a . rest) on component-vertices
           do (dolist (b rest)
@@ -172,50 +175,69 @@
                (edge a b))
              (dolist (b local-vertices)
                (edge a b)))
-    ;; GLOBAL vertices have more complex conflict testing
-    (loop for (a . rest) on global-vertices
-          for tn-a = (vertex-tn a)
-          do (dolist (b rest)
-               (when (tns-conflict-global-global (vertex-tn b) tn-a)
-                 (edge a b))))
-    ;; LOCAL-LOCAL conflict is easy: just enumerate by IR2 block.
+    ;; Find the other edges by enumerating IR2 blocks
     (do-ir2-blocks (block component)
-      (let ((local-tns (ir2-block-local-tns block))
-            (n (ir2-block-local-tn-count block))
-            (live-gtns (collect ((gtns))
-                         (do ((conflict (ir2-block-global-tns block)
-                                        (global-conflicts-next-blockwise
-                                         conflict)))
-                             ((null conflict)
-                              (gtns))
-                           (let ((tn (global-conflicts-tn conflict)))
-                             (awhen (and (eql (global-conflicts-kind conflict)
-                                              :live)
-                                         (not (tn-offset tn))
-                                         (gethash tn tn-vertex))
-                               (gtns it)))))))
-        (dotimes (i n)
-          (binding* ((a (aref local-tns i))
-                     (vertex (gethash a tn-vertex) :exit-if-null)
-                     (conflicts (tn-local-conflicts a))
-                     (local-a (tn-local a)))
-            ;; skip TNs if they are precolored or GLOBAL
-            (when (or (tn-offset a)
-                      (tn-global-conflicts a))
-              (go SKIP))
-            (dolist (gtn live-gtns)
-              (edge vertex gtn))
-            (dotimes (j n)
-              (when (plusp (sbit conflicts j))
-                (let ((b (aref local-tns j)))
-                  (when (and (tn-p b)
-                             (or (tn-global-conflicts b)
-                                 (> j i)))
-                    (aver (or (tn-global-conflicts b)
-                              (eq local-a (tn-local b))))
-                    (awhen (gethash b tn-vertex)
-                      (edge vertex it)))))))
-          SKIP)))))
+      (let* ((local-tns (ir2-block-local-tns block))
+             (n (ir2-block-local-tn-count block)))
+        (multiple-value-bind (live-gtns gtns)
+            (collect ((live-gtns)
+                      (gtns))
+              (do ((conflict (ir2-block-global-tns block)
+                             (global-conflicts-next-blockwise
+                              conflict)))
+                  ((null conflict)
+                   (values (live-gtns) (gtns)))
+                (let ((tn (global-conflicts-tn conflict)))
+                  (awhen (and (not (tn-offset tn))
+                              (not (eql :component (tn-kind tn)))
+                              (gethash tn tn-vertex))
+                    (if (eql (global-conflicts-kind conflict) :live)
+                        (live-gtns it)
+                        (gtns (cons it conflict)))))))
+          ;; all LIVE gtns conflict with one another
+          (loop for (a . rest) on live-gtns do
+            (dolist (b rest)
+              (edge a b t)))
+          ;; normal gtn-* edges
+          (loop for (a . conflict) in gtns do
+            (let ((conflicts (global-conflicts-conflicts conflict))
+                  (number (global-conflicts-number conflict)))
+              (aver conflict)
+              ;; Always conflict with LIVE gtns
+              (dolist (b live-gtns)
+                (edge a b t))
+              ;; walk conflict bitvector looking for TNs with greater
+              ;; LTN number
+              (loop for j from (1+ number) below n do
+                (when (plusp (sbit conflicts j))
+                  (let ((b (aref local-tns j)))
+                    (when (tn-p b)
+                      (awhen (gethash b tn-vertex)
+                        (edge a it (tn-global-conflicts b)))))))))
+          ;; do LOCAL-* interference
+          (dotimes (i n)
+            (binding* ((a (aref local-tns i))
+                       (vertex (gethash a tn-vertex) :exit-if-null)
+                       (conflicts (tn-local-conflicts a))
+                       (local-a (tn-local a)))
+              ;; skip TNs if they are precolored or global
+              (when (or (tn-offset a)
+                        (tn-global-conflicts a))
+                (go SKIP))
+              ;; always conflicts with all LIVE gtns
+              (dolist (gtn live-gtns)
+                (edge vertex gtn))
+              ;; walk the interference bitvector, and mark conflicts
+              ;; with TNs that have greater LTN numbers.
+              (loop for j from (1+ i) below n do
+                (when (plusp (sbit conflicts j))
+                  (let ((b (aref local-tns j)))
+                    (when (tn-p b)
+                      (aver (or (tn-global-conflicts b)
+                                (eq local-a (tn-local b))))
+                      (awhen (gethash b tn-vertex)
+                        (edge vertex it)))))))
+            SKIP))))))
 
 ;; Construct the interference graph for these vertices in the component.
 ;; All TNs types are included in the graph, both with offset and without,
