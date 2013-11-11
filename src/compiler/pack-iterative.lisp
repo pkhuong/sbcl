@@ -238,6 +238,13 @@
                     (conflicts-in-sc tn sc loc))
           (push loc possible))))))
 
+;; The cost for spilling that TN to stack.
+(defconstant +spill-cost-limit+ (truncate (ash 1 15) 3)) ; always a fixnum
+(defvar *loop-depth-weight* 1)
+(defun tn-spill-cost (tn &optional (loop-weight *loop-depth-weight*))
+  (min (* (+ (max loop-weight 1) (tn-loop-depth tn)) (tn-cost tn))
+       (1- +spill-cost-limit+)))
+
 ;; walk over vertices, precomputing as much information as possible,
 ;; and partitioning according to their kind.
 ;; Return the partition, and a hash table to map tns to vertices.
@@ -253,7 +260,15 @@
                     (sc (tn-sc tn))
                     (locs (if offset
                               (list offset)
-                              (restricted-tn-locations tn))))
+                              (restricted-tn-locations tn)))
+                    (cost-offset (cond ((neq :restricted
+                                             (vertex-pack-type vertex))
+                                        0)
+                                       ((eq :component (tn-kind tn))
+                                        (* 2 +spill-cost-limit+))
+                                       (t
+                                        +spill-cost-limit+))))
+               (aver (not (unbounded-tn-p tn)))
                (setf (vertex-number vertex) i
                      (vertex-incidence vertex) (make-ordered-set)
                      (vertex-initial-domain vertex) locs
@@ -261,7 +276,8 @@
                      (vertex-color vertex) (and offset
                                                 (cons offset sc))
                      (vertex-invisible vertex) nil
-                     (vertex-spill-cost vertex) (tn-spill-cost tn)
+                     (vertex-spill-cost vertex) (+ (tn-spill-cost tn)
+                                                   cost-offset)
                      (gethash tn tn-vertex) vertex)
                (cond (offset) ; precolored -> no need to track conflict
                      ((eql :component (tn-kind tn))
@@ -325,9 +341,6 @@
       (oset-delete (vertex-incidence neighbor) vertex))))
 
 ;;; Support code
-(defvar *loop-depth-weight* 1)
-(defun tn-spill-cost (tn &optional (loop-weight *loop-depth-weight*))
-  (* (+ (max loop-weight 1) (tn-loop-depth tn)) (tn-cost tn)))
 
 ;; Return non-nil if COLOR conflicts with any of NEIGHBOR-COLORS.
 ;; Take into account element sizes of the respective SCs.
@@ -552,10 +565,15 @@
            (offset (car color))
            (tn (vertex-tn vertex))
            (tn-offset (tn-offset tn)))
-      (when (and offset (not tn-offset))
-        (aver (not (conflicts-in-sc tn (tn-sc tn) offset)))
-        (setf (tn-offset tn) offset)
-        (pack-wired-tn (vertex-tn vertex) nil))))
+      (cond (tn-offset)
+            (offset
+             (aver (not (conflicts-in-sc tn (tn-sc tn) offset)))
+             (setf (tn-offset tn) offset)
+             (pack-wired-tn (vertex-tn vertex) nil))
+            (t
+             ;; we better not have a :restricted TN not packed in its
+             ;; finite SC
+             (aver (neq (vertex-pack-type vertex) :restricted))))))
   colored-vertices)
 
 ;; Pack pre-allocated TNs, collect vertices, and color.
@@ -568,19 +586,14 @@
     (do ((tn (ir2-component-wired-tns 2comp) (tn-next tn)))
         ((null tn))
       (pack-wired-tn tn optimize)
-      (vertices (make-vertex tn :wired)))
-    ;; Pack restricted component TNs first: they have the longest live
-    ;; ranges, might as well avoid fragmentation when trivial.
-    ;; Again, keep them in the graph anyway.
+      (unless (unbounded-tn-p tn)
+        (vertices (make-vertex tn :wired))))
+    ;; Register vertices that *must* be in this finite SC.  Spill cost
+    ;; logic will make sure these are packed first.
     (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
         ((null tn))
-      (vertices (make-vertex tn :restricted))
-      (when (eq (tn-kind tn) :component)
-        (pack-tn tn t optimize)))
-    (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
-        ((null tn))
-      (unless (tn-offset tn)
-        (pack-tn tn t optimize)))
+      (unless (or (tn-offset tn) (unbounded-tn-p tn))
+        (vertices (make-vertex tn :restricted))))
 
     ;; Now that all pre-packed TNs are registered as vertices, work on
     ;; normal ones.  Walk through all normal TNs, and determine
@@ -593,7 +606,7 @@
       ;; many calls that it's simpler to just leave them on the stack)
       (when (and (not (tn-offset tn))
                  (neq (tn-kind tn) :more)
-                 (neq (sb-kind (sc-sb (tn-sc tn))) :unbounded)
+                 (not (unbounded-tn-p tn))
                  (>= (tn-cost tn) 0))
         ;; otherwise, we'll let the final pass handle them.
         (vertices (make-vertex tn :normal))))
