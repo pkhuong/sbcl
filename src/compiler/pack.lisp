@@ -859,8 +859,7 @@
                 ((= offset end))
               (declare (type index offset end))
               (setf (svref (finite-sb-live-tns sb) offset) tn))
-            (assert (and (null (tn-reads tn))
-                         (null (tn-writes tn))))))))
+            (aver (and (null (tn-reads tn)) (null (tn-writes tn))))))))
 
   (setq *live-block* block)
   (setq *live-vop* (ir2-block-last-vop block))
