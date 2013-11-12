@@ -595,7 +595,7 @@ Examples:
             (check-life-consistency component))
 
           (maybe-mumble "pack ")
-          (pack component)
+          (sb!regalloc:pack component)
 
           (when *check-consistency*
             (maybe-mumble "check-pack ")
