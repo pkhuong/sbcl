@@ -1393,8 +1393,10 @@
 ;;; If we are attempting to pack in the SC of the save TN for a TN
 ;;; with a :SPECIFIED-SAVE TN, then we pack in that location, instead
 ;;; of allocating a new stack location.
-(defun pack-tn (tn restricted optimize &key (allow-unbounded-sc t))
+(defun pack-tn (tn restricted optimize
+                &key (allow-unbounded-sc t) (force-unbounded-sc nil))
   (declare (type tn tn))
+  (when force-unbounded-sc (aver allow-unbounded-sc))
   (let* ((original (original-tn tn))
          (fsc (tn-sc tn))
          (alternates (unless restricted (sc-alternate-scs fsc)))
@@ -1406,9 +1408,11 @@
     (do ((sc fsc (pop alternates)))
         ((null sc)
          (failed-to-pack-error tn restricted))
-      (unless (or allow-unbounded-sc
-                  (neq (sb-kind (sc-sb sc)) :unbounded))
-        (return nil))
+      (let ((boundedp (not (unbounded-sc-p sc))))
+        (when (and force-unbounded-sc boundedp)
+          (go next))
+        (unless (or allow-unbounded-sc boundedp)
+          (return nil)))
       (when (eq sc specified-save-sc)
         (unless (tn-offset save)
           (pack-tn save nil optimize))
@@ -1421,7 +1425,7 @@
                        (select-location original sc)
                        (and restricted
                             (select-location original sc :use-reserved-locs t))
-                       (when (eq (sb-kind (sc-sb sc)) :unbounded)
+                       (when (unbounded-sc-p sc)
                          (grow-sc sc)
                          (or (select-location original sc)
                              (error "failed to pack after growing SC?"))))))
@@ -1429,7 +1433,8 @@
             (add-location-conflicts original sc loc optimize)
             (setf (tn-sc tn) sc)
             (setf (tn-offset tn) loc)
-            (return t))))))
+            (return t))))
+      next))
   (values))
 
 ;;; Pack a wired TN, checking that the offset is in bounds for the SB,
