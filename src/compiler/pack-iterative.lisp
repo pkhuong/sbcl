@@ -246,29 +246,12 @@
 (defun restricted-tn-locations (tn)
   (declare (type tn tn))
   (let* ((sc (tn-sc tn))
-         (size (sc-element-size sc))
-         (locations (sc-locations sc))
-         (reserve (sc-reserve-locations sc))
-         (sb (sc-sb sc))
-         (always-live (finite-sb-always-live-count sb))
-         (possible '()))
-    (flet ((color-always-live-conflict (color)
-             ;; Counts, for all the offsets in the SB, the max # of
-             ;; basic blocks in which that location is used by an
-             ;; :always-live TN.  This measure is an approximation of
-             ;; the pressure on that specific location.
-             (loop for offset from color
-                   repeat size
-                   maximize (aref always-live offset))))
-      (declare (dynamic-extent #'color-always-live-conflict))
-      ;; try to pack in low-numbered locations in case of ties: their
-      ;; register encoding may be smaller.
-      (dolist (loc locations (schwartzian-stable-sort-list
-                              (nreverse possible) #'>
-                              :key #'color-always-live-conflict))
-        (unless (or (and reserve (memq loc reserve)) ; common case: no reserve
-                    (conflicts-in-sc tn sc loc))
-          (push loc possible))))))
+         (reserve (sc-reserve-locations sc)))
+    (loop
+      for loc in (sc-locations sc)
+      unless (or (and reserve (memq loc reserve)) ; common case: no reserve
+                 (conflicts-in-sc tn sc loc))
+        collect loc)))
 
 ;; The cost for spilling that TN to stack.
 (defconstant +spill-cost-limit+ (truncate (ash 1 15) 3)) ; always a fixnum
