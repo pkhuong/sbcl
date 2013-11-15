@@ -92,7 +92,10 @@ otherwise evaluate ELSE and return its values. ELSE defaults to NIL."
            (let* ((ctran (make-ctran))
                   (block (ctran-starts-block ctran)))
              (link-blocks start-block block)
-             (ir1-convert ctran next result `(funcall ,function))
+             (if (typep function `(cons (eql lambda)
+                                        (cons null cons)))
+                 (ir1-convert ctran next result `(locally ,@(cddr function)))
+                 (ir1-convert ctran next result `(funcall ,function)))
              (setf (aref choices i) block))))))
 
 ;;; To get even remotely sensible results for branch coverage

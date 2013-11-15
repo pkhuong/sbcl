@@ -808,36 +808,8 @@
       (setf (component-reanalyze *current-component*) t)))
   (values))
 
-(defun empty-ir1-block-p (block)
-  (declare (type cblock block))
-  (let ((last (block-last block)))
-    (and (eql last (block-start-node block))
-         (exit-p last)
-         (null (exit-entry last))
-         (first (the (cons t null) (block-succ block))))))
-
-(defun block-non-empty-forward (block)
-  (let ((empty (empty-ir1-block-p block)))
-    (if empty
-        (block-non-empty-forward empty)
-        block)))
-
-(defun tension-switch-targets (node)
-  (declare (type switch node))
-  (let* ((choices (switch-choices node))
-         (block (node-block node))
-         (succ (block-succ block)))
-    (dotimes (i (length choices))
-      (let* ((this (aref choices i))
-             (forward (block-non-empty-forward this)))
-        (unless (eql this forward)
-          (setf (aref choices i) forward)
-          (unless (memq forward succ)
-            (link-blocks block forward)))))))
-
 (defun ir1-optimize-switch (node)
   (declare (type switch node))
-  (tension-switch-targets node)
   (let* ((index (switch-index node))
          (type (lvar-type index))
          (choices (switch-choices node))
