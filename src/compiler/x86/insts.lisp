@@ -2205,6 +2205,13 @@
   (:emitter
    (emit-dword segment dword)))
 
+(define-instruction address (segment label)
+  (:emitter
+   (emit-absolute-fixup segment
+                        (make-fixup nil
+                                    :code-object
+                                    label))))
+
 (defun emit-header-data (segment type)
   (emit-back-patch segment
                    4
