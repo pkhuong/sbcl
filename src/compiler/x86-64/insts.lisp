@@ -2643,15 +2643,6 @@
                        (aver (<= -128 disp 127))
                        (emit-byte segment disp)))))
 
-(define-instruction offset (segment to from)
-  (:emitter
-   (emit-back-patch segment 4
-                    (lambda (segment posn)
-                      (declare (ignore posn))
-                      (let ((disp (- (label-position to)
-                                     (label-position from))))
-                        (emit-signed-dword segment disp))))))
-
 (define-instruction jmp (segment cond &optional where)
   ;; conditional jumps
   (:printer short-cond-jump ((op #b0111)) '('j cc :tab label))
@@ -2941,6 +2932,15 @@
 (define-instruction dword (segment dword)
   (:emitter
    (emit-dword segment dword)))
+
+(define-instruction offset (segment to from)
+  (:emitter
+   (emit-back-patch segment 4
+                    (lambda (segment posn)
+                      (declare (ignore posn))
+                      (let ((disp (- (label-position to)
+                                     (label-position from))))
+                        (emit-signed-dword segment disp))))))
 
 (defun emit-header-data (segment type)
   (emit-back-patch segment
@@ -3814,7 +3814,9 @@
                        (ash (ldb (byte 32 0)
                                  (double-float-high-bits (realpart value)))
                             32)
-                       (double-float-low-bits (realpart value))))))))
+                       (double-float-low-bits (realpart value)))))
+      ((:jump-table)
+       (cons :dword value)))))
 
 (defun inline-constant-value (constant)
   (let ((label (gen-label))
@@ -3845,6 +3847,10 @@
     (emit-alignment (integer-length (1- size)))
     (emit-label label)
     (let ((val (cdr constant)))
-      (loop repeat size
-            do (inst byte (ldb (byte 8 0) val))
-               (setf val (ash val -8))))))
+      (if (consp val)
+          (destructuring-bind (base . targets) val
+            (dolist (target targets)
+              (inst offset target base)))
+          (loop repeat size
+                do (inst byte (ldb (byte 8 0) val))
+                   (setf val (ash val -8)))))))

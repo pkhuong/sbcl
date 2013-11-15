@@ -287,10 +287,14 @@
   (:info cases)
   (:vop-var vop)
   (:generator 5
-    (let ((table (gen-label))
-          (jump (gen-label))
+    (let ((jump (gen-label))
           (error (gen-label)))
-      (inst lea address (make-fixup nil :code-object table))
+      (inst lea address
+            (register-inline-constant
+             :jump-table (cons jump
+                               (mapcar (lambda (case)
+                                         (or case error))
+                                       cases))))
       (inst movsx offset (make-ea :dword :base address
                                          :index index
                                          :scale (ash 4 (- n-fixnum-tag-bits))))
@@ -299,9 +303,5 @@
       (inst jmp address)
       (emit-label jump)
       (assemble (*elsewhere*)
-        (emit-label table)
-        (mapc (lambda (case)
-                (inst offset (or case error) jump))
-              cases)
         (emit-label error)
         (error-call vop 'nil-fun-returned-error address)))))
