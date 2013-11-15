@@ -98,6 +98,29 @@ otherwise evaluate ELSE and return its values. ELSE defaults to NIL."
                  (ir1-convert ctran next result `(funcall ,function)))
              (setf (aref choices i) block))))))
 
+(declaim (inline switch))
+(defun switch (index &rest functions)
+  (declare (type (and unsigned-byte fixnum) index)
+           (dynamic-extent functions))
+  (assert (< index (length functions)))
+  (funcall (nth index functions)))
+
+(define-source-transform switch (index &rest functions)
+  (once-only ((index index))
+    (let* ((evals '())
+           (functions (loop
+                        for function in functions
+                        collect
+                        (if (typep function `(cons (eql lambda)
+                                                   (cons null cons)))
+                            function
+                            (let ((temp (gensym "FUNCTION")))
+                              (push (list temp function)
+                                    evals)
+                              temp)))))
+      `(let ,(nreverse evals)
+         (%switch ,index ,@functions)))))
+
 ;;; To get even remotely sensible results for branch coverage
 ;;; tracking, we need good source paths. If the macroexpansions
 ;;; interfere enough the TEST of the conditional doesn't actually have
