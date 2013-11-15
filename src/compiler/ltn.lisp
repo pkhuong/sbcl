@@ -842,6 +842,9 @@
                     (adjust-list types count rest))))))))
   (values))
 
+(defun ltn-analyze-switch (switch)
+  (declare (type switch switch))
+  (annotate-ordinary-lvar (switch-index switch)))
 
 ;;;; interfaces
 
@@ -865,6 +868,7 @@
          (:known
           (ltn-analyze-known-call node))))
       (cif (ltn-analyze-if node))
+      (switch (ltn-analyze-switch node))
       (creturn (ltn-analyze-return node))
       ((or bind entry))
       (exit (ltn-analyze-exit node))

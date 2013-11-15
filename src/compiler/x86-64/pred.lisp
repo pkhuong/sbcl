@@ -278,3 +278,28 @@
   (def fast-if-eq-signed/c fast-if-eql-c/signed 4)
   (def fast-if-eq-unsigned fast-if-eql/unsigned 5)
   (def fast-if-eq-unsigned/c fast-if-eql-c/unsigned 4))
+
+(define-vop (switch)
+  (:args (index :scs (any-reg) :target offset))
+  (:arg-types positive-fixnum)
+  (:temporary (:sc unsigned-reg :from (:argument 1)) offset)
+  (:temporary (:sc unsigned-reg) address)
+  (:info cases)
+  (:generator 5
+    (let ((table (gen-label))
+          (jump (gen-label)))
+      (inst lea address (make-fixup nil :code-object table))
+      (inst movsx offset (make-ea :dword :base address
+                                         :index index
+                                         :scale (ash 4 (- n-fixnum-tag-bits))))
+      (inst lea address (make-fixup nil :code-object jump))
+      (inst add address offset)
+      (inst jmp address)
+      (emit-label jump)
+      (assemble (*elsewhere*)
+        (emit-label table)
+        (mapc (lambda (case)
+                (if case
+                    (inst offset case jump)
+                    (inst dword #xdeadbeef)))
+              cases)))))

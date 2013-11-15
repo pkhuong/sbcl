@@ -696,6 +696,15 @@
     (ir2-convert-conditional node block (template-or-lose 'if-eq)
                              test-ref () node t)))
 
+(defun ir2-convert-switch (node block)
+  (declare (type switch node) (type ir2-block block))
+  (vop sb!vm::switch node block
+       (lvar-tn node block (switch-index node))
+       (map 'list (lambda (succ)
+                    (and succ
+                         (block-label succ)))
+            (switch-choices node))))
+
 ;;; Return a list of primitive-types that we can pass to LVAR-RESULT-TNS
 ;;; describing the result types we want for a template call. We are really
 ;;; only interested in the number of results required: in normal case
@@ -1915,7 +1924,8 @@
   (let* ((2block (block-info block))
          (last (block-last block))
          (succ (block-succ block)))
-    (unless (if-p last)
+    (unless (or (if-p last)
+                (switch-p last))
       (aver (singleton-p succ))
       (let ((target (first succ)))
         (cond ((eq target (component-tail (block-component block)))
@@ -1979,6 +1989,9 @@
         (cif
          (when (lvar-info (if-test node))
            (ir2-convert-if node 2block)))
+        (switch
+         (when (lvar-info (switch-index node))
+           (ir2-convert-switch node 2block)))
         (bind
          (let ((fun (bind-lambda node)))
            (when (eq (lambda-home fun) fun)

@@ -203,6 +203,7 @@
   ;;  1. component head blocks (any number)
   ;;  2. blocks ending in an IF (1 or 2)
   ;;  3. blocks with DELETE-P set (zero)
+  ;;  4. blocks ending in a SWITCH (any number)
   (pred nil :type list)
   (succ nil :type list)
   ;; the ctran which heads this block (a :BLOCK-START), or NIL when we
@@ -1231,6 +1232,19 @@
 (defprinter (cset :conc-name set- :identity t)
   var
   (value :prin1 (lvar-uses value)))
+
+(def!struct (switch (:include node))
+  ;; LVAR for the switch value
+  (index (missing-arg) :type lvar)
+  ;; ordered vector of cblocks or NIL if impossible;
+  ;;  some cblocks may appear multiple times
+  (choices (missing-arg) :type simple-vector)
+  ;; for each cblock, the corresponding conset (or NIL
+  ;; initially).  Not sure what to do with duplicates.
+  (choices-constraints (missing-arg) :type simple-vector))
+(defprinter (switch :identity t)
+  (index :prin1 (lvar-uses index))
+  choices)
 
 ;;; The BASIC-COMBINATION structure is used to represent both normal
 ;;; and multiple value combinations. In a let-like function call, this

@@ -216,6 +216,7 @@
     (etypecase dest
       ((or ref bind))
       (cif (setf (if-test dest) new))
+      (switch (setf (switch-index dest) new))
       (cset (setf (set-value dest) new))
       (creturn (setf (return-result dest) new))
       (exit (setf (exit-value dest) new))
@@ -1024,6 +1025,24 @@
            (when (eq (if-consequent last)
                      (if-alternative last))
              (reoptimize-component (block-component block) :maybe)))))
+      (switch
+       ;; make the successor benefit from constraint propagation
+       (setf (block-test-modified block) t)
+       (let* ((choices (switch-choices last))
+              (constraints (switch-choices-constraints last))
+              (n (length choices)))
+         ;; not sure what's up with the component-tail test?
+         (aver (not (eq new (component-tail comp))))
+         (dotimes (i n)
+           (when (eq old (aref choices i))
+             (setf (aref choices i) new
+                   (aref constraints i) nil)))
+         (unless (memq new (block-succ block))
+           (link-blocks block new))
+         (when (every (lambda (choice)
+                        (eql choice new))
+                      choices)
+           (reoptimize-component (block-component block) :maybe))))
       (t
        (unless (memq new (block-succ block))
          (link-blocks block new)))))
@@ -1514,6 +1533,7 @@
     (etypecase node
       (ref (delete-ref node))
       (cif (flush-dest (if-test node)))
+      (switch (flush-dest (switch-index node)))
       ;; The next two cases serve to maintain the invariant that a LET
       ;; always has a well-formed COMBINATION, REF and BIND. We delete
       ;; the lambda whenever we delete any of these, but we must be

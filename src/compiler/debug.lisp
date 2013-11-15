@@ -422,6 +422,18 @@ One of :WARN, :ERROR or :NONE.")
          (barf "The CONSEQUENT for ~S isn't in SUCC for ~S." last block))
        (unless (member (if-alternative last) succ)
          (barf "The ALTERNATIVE for ~S isn't in SUCC for ~S." last block)))
+      (switch
+       (let ((choices (switch-choices last)))
+         (dotimes (i (length choices))
+           (let ((choice (aref choices i)))
+             (unless (or (null choice)
+                         (member choice succ))
+               (barf "The ~Dth choice for ~S isn't in SUCC for ~S."
+                     i last block))))
+         (dolist (succ succ)
+           (unless (find succ choices)
+             (barf "~S is a SUCC for ~S but not in choices for ~S."
+                   succ block last)))))
       (creturn
        (unless (if (eq (functional-kind (return-lambda last)) :deleted)
                    (null succ)
@@ -515,6 +527,10 @@ One of :WARN, :ERROR or :NONE.")
      (check-dest (if-test node) node)
      (unless (eq (block-last (node-block node)) node)
        (barf "IF not at block end: ~S" node)))
+    (switch
+     (check-dest (switch-index node) node)
+     (unless (eq (block-last (node-block node)) node)
+       (barf "SWITCH is not at block end: ~S" node)))
     (cset
      (check-dest (set-value node) node))
     (cast
@@ -986,6 +1002,11 @@ One of :WARN, :ERROR or :NONE.")
            (print-lvar (if-test node))
            (print-ctran (block-start (if-consequent node)))
            (print-ctran (block-start (if-alternative node))))
+          (switch
+           (write-string "switch ")
+           (print-lvar (switch-index node))
+           (loop for block across (switch-choices node)
+                 do (print-ctran (block-start block))))
           (bind
            (write-string "bind ")
            (print-leaf (bind-lambda node))

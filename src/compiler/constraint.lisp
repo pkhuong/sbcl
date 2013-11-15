@@ -1022,6 +1022,38 @@
         (when (node-p use)
           (add-test-constraints use node gen))))))
 
+(defun constraint-propagate-switch (block gen)
+  (let* ((node (block-last block)))
+    (unless (switch-p node)
+      (return-from constraint-propagate-switch))
+    (binding* ((lvar (switch-index node) :exit-if-null)
+               (var (ok-lvar-lambda-var lvar gen) :exit-if-null)
+               (choices (switch-choices node))
+               (table (make-hash-table)))
+      (dotimes (i (length choices))
+        (awhen (aref choices i)
+          (push i (gethash it table))))
+      (let ((to-recompute '())
+            (constraints (switch-choices-constraints node)))
+        (loop
+          for succ in (block-succ block)
+          do (awhen (gethash succ table)
+               (let ((conset (copy-conset gen)))
+                 (multiple-value-bind (type rhs)
+                     (if (singleton-p it)
+                         (values 'eql (find-constant (first it)))
+                         (values 'typep (specifier-type `(member ,@it))))
+                   (unless (conset-member (find-or-create-constraint
+                                           type var rhs nil)
+                                          conset)
+                     (conset-add-constraint-to-eql conset type var rhs nil)))
+                 (dolist (i it)
+                   (let ((old (aref constraints i)))
+                     (unless (and old (conset= old conset))
+                       (pushnew succ to-recompute))
+                     (setf (aref constraints i) conset))))))
+        (or to-recompute t)))))
+
 ;;; Starting from IN compute OUT and (consequent/alternative
 ;;; constraints if the block ends with an IF). Return the list of
 ;;; successors that may need to be recomputed.
@@ -1034,6 +1066,9 @@
                   (copy-conset (block-in block)))
               final-pass-p)))
     (setf (block-gen block) gen)
+    (awhen (constraint-propagate-switch block gen)
+      (unless (eql it t)
+        (return-from find-block-type-constraints it)))
     (multiple-value-bind (consequent-constraints alternative-constraints)
         (constraint-propagate-if block gen)
       (if consequent-constraints
@@ -1100,11 +1135,15 @@
 (defun block-out-for-successor (pred succ)
   (declare (type cblock pred succ))
   (let ((last (block-last pred)))
-    (or (when (if-p last)
-          (cond ((eq succ (if-consequent last))
-                 (if-consequent-constraints last))
-                ((eq succ (if-alternative last))
-                 (if-alternative-constraints last))))
+    (or (typecase last
+          (cif
+           (cond ((eq succ (if-consequent last))
+                  (if-consequent-constraints last))
+                 ((eq succ (if-alternative last))
+                  (if-alternative-constraints last))))
+          (switch
+           (awhen (position succ (switch-choices last))
+             (aref (switch-choices-constraints last) it))))
         (block-out pred))))
 
 (defun compute-block-in (block)

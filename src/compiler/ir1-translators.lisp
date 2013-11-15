@@ -67,6 +67,34 @@ otherwise evaluate ELSE and return its values. ELSE defaults to NIL."
                        else-ctran)
                    next result else))))
 
+(def-ir1-translator %switch ((index &rest functions) start next result)
+  (let* ((index-ctran (make-ctran))
+         (index-lvar (make-lvar))
+         (n (length functions))
+         (choices (make-array n :initial-element nil))
+         (constraints (make-array n :initial-element nil))
+         (node (make-switch :index index-lvar
+                            :choices choices
+                            :choices-constraints constraints)))
+
+    (setf (lvar-dest index-lvar) node)
+    (ir1-convert start index-ctran index-lvar index)
+    (link-node-to-previous-ctran node index-ctran)
+    (assert-lvar-type index-lvar (specifier-type `(mod ,n)) *policy*)
+
+    (let ((start-block (ctran-block index-ctran)))
+      (setf (block-last start-block) node)
+      (ctran-starts-block next)
+      (loop
+        for i below n
+        for function in functions
+        do
+           (let* ((ctran (make-ctran))
+                  (block (ctran-starts-block ctran)))
+             (link-blocks start-block block)
+             (ir1-convert ctran next result `(funcall ,function))
+             (setf (aref choices i) block))))))
+
 ;;; To get even remotely sensible results for branch coverage
 ;;; tracking, we need good source paths. If the macroexpansions
 ;;; interfere enough the TEST of the conditional doesn't actually have

@@ -2643,6 +2643,15 @@
                        (aver (<= -128 disp 127))
                        (emit-byte segment disp)))))
 
+(define-instruction offset (segment to from)
+  (:emitter
+   (emit-back-patch segment 4
+                    (lambda (segment posn)
+                      (declare (ignore posn))
+                      (let ((disp (- (label-position to)
+                                     (label-position from))))
+                        (emit-signed-dword segment disp))))))
+
 (define-instruction jmp (segment cond &optional where)
   ;; conditional jumps
   (:printer short-cond-jump ((op #b0111)) '('j cc :tab label))

@@ -369,6 +369,12 @@
              (t
               (loop
                  (let ((succ (block-succ block)))
+                   (when (null succ)
+                     (let ((last (block-last block)))
+                       (when (switch-p last)
+                         (flush-dest (switch-index last))
+                         (unlink-node last)
+                         (return))))
                    (unless (singleton-p succ)
                      (return)))
 
@@ -376,6 +382,10 @@
                    (typecase last
                      (cif
                       (flush-dest (if-test last))
+                      (when (unlink-node last)
+                        (return)))
+                     (switch
+                      (flush-dest (switch-index last))
                       (when (unlink-node last)
                         (return)))
                      (exit
@@ -423,6 +433,8 @@
          (ir1-optimize-combination node))
         (cif
          (ir1-optimize-if node))
+        (switch
+         (ir1-optimize-switch node))
         (creturn
          ;; KLUDGE: We leave the NODE-OPTIMIZE flag set going into
          ;; IR1-OPTIMIZE-RETURN, since IR1-OPTIMIZE-RETURN wants to
@@ -795,6 +807,51 @@
       (reoptimize-lvar new-lvar)
       (setf (component-reanalyze *current-component*) t)))
   (values))
+
+(defun empty-ir1-block-p (block)
+  (declare (type cblock block))
+  (let ((last (block-last block)))
+    (and (eql last (block-start-node block))
+         (exit-p last)
+         (null (exit-entry last))
+         (first (the (cons t null) (block-succ block))))))
+
+(defun block-non-empty-forward (block)
+  (let ((empty (empty-ir1-block-p block)))
+    (if empty
+        (block-non-empty-forward empty)
+        block)))
+
+(defun tension-switch-targets (node)
+  (declare (type switch node))
+  (let* ((choices (switch-choices node))
+         (block (node-block node))
+         (succ (block-succ block)))
+    (dotimes (i (length choices))
+      (let* ((this (aref choices i))
+             (forward (block-non-empty-forward this)))
+        (unless (eql this forward)
+          (setf (aref choices i) forward)
+          (unless (memq forward succ)
+            (link-blocks block forward)))))))
+
+(defun ir1-optimize-switch (node)
+  (declare (type switch node))
+  (tension-switch-targets node)
+  (let* ((index (switch-index node))
+         (type (lvar-type index))
+         (choices (switch-choices node))
+         (constraints (switch-choices-constraints node)))
+    (dotimes (i (length choices))
+      (multiple-value-bind (typep ok) (ctypep i type)
+        (when (and (not typep) ok)
+          (setf (aref choices i) nil
+                (aref constraints i) nil))))
+    (let ((block (node-block node)))
+      (aver (eq node (block-last block)))
+      (dolist (succ (block-succ block))
+        (unless (find succ choices)
+          (unlink-blocks block succ))))))
 
 ;;;; exit IR1 optimization
 
