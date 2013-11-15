@@ -209,16 +209,15 @@
   (:info cases)
   (:vop-var vop)
   (:generator 5
-    (let ((table (gen-label))
-          (error (gen-label)))
-      (inst lea table-start (make-fixup nil :code-object table))
+    (let ((error (gen-label)))
+      (inst lea table-start
+            (register-inline-constant
+             :jump-table (mapcar (lambda (case)
+                                   (or case error))
+                                 cases)))
       (inst jmp (make-ea :dword :base table-start
                                 :index index
                                 :scale (ash 4 (- n-fixnum-tag-bits))))
       (assemble (*elsewhere*)
-        (emit-label table)
-        (mapc (lambda (case)
-                (inst address (or case error)))
-              cases)
         (emit-label error)
         (error-call vop 'nil-fun-returned-error index)))))

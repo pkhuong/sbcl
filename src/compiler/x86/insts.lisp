@@ -2898,7 +2898,9 @@
          (aver (typep value 'double-float))
          (cons :double-float
                (ldb (byte 64 0) (logior (ash (double-float-high-bits value) 32)
-                                        (double-float-low-bits value))))))))
+                                        (double-float-low-bits value)))))
+      ((:jump-table)
+       (cons :dword value)))))
 
 (defun inline-constant-value (constant)
   (let ((label (gen-label))
@@ -2928,6 +2930,9 @@
     (emit-alignment (integer-length (1- size)))
     (emit-label label)
     (let ((val (cdr constant)))
-      (loop repeat size
-            do (inst byte (ldb (byte 8 0) val))
-               (setf val (ash val -8))))))
+      (if (consp val)
+          (dolist (target val)
+            (inst address target))
+          (loop repeat size
+                do (inst byte (ldb (byte 8 0) val))
+                   (setf val (ash val -8)))))))
