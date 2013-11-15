@@ -285,9 +285,11 @@
   (:temporary (:sc unsigned-reg :from (:argument 1)) offset)
   (:temporary (:sc unsigned-reg) address)
   (:info cases)
+  (:vop-var vop)
   (:generator 5
     (let ((table (gen-label))
-          (jump (gen-label)))
+          (jump (gen-label))
+          (error (gen-label)))
       (inst lea address (make-fixup nil :code-object table))
       (inst movsx offset (make-ea :dword :base address
                                          :index index
@@ -299,7 +301,7 @@
       (assemble (*elsewhere*)
         (emit-label table)
         (mapc (lambda (case)
-                (if case
-                    (inst offset case jump)
-                    (inst dword #xdeadbeef)))
-              cases)))))
+                (inst offset (or case error) jump))
+              cases)
+        (emit-label error)
+        (error-call vop 'nil-fun-returned-error address)))))
