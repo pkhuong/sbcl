@@ -80,7 +80,8 @@ otherwise evaluate ELSE and return its values. ELSE defaults to NIL."
     (setf (lvar-dest index-lvar) node)
     (ir1-convert start index-ctran index-lvar index)
     (link-node-to-previous-ctran node index-ctran)
-    (assert-lvar-type index-lvar (specifier-type `(mod ,n)) *policy*)
+    (assert-lvar-type index-lvar (specifier-type `(mod ,n))
+                      (lexenv-policy *lexenv*))
 
     (let ((start-block (ctran-block index-ctran)))
       (setf (block-last start-block) node)
