@@ -808,8 +808,47 @@
       (setf (component-reanalyze *current-component*) t)))
   (values))
 
+(defun convert-switch-to-if (node lvar value consequent alternative)
+  (declare (type switch node)
+           (type lvar lvar)
+           (type cblock consequent alternative))
+  (with-ir1-environment-from-node node
+    (let* ((block (node-block node))
+           (new-ctran (make-ctran))
+           (new-block (ctran-starts-block new-ctran))
+           (if (make-if :test lvar
+                        :consequent consequent
+                        :alternative alternative)))
+      (unlink-blocks block consequent)
+      (unlink-blocks block alternative)
+      (link-blocks block new-block)
+      (unlink-node node)
+      (link-node-to-previous-ctran if new-ctran)
+      (setf (lvar-dest lvar) if
+            (block-last new-block) if)
+      (link-blocks new-block consequent)
+      (link-blocks new-block alternative)
+      (let ((*convert-predicate-to-if-dest* nil))
+        (filter-lvar lvar `(eql 'dummy ',value)))
+      (reoptimize-lvar (if-test if))
+      (setf (component-reanalyze *current-component*) t)))
+  t)
+
+(defun maybe-convert-switch-to-if (node)
+  (declare (type switch node))
+  (when (= 2 (count-if #'identity (switch-choices node)))
+    (let* ((choices (switch-choices node))
+           (first (position-if #'identity choices))
+           (second (position-if #'identity choices :start (1+ first))))
+      (convert-switch-to-if node (switch-index node)
+                            first
+                            (aref choices first)
+                            (aref choices second)))))
+
 (defun ir1-optimize-switch (node)
   (declare (type switch node))
+  (when (maybe-convert-switch-to-if node)
+    (return-from ir1-optimize-switch))
   (let* ((index (switch-index node))
          (type (lvar-type index))
          (choices (switch-choices node))
