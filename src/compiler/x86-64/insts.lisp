@@ -2614,7 +2614,7 @@
 
 ;;;; control transfer
 
-(define-instruction call (segment where)
+(define-instruction call (segment where &optional (forward t))
   (:printer near-jump ((op #b11101000)))
   (:printer reg/mem-default-qword ((op '(#b11111111 #b010))))
   (:emitter
@@ -2625,7 +2625,9 @@
                        4
                        (lambda (segment posn)
                          (emit-signed-dword segment
-                                            (- (label-position where)
+                                            (- (label-position where nil nil
+                                                               (and forward
+                                                                    segment))
                                                (+ posn 4))))))
      (fixup
       ;; There is no CALL rel64...
@@ -2635,15 +2637,21 @@
       (emit-byte segment #b11111111)
       (emit-ea segment where #b010)))))
 
-(defun emit-byte-displacement-backpatch (segment target)
+(defun emit-byte-displacement-backpatch (segment target &optional forwardp)
   (emit-back-patch segment
                    1
                    (lambda (segment posn)
-                     (let ((disp (- (label-position target) (1+ posn))))
+                     (let* ((forward (label-final-destination target segment
+                                                              forwardp))
+                            (disp (- (label-position target) (1+ posn)))
+                            (forward-disp (- (label-position forward)
+                                             (1+ posn))))
                        (aver (<= -128 disp 127))
-                       (emit-byte segment disp)))))
+                       (emit-byte segment (if (<= -128 forward-disp 127)
+                                              forward-disp
+                                              disp))))))
 
-(define-instruction jmp (segment cond &optional where)
+(define-instruction jmp (segment cond &optional where (forwardp t))
   ;; conditional jumps
   (:printer short-cond-jump ((op #b0111)) '('j cc :tab label))
   (:printer near-cond-jump () '('j cc :tab label))
@@ -2656,8 +2664,9 @@
           (emit-chooser
            segment 6 2
            (lambda (segment posn delta-if-after)
-             (let ((disp (- (label-position where posn delta-if-after)
-                            (+ posn 2))))
+             (let* ((where (label-final-destination where segment forwardp))
+                    (disp (- (label-position where posn delta-if-after)
+                             (+ posn 2))))
                (when (<= -128 disp 127)
                  (emit-byte segment
                             (dpb (conditional-opcode cond)
@@ -2666,7 +2675,8 @@
                  (emit-byte-displacement-backpatch segment where)
                  t)))
            (lambda (segment posn)
-             (let ((disp (- (label-position where) (+ posn 6))))
+             (let* ((where (label-final-destination where segment forwardp))
+                    (disp (- (label-position where) (+ posn 6))))
                (emit-byte segment #b00001111)
                (emit-byte segment
                           (dpb (conditional-opcode cond)
@@ -2674,17 +2684,20 @@
                                #b10000000))
                (emit-signed-dword segment disp)))))
          ((label-p (setq where cond))
+          (%forward-here-to segment where)
           (emit-chooser
            segment 5 0
            (lambda (segment posn delta-if-after)
-             (let ((disp (- (label-position where posn delta-if-after)
-                            (+ posn 2))))
+             (let* ((where (label-final-destination where segment forwardp))
+                    (disp (- (label-position where posn delta-if-after)
+                             (+ posn 2))))
                (when (<= -128 disp 127)
                  (emit-byte segment #b11101011)
                  (emit-byte-displacement-backpatch segment where)
                  t)))
            (lambda (segment posn)
-             (let ((disp (- (label-position where) (+ posn 5))))
+             (let* ((where (label-final-destination where segment forwardp))
+                    (disp (- (label-position where) (+ posn 5))))
                (emit-byte segment #b11101001)
                (emit-signed-dword segment disp)))))
          ((fixup-p where)
@@ -2710,29 +2723,29 @@
          (t
           (emit-byte segment #b11000011)))))
 
-(define-instruction jrcxz (segment target)
+(define-instruction jrcxz (segment target &optional (forwardp t))
   (:printer short-jump ((op #b0011)))
   (:emitter
    (emit-byte segment #b11100011)
-   (emit-byte-displacement-backpatch segment target)))
+   (emit-byte-displacement-backpatch segment target forwardp)))
 
-(define-instruction loop (segment target)
+(define-instruction loop (segment target &optional (forwardp t))
   (:printer short-jump ((op #b0010)))
   (:emitter
    (emit-byte segment #b11100010)       ; pfw this was 11100011, or jecxz!!!!
-   (emit-byte-displacement-backpatch segment target)))
+   (emit-byte-displacement-backpatch segment target forwardp)))
 
-(define-instruction loopz (segment target)
+(define-instruction loopz (segment target &optional (forwardp t))
   (:printer short-jump ((op #b0001)))
   (:emitter
    (emit-byte segment #b11100001)
-   (emit-byte-displacement-backpatch segment target)))
+   (emit-byte-displacement-backpatch segment target forwardp)))
 
-(define-instruction loopnz (segment target)
+(define-instruction loopnz (segment target &optional (forwardp t))
   (:printer short-jump ((op #b0000)))
   (:emitter
    (emit-byte segment #b11100000)
-   (emit-byte-displacement-backpatch segment target)))
+   (emit-byte-displacement-backpatch segment target forwardp)))
 
 ;;;; conditional move
 (define-instruction cmov (segment cond dst src)
