@@ -1069,6 +1069,7 @@
 ;;; KLUDGE: If we insert a synthetic IF for a function with the PREDICATE
 ;;; attribute, don't generate any branch coverage instrumentation for it.
 (defvar *instrument-if-for-code-coverage* t)
+(defvar *convert-predicate-to-if-dest* t)
 
 ;;; If the function has the PREDICATE attribute, and the RESULT's DEST
 ;;; isn't an IF, then we convert (IF <form> T NIL), ensuring that a
@@ -1084,7 +1085,8 @@
   (let ((info (info :function :info (leaf-source-name var))))
     (if (and info
              (ir1-attributep (fun-info-attributes info) predicate)
-             (not (if-p (and result (lvar-dest result)))))
+             (not (if-p (and result (lvar-dest result))))
+             *convert-predicate-to-if-dest*)
         (let ((*instrument-if-for-code-coverage* nil))
           (ir1-convert start next result `(if ,form t nil)))
         (ir1-convert-combination-checking-type start next result form var))))
