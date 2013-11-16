@@ -150,6 +150,11 @@ of SBCL which maintained the CMU-CL-style split into two packages.)"
                "VARIABLE-LENGTH"
                "SEGMENT-COLLECT-DYNAMIC-STATISTICS"
 
+               ;; in-assembler jump-jump elimination
+               "*INDEX-FORWARDING-LABEL-TABLE*"
+               "%FORWARD-HERE-TO" "FORWARD-HERE-TO"
+               "LABEL-FINAL-DESTINATION"
+
                ;; FIXME: These are in the SB-ASSEM package now, but
                ;; (left over from CMU CL) are defined in files which
                ;; are IN-PACKAGE SB-C. It would probably be cleaner

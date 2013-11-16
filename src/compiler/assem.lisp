@@ -1286,16 +1286,67 @@
   #!+sb-doc
   "Emit an alignment restriction to the current segment."
   `(%emit-alignment (%%current-segment%%) (%%current-vop%%) ,bits ,pattern))
+
+;;;; Label forwarding logic.
 
-(defun label-position (label &optional if-after delta)
+;;; We do that in the assembler because some cases are very hard to
+;;; fix otherwise: some complicated (type-testing) VOPs have a lot of
+;;; internal conditional jumps, and it's impossible to determine all
+;;; empty basic blocks until after representation selection and
+;;; register allocation.
+
+;;; EQUAL hash table from (cons segment index) to target label, if
+;;; any. NIL disables all the forwarding logic.
+(declaim (type (or null hash-table) *index-forwarding-label-table*))
+(defvar *index-forwarding-label-table* nil)
+
+;;; Called from instruction emitted to record an unconditional jump at
+;;; the current (next) byte position to label NEXT.
+(defun %forward-here-to (segment next)
+  (declare (type segment segment))
+  (let* ((table *index-forwarding-label-table*)
+         (index (segment-current-index segment))
+         (key (cons segment index)))
+    (when (and table (label-p next))
+      (aver (not (gethash key table)))
+      (setf (gethash key table) next))))
+
+;;; Same, but called from within VOPs right before a jump with the
+;;; target label.
+(defmacro forward-here-to (next)
+  `(%forward-here-to (%%current-segment%%) ,next))
+
+;;; Transitively flatten chains of unconditional jumps.
+(defun label-final-destination (label segment &optional (really t))
+  (let ((table *index-forwarding-label-table*))
+    (if (and table really (label-p label))
+        (labels ((walk (label)
+                   (aver (label-p label))
+                   (let* ((index (label-index label))
+                          (key (cons segment index))
+                          (next (gethash key table label)))
+                     (cond ((null next) ; circularity!
+                            (setf (gethash key table) label))
+                           ((neq label next)
+                            (setf (gethash key table) nil ; marker
+                                  (gethash key table) (walk next)))
+                           (t
+                            label)))))
+          (walk label))
+        label)))
+
+;;; If forward is true (and a segment), the jump chain that LABEL
+;;; points to (if any) is tensioned out.
+(defun label-position (label &optional if-after delta forward-segment)
   #!+sb-doc
   "Return the current position for LABEL. Chooser maybe-shrink functions
    should supply IF-AFTER and DELTA in order to ensure correct results."
-  (let ((posn (label-posn label)))
+  (let ((posn (label-posn (label-final-destination label forward-segment
+                                                   forward-segment))))
     (if (and if-after (> posn if-after))
         (- posn delta)
         posn)))
-
+
 (defun append-segment (segment other-segment)
   #!+sb-doc
   "Append OTHER-SEGMENT to the end of SEGMENT. Don't use OTHER-SEGMENT
@@ -1321,9 +1372,20 @@
     (setf (segment-buffer other-segment) nil) ; to prevent accidental reuse
     (incf (segment-current-posn segment)
           (segment-current-posn other-segment))
-    (let ((other-annotations (segment-annotations other-segment)))
+    (let ((other-annotations (segment-annotations other-segment))
+          (table *index-forwarding-label-table*))
       (when other-annotations
         (dolist (note other-annotations)
+          ;; update forwarding table
+          (let ((index (annotation-index note))
+                key)
+            (awhen (and table
+                        (gethash (setf key (cons other-segment index))
+                                 table))
+              (remhash key table)
+              (setf (gethash (cons segment (+ index segment-current-index-0))
+                             table)
+                    it)))
           (incf (annotation-index note) segment-current-index-0)
           (incf (annotation-posn note) segment-current-posn-0))
         ;; This SEGMENT-LAST-ANNOTATION code is confusing. Is it really
