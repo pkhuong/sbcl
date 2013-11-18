@@ -134,7 +134,9 @@
   (declare (type vertex a b))
   (aver (neq a b))
   (unless (or (tn-offset (vertex-tn a))  ; precolored -> conflict
-              (tn-offset (vertex-tn b))) ; implicit via domain
+              (tn-offset (vertex-tn b))  ; implicit via domain
+              (neq (sc-sb (vertex-sc a))
+                   (sc-sb (vertex-sc b)))) ; not even in the same SB!
     (aver (or (oset-adjoin (vertex-incidence a) b)
               perhaps-redundant))
     (aver (or (oset-adjoin (vertex-incidence b) a)
