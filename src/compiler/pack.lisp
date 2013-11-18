@@ -1582,7 +1582,7 @@
 
 (declaim (type (member :iterative :greedy :adaptive)
                *register-allocation-method*))
-(defvar *register-allocation-method* :adaptive)
+(defvar *register-allocation-method* :iterative)
 
 (declaim (ftype function pack-greedy pack-iterative))
 

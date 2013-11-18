@@ -43,6 +43,12 @@
 ;;;; Compilers for Parallel Computing. Springer Berlin Heidelberg,
 ;;;; 2006. 1-16.
 ;;;; (http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.107.9598)
+(defvar *precompute-wired-away* t)
+(defvar *sort-locations-according-to-pressure* t)
+(defvar *sort-incidence-function* #'>)
+(defvar *presort-vertices* t)
+(defvar *preallocate-restricted-tns* t)
+
 
 ;;; Interference graph data structure
 (defstruct (ordered-set
@@ -250,7 +256,8 @@
     (loop
       for loc in (sc-locations sc)
       unless (or (and reserve (memq loc reserve)) ; common case: no reserve
-                 (conflicts-in-sc tn sc loc))
+                 (and *precompute-wired-away*
+                      (conflicts-in-sc tn sc loc)))
         collect loc)))
 
 ;; The cost for spilling that TN to stack.
@@ -273,9 +280,23 @@
           do (let* ((tn (vertex-tn vertex))
                     (offset (tn-offset tn))
                     (sc (tn-sc tn))
-                    (locs (if offset
-                              (list offset)
-                              (restricted-tn-locations tn)))
+                    (locs
+                      (cond (offset
+                             (list offset))
+                            (*sort-locations-according-to-pressure*
+                             (schwartzian-stable-sort-list
+                              (restricted-tn-locations tn)
+                              #'>
+                              :key (lambda (location-offset)
+                                     (loop
+                                       for offset from location-offset
+                                       repeat (sc-element-size sc)
+                                       maximize (svref
+                                                 (finite-sb-always-live-count
+                                                  (sc-sb sc))
+                                                 offset)))))
+                            (t
+                             (restricted-tn-locations tn))))
                     (cost-offset (cond ((neq :restricted
                                              (vertex-pack-type vertex))
                                         0)
@@ -294,7 +315,9 @@
                      (vertex-spill-cost vertex) (+ (tn-spill-cost tn)
                                                    cost-offset)
                      (gethash tn tn-vertex) vertex)
-               (cond (offset) ; precolored -> no need to track conflict
+               (cond ((and offset *precompute-wired-away*)
+                      ;; precolored -> no need to track conflict
+                      )
                      ((eql :component (tn-kind tn))
                       (push vertex component-vertices))
                      ((tn-global-conflicts tn)
@@ -322,7 +345,8 @@
       (dolist (v vertices)
         (let ((incidence (vertex-incidence v)))
           (setf (oset-members incidence)
-                (sort (oset-members incidence) #'< :key #'vertex-number)))
+                (sort (oset-members incidence) *sort-incidence-function*
+                      :key #'vertex-number)))
         (cond ((vertex-color v)
                (aver (tn-offset (vertex-tn v)))
                (colored v))
@@ -546,6 +570,17 @@
 (defun iterate-color (vertices component
                       &optional (iterations *pack-iterations*))
   (let* ((spill-list '())
+         (vertices (if *presort-vertices*
+                       (stable-sort (copy-list vertices)
+                                    (lambda (a b)
+                                      (cond
+                                        ((> (tn-loop-depth (vertex-tn a))
+                                            (tn-loop-depth (vertex-tn b))))
+                                        ((= (tn-loop-depth (vertex-tn a))
+                                            (tn-loop-depth (vertex-tn b)))
+                                         (> (tn-cost (vertex-tn a))
+                                            (tn-cost (vertex-tn b)))))))
+                       vertices))
          (nvertices (length vertices))
          (number-iterations (min iterations nvertices))
          (graph (make-interference-graph vertices component))
@@ -604,10 +639,24 @@
         (vertices (make-vertex tn :wired))))
     ;; Register vertices that *must* be in this finite SC.  Spill cost
     ;; logic will make sure these are packed first.
-    (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
-        ((null tn))
-      (unless (or (tn-offset tn) (unbounded-tn-p tn))
-        (vertices (make-vertex tn :restricted))))
+    (cond (*preallocate-restricted-tns*
+           (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
+               ((null tn))
+             (unless (or (tn-offset tn) (unbounded-tn-p tn))
+               (when (eq :component (tn-kind tn))
+                 (pack-tn tn t optimize)
+                 (vertices (make-vertex tn :restricted)))))
+
+           (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
+               ((null tn))
+             (unless (or (tn-offset tn) (unbounded-tn-p tn))
+               (pack-tn tn t optimize)
+               (vertices (make-vertex tn :restricted)))))
+          (t
+           (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
+               ((null tn))
+             (unless (or (tn-offset tn) (unbounded-tn-p tn))
+               (vertices (make-vertex tn :restricted))))))
 
     ;; Now that all pre-packed TNs are registered as vertices, work on
     ;; normal ones.  Walk through all normal TNs, and determine
