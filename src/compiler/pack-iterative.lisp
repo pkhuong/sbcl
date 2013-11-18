@@ -44,10 +44,10 @@
 ;;;; 2006. 1-16.
 ;;;; (http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.107.9598)
 (defvar *precompute-wired-away* t)
-(defvar *sort-locations-according-to-pressure* t)
-(defvar *sort-incidence-function* #'>)
-(defvar *presort-vertices* t)
-(defvar *preallocate-restricted-tns* t)
+(defvar *sort-locations-according-to-pressure* nil)
+(defvar *sort-incidence-function* #'<)
+(defvar *presort-vertices* nil)
+(defvar *preallocate-restricted-tns* nil)
 
 
 ;;; Interference graph data structure
