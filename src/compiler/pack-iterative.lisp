@@ -264,8 +264,8 @@
 (defconstant +spill-cost-limit+ (truncate (ash 1 15) 3)) ; always a fixnum
 (defvar *loop-depth-weight* 1)
 (defun tn-spill-cost (tn &optional (loop-weight *loop-depth-weight*))
-  (min (* (+ (max loop-weight 1) (tn-loop-depth tn)) (tn-cost tn))
-       (1- +spill-cost-limit+)))
+  (declare (ignore loop-weight))
+  (min (tn-cost tn) (1- +spill-cost-limit+)))
 
 ;; walk over vertices, precomputing as much information as possible,
 ;; and partitioning according to their kind.
