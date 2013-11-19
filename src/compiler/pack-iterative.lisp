@@ -43,12 +43,6 @@
 ;;;; Compilers for Parallel Computing. Springer Berlin Heidelberg,
 ;;;; 2006. 1-16.
 ;;;; (http://citeseerx.ist.psu.edu/viewdoc/summary?doi=10.1.1.107.9598)
-(defvar *precompute-wired-away* t)
-(defvar *sort-locations-according-to-pressure* nil)
-(defvar *sort-incidence-function* #'<)
-(defvar *presort-vertices* nil)
-(defvar *preallocate-restricted-tns* nil)
-
 
 ;;; Interference graph data structure
 (defstruct (ordered-set
@@ -133,10 +127,11 @@
 (defun insert-one-edge (a b &optional perhaps-redundant)
   (declare (type vertex a b))
   (aver (neq a b))
-  (unless (or (tn-offset (vertex-tn a))  ; precolored -> conflict
-              (tn-offset (vertex-tn b))  ; implicit via domain
-              (neq (sc-sb (vertex-sc a))
-                   (sc-sb (vertex-sc b)))) ; not even in the same SB!
+  ;; not even in the same storage base => no conflict;
+  ;; or one is pre-allocated => handled via domain.
+  (unless (or (neq (sc-sb (vertex-sc a)) (sc-sb (vertex-sc b)))
+              (tn-offset (vertex-tn a))
+              (tn-offset (vertex-tn b)))
     (aver (or (oset-adjoin (vertex-incidence a) b)
               perhaps-redundant))
     (aver (or (oset-adjoin (vertex-incidence b) a)
@@ -258,8 +253,7 @@
     (loop
       for loc in (sc-locations sc)
       unless (or (and reserve (memq loc reserve)) ; common case: no reserve
-                 (and *precompute-wired-away*
-                      (conflicts-in-sc tn sc loc)))
+                 (conflicts-in-sc tn sc loc))
         collect loc)))
 
 ;; The cost for spilling that TN to stack.
@@ -282,23 +276,9 @@
           do (let* ((tn (vertex-tn vertex))
                     (offset (tn-offset tn))
                     (sc (tn-sc tn))
-                    (locs
-                      (cond (offset
-                             (list offset))
-                            (*sort-locations-according-to-pressure*
-                             (schwartzian-stable-sort-list
-                              (restricted-tn-locations tn)
-                              #'>
-                              :key (lambda (location-offset)
-                                     (loop
-                                       for offset from location-offset
-                                       repeat (sc-element-size sc)
-                                       maximize (svref
-                                                 (finite-sb-always-live-count
-                                                  (sc-sb sc))
-                                                 offset)))))
-                            (t
-                             (restricted-tn-locations tn))))
+                    (locs (if offset
+                              (list offset)
+                              (restricted-tn-locations tn)))
                     (cost-offset (cond ((neq :restricted
                                              (vertex-pack-type vertex))
                                         0)
@@ -317,7 +297,7 @@
                      (vertex-spill-cost vertex) (+ (tn-spill-cost tn)
                                                    cost-offset)
                      (gethash tn tn-vertex) vertex)
-               (cond ((and offset *precompute-wired-away*)
+               (cond ((and offset)
                       ;; precolored -> no need to track conflict
                       )
                      ((eql :component (tn-kind tn))
@@ -347,8 +327,7 @@
       (dolist (v vertices)
         (let ((incidence (vertex-incidence v)))
           (setf (oset-members incidence)
-                (sort (oset-members incidence) *sort-incidence-function*
-                      :key #'vertex-number)))
+                (sort (oset-members incidence) #'< :key #'vertex-number)))
         (cond ((vertex-color v)
                (aver (tn-offset (vertex-tn v)))
                (colored v))
@@ -572,17 +551,11 @@
 (defun iterate-color (vertices component
                       &optional (iterations *pack-iterations*))
   (let* ((spill-list '())
-         (vertices (if *presort-vertices*
-                       (stable-sort (copy-list vertices)
-                                    (lambda (a b)
-                                      (cond
-                                        ((> (tn-loop-depth (vertex-tn a))
-                                            (tn-loop-depth (vertex-tn b))))
-                                        ((= (tn-loop-depth (vertex-tn a))
-                                            (tn-loop-depth (vertex-tn b)))
-                                         (> (tn-cost (vertex-tn a))
-                                            (tn-cost (vertex-tn b)))))))
-                       vertices))
+         ;; presorting edges helps; later sorts are stable, so this
+         ;; mostly ends up sorting by loop depth for TNs with equal
+         ;; costs.
+         (vertices (stable-sort (copy-list vertices) #'tn-loop-depth-cost->
+                                :key #'vertex-tn))
          (nvertices (length vertices))
          (number-iterations (min iterations nvertices))
          (graph (make-interference-graph vertices component))
@@ -610,7 +583,7 @@
 ;;; Nice interface
 
 ;; Just pack vertices that have been assigned a color.
-(defun pack-colored (colored-vertices)
+(defun pack-colored (colored-vertices optimize)
   (dolist (vertex colored-vertices)
     (let* ((color (vertex-color vertex))
            (offset (car color))
@@ -620,7 +593,7 @@
             (offset
              (aver (not (conflicts-in-sc tn (tn-sc tn) offset)))
              (setf (tn-offset tn) offset)
-             (pack-wired-tn (vertex-tn vertex) nil))
+             (pack-wired-tn (vertex-tn vertex) optimize))
             (t
              ;; we better not have a :restricted TN not packed in its
              ;; finite SC
@@ -631,34 +604,30 @@
 (defun pack-iterative (component 2comp optimize)
   (declare (type component component) (type ir2-component 2comp))
   (collect ((vertices))
-    ;; Pack TNs that *must* be in a certain location or SC first, but
-    ;; still register them in the interference graph: it's useful to
-    ;; have them in the graph for targetting purposes.
+    ;; Pack TNs that *must* be in a certain location, but still
+    ;; register them in the interference graph: it's useful to have
+    ;; them in the graph for targeting purposes.
     (do ((tn (ir2-component-wired-tns 2comp) (tn-next tn)))
         ((null tn))
       (pack-wired-tn tn optimize)
       (unless (unbounded-tn-p tn)
         (vertices (make-vertex tn :wired))))
-    ;; Register vertices that *must* be in this finite SC.  Spill cost
-    ;; logic will make sure these are packed first.
-    (cond (*preallocate-restricted-tns*
-           (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
-               ((null tn))
-             (unless (or (tn-offset tn) (unbounded-tn-p tn))
-               (when (eq :component (tn-kind tn))
-                 (pack-tn tn t optimize)
-                 (vertices (make-vertex tn :restricted)))))
-
-           (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
-               ((null tn))
-             (unless (or (tn-offset tn) (unbounded-tn-p tn))
-               (pack-tn tn t optimize)
-               (vertices (make-vertex tn :restricted)))))
-          (t
-           (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
-               ((null tn))
-             (unless (or (tn-offset tn) (unbounded-tn-p tn))
-               (vertices (make-vertex tn :restricted))))))
+    ;; Preallocate vertices that *must* be in this finite SC.  If
+    ;; targeting is improved, giving them a high priority in regular
+    ;; regalloc may be a better idea.
+    (collect ((component)
+              (normal))
+      (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
+          ((null tn))
+        (unless (or (tn-offset tn) (unbounded-tn-p tn))
+          (vertices (make-vertex tn :restricted))
+          (if (eq :component (tn-kind tn))
+              (component tn)
+              (normal tn))))
+      (dolist (tn (stable-sort (component) #'> :key #'tn-cost))
+        (pack-tn tn t optimize))
+      (dolist (tn (stable-sort (normal) #'> :key #'tn-cost))
+        (pack-tn tn t optimize)))
 
     ;; Now that all pre-packed TNs are registered as vertices, work on
     ;; normal ones.  Walk through all normal TNs, and determine
@@ -679,5 +648,6 @@
     (assign-tn-depths component :reducer #'+)
     ;; Iteratively find a coloring/spill partition, and allocate those
     ;; for which we have a location
-    (pack-colored (iterate-color (vertices) component)))
+    (pack-colored (iterate-color (vertices) component)
+                  optimize))
   nil)

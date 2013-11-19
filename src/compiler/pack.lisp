@@ -783,7 +783,7 @@
               (decf (tn-cost tn) penalty)))))))
 
   (let* ((write-cost *tn-write-cost*)
-         (depth-scale (1+ (max 1 *tn-write-cost* save-penalty))))
+         (depth-scale (1+ (max 1 *tn-write-cost* *backend-register-save-penalty*))))
     (do ((tn (ir2-component-normal-tns (component-info component))
              (tn-next tn)))
         ((null tn))
@@ -793,7 +793,7 @@
             ((null ref))
           (let* ((vop (tn-ref-vop ref))
                  (2block (vop-block vop))
-                 (block (ir2-block-block block))
+                 (block (ir2-block-block 2block))
                  (loop (block-loop block))
                  (depth (if loop
                             (loop-depth loop)
@@ -803,7 +803,7 @@
             ((null ref))
           (let* ((vop (tn-ref-vop ref))
                  (2block (vop-block vop))
-                 (block (ir2-block-block block))
+                 (block (ir2-block-block 2block))
                  (loop (block-loop block))
                  (depth (if loop
                             (loop-depth loop)
@@ -1425,6 +1425,7 @@
 (defun pack-tn (tn restricted optimize
                 &key (allow-unbounded-sc t) (force-unbounded-sc nil))
   (declare (type tn tn))
+  (aver (not (tn-offset tn)))
   (when force-unbounded-sc (aver allow-unbounded-sc))
   (let* ((original (original-tn tn))
          (fsc (tn-sc tn))
@@ -1733,17 +1734,17 @@
       ((null tn))
     (pack-wired-tn tn optimize))
 
-  ;; Pack restricted component TNs.
-  (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
-      ((null tn))
-    (when (and (eq (tn-kind tn) :component) (not (unbounded-tn-p tn)))
-      ;; unbounded SCs will be handled in the final pass
-      (pack-tn tn t optimize)))
-
-  ;; Pack other restricted TNs.
-  (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
-      ((null tn))
-    (unless (or (tn-offset tn) (unbounded-tn-p tn))
+  (collect ((component)
+            (normal))
+    (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
+        ((null tn))
+      (unless (or (tn-offset tn) (unbounded-tn-p tn))
+        (if (eq :component (tn-kind tn))
+            (component tn)
+            (normal tn))))
+    (dolist (tn (stable-sort (component) #'> :key #'tn-cost))
+      (pack-tn tn t optimize))
+    (dolist (tn (stable-sort (normal) #'> :key #'tn-cost))
       (pack-tn tn t optimize)))
 
   (cond (*loop-analyze*
@@ -1757,7 +1758,8 @@
                ((null tn))
              (unless (or (tn-offset tn)
                          (eq (tn-kind tn) :more)
-                         (unbounded-tn-p tn))
+                         (unbounded-tn-p tn)
+                         (minusp (tn-cost tn)))
                (tns tn)))
            (dolist (tn (stable-sort (tns) #'> :key #'tn-cost))
              (unless (tn-offset tn)
