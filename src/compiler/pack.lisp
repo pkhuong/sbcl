@@ -1452,9 +1452,10 @@
       (when (or restricted
                 (not (and (minusp (tn-cost tn)) (sc-save-p sc))))
         (let ((loc (or (find-ok-target-offset original sc)
-                       (select-location original sc)
+                       (select-location original sc :optimize optimize)
                        (and restricted
-                            (select-location original sc :use-reserved-locs t))
+                            (select-location original sc :use-reserved-locs t
+                                             :optimize optimize))
                        (when (unbounded-sc-p sc)
                          (grow-sc sc)
                          (or (select-location original sc)
