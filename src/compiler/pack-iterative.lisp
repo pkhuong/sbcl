@@ -543,7 +543,6 @@
                                        (tn-loop-depth
                                         (vertex-tn vertex)))))
          (nvertices (length vertices))
-         (number-iterations (min iterations nvertices))
          (graph (make-interference-graph vertices component))
          to-spill)
     (labels ((spill-candidates-p (vertex)
@@ -559,7 +558,7 @@
                               to-spill graph :reset t)))
                (color-interference-graph graph)
                (find-if #'spill-candidates-p (ig-vertices graph))))
-      (loop repeat number-iterations
+      (loop repeat iterations
             while (setf to-spill (iter to-spill))))
     (let ((colored (ig-vertices graph)))
       (aver (= nvertices (+ (length spill-list) (length colored)
