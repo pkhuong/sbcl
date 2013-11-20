@@ -641,7 +641,8 @@
       (when (and (not (tn-offset tn))
                  (neq (tn-kind tn) :more)
                  (not (unbounded-tn-p tn))
-                 (>= (tn-cost tn) 0))
+                 (not (and (sc-save-p (tn-sc tn))
+                           (minusp (tn-cost tn)))))
         ;; otherwise, we'll let the final pass handle them.
         (vertices (make-vertex tn :normal))))
     ;; Sum loop depths to guide the spilling logic

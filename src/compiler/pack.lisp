@@ -1696,10 +1696,7 @@
                                     (schwartzian-stable-sort-list
                                      tns #'< :key #'tn-lexical-depth)))
                       (unless (tn-offset tn)
-                        (pack-tn tn nil optimize
-                                 ;; TNs with negative spill costs are
-                                 ;; forced on the stack
-                                 :force-unbounded-sc (minusp (tn-cost tn)))))))
+                        (pack-tn tn nil optimize)))))
              ;; first pack TNs that are known to have simple live
              ;; ranges (contiguous lexical scopes)
              (pack-tns component-tns t)
@@ -1760,7 +1757,8 @@
              (unless (or (tn-offset tn)
                          (eq (tn-kind tn) :more)
                          (unbounded-tn-p tn)
-                         (minusp (tn-cost tn)))
+                         (and (minusp (tn-cost tn))
+                              (sc-save-p (tn-sc tn))))
                (tns tn)))
            (dolist (tn (stable-sort (tns) #'> :key #'tn-cost))
              (unless (tn-offset tn)
