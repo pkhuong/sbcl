@@ -24,8 +24,8 @@
 
 ;;;; conflict determination
 
-;;; Return true if the element at the specified offset, or any of the
-;;; [size-1] subsequent offset in SB has a conflict with TN:
+;;; Return true if the element at the specified offset, or in any of
+;;; the [size-1] subsequent offsets, in SB has a conflict with TN:
 ;;; -- If a component-live TN (:COMPONENT kind), then iterate over
 ;;;    all the blocks. If the element at OFFSET is used anywhere in
 ;;;    any of the component's blocks (always-live /= 0), then there
@@ -757,7 +757,7 @@
                 (return t)))
         (setq block (optimized-emit-saves-block block saves restores)))
       (setq block (ir2-block-prev block)))))
-
+
 ;;; Iterate over the normal TNs, finding the cost of packing on the
 ;;; stack in units of the number of references. We count all read
 ;;; references as +1, write references as + *tn-write-cost*, and
@@ -766,50 +766,47 @@
 ;;; The subtraction reflects the fact that having a value in a
 ;;; register around a call means that code to spill and unspill must
 ;;; be inserted.
+;;;
+;;; The costs also take into account the loop depth at which each
+;;; reference occurs: the penalty or cost is incremented by the depth
+;;; scaled by *tn-loop-depth-multiplier*.  The default (NIL) is to let
+;;; this be one more than the max of the cost for reads (1), for write
+;;; references and for being live across a call.
 (defvar *tn-write-cost* 2)
+(defvar *tn-loop-depth-multiplier* nil)
+
 (defun assign-tn-costs (component)
   (let* ((save-penalty *backend-register-save-penalty*)
-         (depth-scale (1+ (max 1 *tn-write-cost* save-penalty))))
-    (do-ir2-blocks (block component)
-      (do ((vop (ir2-block-start-vop block) (vop-next vop)))
-          ((null vop))
-        (when (eq (vop-info-save-p (vop-info vop)) t)
-          (let* ((loop (block-loop (ir2-block-block block)))
-                 (depth (if loop
-                            (loop-depth loop)
-                            0))
-                 (penalty (+ save-penalty (* depth depth-scale))))
-            (do-live-tns (tn (vop-save-set vop) block)
-              (decf (tn-cost tn) penalty)))))))
+         (write-cost *tn-write-cost*)
+         (depth-scale (or *tn-loop-depth-multiplier*
+                          (1+ (max 1 write-cost save-penalty)))))
+    (flet ((vop-depth-cost (vop)
+             (let ((loop (block-loop
+                          (ir2-block-block
+                           (vop-block vop)))))
+               (if loop
+                   (* depth-scale (loop-depth loop))
+                   0))))
+      (do-ir2-blocks (block component)
+        (do ((vop (ir2-block-start-vop block) (vop-next vop)))
+            ((null vop))
+          (when (eq (vop-info-save-p (vop-info vop)) t)
+            (let ((penalty (+ save-penalty (vop-depth-cost vop))))
+              (do-live-tns (tn (vop-save-set vop) block)
+                (decf (tn-cost tn) penalty))))))
 
-  (let* ((write-cost *tn-write-cost*)
-         (depth-scale (1+ (max 1 *tn-write-cost* *backend-register-save-penalty*))))
-    (do ((tn (ir2-component-normal-tns (component-info component))
-             (tn-next tn)))
-        ((null tn))
-      (let ((cost (tn-cost tn)))
-        (declare (fixnum cost))
-        (do ((ref (tn-reads tn) (tn-ref-next ref)))
-            ((null ref))
-          (let* ((vop (tn-ref-vop ref))
-                 (2block (vop-block vop))
-                 (block (ir2-block-block 2block))
-                 (loop (block-loop block))
-                 (depth (if loop
-                            (loop-depth loop)
-                            0)))
-            (incf cost (1+ (* depth depth-scale)))))
-        (do ((ref (tn-writes tn) (tn-ref-next ref)))
-            ((null ref))
-          (let* ((vop (tn-ref-vop ref))
-                 (2block (vop-block vop))
-                 (block (ir2-block-block 2block))
-                 (loop (block-loop block))
-                 (depth (if loop
-                            (loop-depth loop)
-                            0)))
-            (incf cost (+ write-cost (* depth depth-scale)))))
-        (setf (tn-cost tn) cost)))))
+      (do ((tn (ir2-component-normal-tns (component-info component))
+               (tn-next tn)))
+          ((null tn))
+        (let ((cost (tn-cost tn)))
+          (declare (fixnum cost))
+          (do ((ref (tn-reads tn) (tn-ref-next ref)))
+              ((null ref))
+            (incf cost (1+ (vop-depth-cost (tn-ref-vop ref)))))
+          (do ((ref (tn-writes tn) (tn-ref-next ref)))
+              ((null ref))
+            (incf cost (+ write-cost (vop-depth-cost (tn-ref-vop ref)))))
+          (setf (tn-cost tn) cost))))))
 
 ;;; Iterate over the normal TNs, folding over the depth of the looops
 ;;; that the TN is used in and storing the result in TN-LOOP-DEPTH.
@@ -839,14 +836,6 @@
           (frob (tn-reads tn))
           (frob (tn-writes tn))
           (setf (tn-loop-depth tn) depth))))))
-
-(defun tn-loop-depth-cost-> (x y)
-  (declare (type tn x y))
-  (let ((depth-x (tn-loop-depth x))
-        (depth-y (tn-loop-depth y)))
-    (or (> depth-x depth-y)
-        (and (= depth-x depth-y)
-             (> (tn-cost x) (tn-cost y))))))
 
 ;;;; load TN packing
 
@@ -1273,9 +1262,9 @@
 ;;; If TN can be packed into SC so as to honor a preference to TARGET,
 ;;; then return the offset to pack at, otherwise return NIL. TARGET
 ;;; must be already packed.
-(defun check-ok-target (target tn sc &optional (tn-offset #'tn-offset))
+(defun check-ok-target (target tn sc)
   (declare (type tn target tn) (type sc sc) (inline member))
-  (let* ((loc (funcall tn-offset target))
+  (let* ((loc (tn-offset target))
          (target-sc (tn-sc target))
          (target-sb (sc-sb target-sc)))
     (declare (type index loc))
@@ -1422,11 +1411,9 @@
 ;;; If we are attempting to pack in the SC of the save TN for a TN
 ;;; with a :SPECIFIED-SAVE TN, then we pack in that location, instead
 ;;; of allocating a new stack location.
-(defun pack-tn (tn restricted optimize
-                &key (allow-unbounded-sc t) (force-unbounded-sc nil))
+(defun pack-tn (tn restricted optimize &key (allow-unbounded-sc t))
   (declare (type tn tn))
   (aver (not (tn-offset tn)))
-  (when force-unbounded-sc (aver allow-unbounded-sc))
   (let* ((original (original-tn tn))
          (fsc (tn-sc tn))
          (alternates (unless restricted (sc-alternate-scs fsc)))
@@ -1438,11 +1425,9 @@
     (do ((sc fsc (pop alternates)))
         ((null sc)
          (failed-to-pack-error tn restricted))
-      (let ((boundedp (not (unbounded-sc-p sc))))
-        (when (and force-unbounded-sc boundedp)
-          (go next))
-        (unless (or allow-unbounded-sc boundedp)
-          (return nil)))
+      (unless (or allow-unbounded-sc
+                  (not (unbounded-sc-p sc)))
+        (return nil))
       (when (eq sc specified-save-sc)
         (unless (tn-offset save)
           (pack-tn save nil optimize))
@@ -1455,7 +1440,7 @@
                        (select-location original sc :optimize optimize)
                        (and restricted
                             (select-location original sc :use-reserved-locs t
-                                             :optimize optimize))
+                                                         :optimize optimize))
                        (when (unbounded-sc-p sc)
                          (grow-sc sc)
                          (or (select-location original sc)
@@ -1732,6 +1717,9 @@
       ((null tn))
     (pack-wired-tn tn optimize))
 
+  ;; Then, pack restricted TNs, ones that are live over the whole
+  ;; component first (they cause no fragmentation).  Sort by TN cost
+  ;; to help important TNs get good targeting.
   (collect ((component)
             (normal))
     (do ((tn (ir2-component-restricted-tns 2comp) (tn-next tn)))
@@ -1740,28 +1728,30 @@
         (if (eq :component (tn-kind tn))
             (component tn)
             (normal tn))))
-    (dolist (tn (stable-sort (component) #'> :key #'tn-cost))
-      (pack-tn tn t optimize))
-    (dolist (tn (stable-sort (normal) #'> :key #'tn-cost))
-      (pack-tn tn t optimize)))
+    (flet ((pack-tns (tns)
+             (dolist (tn (stable-sort tns #'> :key #'tn-cost))
+               (pack-tn tn t optimize))))
+      (pack-tns (component))
+      (pack-tns (normal))))
 
-  (cond (*loop-analyze*
-         ;; Allocate normal TNs, starting with the TNs that are used
-         ;; in deep loops.  Only allocate in finite SCs (i.e. not on
+  (cond ((and *loop-analyze* *pack-assign-costs*)
+         ;; Allocate normal TNs, starting with the TNs that are
+         ;; heavily used in deep loops (which is taken into account in
+         ;; TN spill costs).  Only allocate in finite SCs (i.e. not on
          ;; the stack).
-         (when *pack-assign-costs*
-           (assign-tn-depths component))
          (collect ((tns))
            (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
                ((null tn))
              (unless (or (tn-offset tn)
                          (eq (tn-kind tn) :more)
                          (unbounded-tn-p tn)
-                         (and (minusp (tn-cost tn))
-                              (sc-save-p (tn-sc tn))))
+                         (and (sc-save-p (tn-sc tn))  ; SC caller-save, but TN
+                              (minusp (tn-cost tn)))) ; lives over many calls
                (tns tn)))
            (dolist (tn (stable-sort (tns) #'> :key #'tn-cost))
              (unless (tn-offset tn)
+               ;; if it can't fit in a bounded SC, the final pass will
+               ;; take care of stack packing.
                (pack-tn tn nil optimize :allow-unbounded-sc nil)))))
         (t
          ;; If loop analysis has been disabled we might as well revert

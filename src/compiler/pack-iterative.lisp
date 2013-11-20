@@ -256,13 +256,6 @@
                  (conflicts-in-sc tn sc loc))
         collect loc)))
 
-;; The cost for spilling that TN to stack.
-(defconstant +spill-cost-limit+ (truncate (ash 1 15) 3)) ; always a fixnum
-(defvar *loop-depth-weight* 1)
-(defun tn-spill-cost (tn &optional (loop-weight *loop-depth-weight*))
-  (declare (ignore loop-weight))
-  (min (tn-cost tn) (1- +spill-cost-limit+)))
-
 ;; walk over vertices, precomputing as much information as possible,
 ;; and partitioning according to their kind.
 ;; Return the partition, and a hash table to map tns to vertices.
@@ -278,14 +271,7 @@
                     (sc (tn-sc tn))
                     (locs (if offset
                               (list offset)
-                              (restricted-tn-locations tn)))
-                    (cost-offset (cond ((neq :restricted
-                                             (vertex-pack-type vertex))
-                                        0)
-                                       ((eq :component (tn-kind tn))
-                                        (* 2 +spill-cost-limit+))
-                                       (t
-                                        +spill-cost-limit+))))
+                              (restricted-tn-locations tn))))
                (aver (not (unbounded-tn-p tn)))
                (setf (vertex-number vertex) i
                      (vertex-incidence vertex) (make-ordered-set)
@@ -294,12 +280,9 @@
                      (vertex-color vertex) (and offset
                                                 (cons offset sc))
                      (vertex-invisible vertex) nil
-                     (vertex-spill-cost vertex) (+ (tn-spill-cost tn)
-                                                   cost-offset)
+                     (vertex-spill-cost vertex) (tn-cost tn)
                      (gethash tn tn-vertex) vertex)
-               (cond ((and offset)
-                      ;; precolored -> no need to track conflict
-                      )
+               (cond (offset) ; precolored -> no need to track conflict
                      ((eql :component (tn-kind tn))
                       (push vertex component-vertices))
                      ((tn-global-conflicts tn)
@@ -327,6 +310,7 @@
       (dolist (v vertices)
         (let ((incidence (vertex-incidence v)))
           (setf (oset-members incidence)
+                ;; this really doesn't matter, but minimises variability
                 (sort (oset-members incidence) #'< :key #'vertex-number)))
         (cond ((vertex-color v)
                (aver (tn-offset (vertex-tn v)))
@@ -552,10 +536,12 @@
                       &optional (iterations *pack-iterations*))
   (let* ((spill-list '())
          ;; presorting edges helps; later sorts are stable, so this
-         ;; mostly ends up sorting by loop depth for TNs with equal
+         ;; ends up sorting by (sum of) loop depth for TNs with equal
          ;; costs.
-         (vertices (stable-sort (copy-list vertices) #'tn-loop-depth-cost->
-                                :key #'vertex-tn))
+         (vertices (stable-sort (copy-list vertices) #'>
+                                :key (lambda (vertex)
+                                       (tn-loop-depth
+                                        (vertex-tn vertex)))))
          (nvertices (length vertices))
          (number-iterations (min iterations nvertices))
          (graph (make-interference-graph vertices component))
@@ -587,9 +573,8 @@
   (dolist (vertex colored-vertices)
     (let* ((color (vertex-color vertex))
            (offset (car color))
-           (tn (vertex-tn vertex))
-           (tn-offset (tn-offset tn)))
-      (cond (tn-offset)
+           (tn (vertex-tn vertex)))
+      (cond ((tn-offset tn))
             (offset
              (aver (not (conflicts-in-sc tn (tn-sc tn) offset)))
              (setf (tn-offset tn) offset)
@@ -597,8 +582,7 @@
             (t
              ;; we better not have a :restricted TN not packed in its
              ;; finite SC
-             (aver (neq (vertex-pack-type vertex) :restricted))))))
-  colored-vertices)
+             (aver (neq (vertex-pack-type vertex) :restricted)))))))
 
 ;; Pack pre-allocated TNs, collect vertices, and color.
 (defun pack-iterative (component 2comp optimize)
@@ -612,6 +596,7 @@
       (pack-wired-tn tn optimize)
       (unless (unbounded-tn-p tn)
         (vertices (make-vertex tn :wired))))
+
     ;; Preallocate vertices that *must* be in this finite SC.  If
     ;; targeting is improved, giving them a high priority in regular
     ;; regalloc may be a better idea.
@@ -624,15 +609,19 @@
           (if (eq :component (tn-kind tn))
               (component tn)
               (normal tn))))
-      (dolist (tn (stable-sort (component) #'> :key #'tn-cost))
-        (pack-tn tn t optimize))
-      (dolist (tn (stable-sort (normal) #'> :key #'tn-cost))
-        (pack-tn tn t optimize)))
+      ;; First, pack TNs that span the whole component to minimise
+      ;; fragmentation.  Also, pack high cost TNs first, so they get
+      ;; nice targeting.
+      (flet ((pack-tns (tns)
+               (dolist (tn (stable-sort tns #'> :key #'tn-cost))
+                 (pack-tn tn t optimize))))
+        (pack-tns (component))
+        (pack-tns (normal))))
 
     ;; Now that all pre-packed TNs are registered as vertices, work on
-    ;; normal ones.  Walk through all normal TNs, and determine
-    ;; whether we should try to allocate them registers or stick them
-    ;; straight to the stack.
+    ;; the rest.  Walk through all normal TNs, and determine whether
+    ;; we should try to put them in registers or stick them straight
+    ;; to the stack.
     (do ((tn (ir2-component-normal-tns 2comp) (tn-next tn)))
         ((null tn))
       ;; Only consider TNs that aren't forced on the stack and for
@@ -641,8 +630,8 @@
       (when (and (not (tn-offset tn))
                  (neq (tn-kind tn) :more)
                  (not (unbounded-tn-p tn))
-                 (not (and (sc-save-p (tn-sc tn))
-                           (minusp (tn-cost tn)))))
+                 (not (and (sc-save-p (tn-sc tn))   ; SC is caller-save, and
+                           (minusp (tn-cost tn))))) ; TN lives in many calls
         ;; otherwise, we'll let the final pass handle them.
         (vertices (make-vertex tn :normal))))
     ;; Sum loop depths to guide the spilling logic
