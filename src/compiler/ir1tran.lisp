@@ -574,17 +574,24 @@
   ;; namespace.
   (defun ir1-convert (start next result form &optional alias)
     (ir1-error-bailout (start next result form)
-      (let* ((*current-path* (ensure-source-path (or alias form)))
-             (start (instrument-coverage start nil form)))
-        (cond ((atom form)
-               (cond ((and (symbolp form) (not (keywordp form)))
-                      (ir1-convert-var start next result form))
-                     ((leaf-p form)
-                      (reference-leaf start next result form))
-                     (t
-                      (reference-constant start next result form))))
-              (t
-               (ir1-convert-functoid start next result form)))))
+      (flet ((convert (form)
+               (let* ((*current-path* (ensure-source-path (or alias form)))
+                      (start (instrument-coverage start nil form)))
+                 (cond ((atom form)
+                        (cond ((and (symbolp form) (not (keywordp form)))
+                               (ir1-convert-var start next result form))
+                              ((leaf-p form)
+                               (reference-leaf start next result form))
+                              (t
+                               (reference-constant start next result form))))
+                       (t
+                        (ir1-convert-functoid start next result form))))))
+        (if (lexenv-wrapper-p form)
+            (let ((*lexenv* (make-lexenv :default (or (lexenv-wrapper-lexenv form)
+                                                      *lexenv*)
+                                         :hooks (lexenv-wrapper-new-hooks form))))
+              (convert (lexenv-wrapper-form form)))
+            (convert form))))
     (values))
 
   ;; Generate a reference to a manifest constant, creating a new leaf
