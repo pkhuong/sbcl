@@ -13,7 +13,7 @@
 
 ;;; The LEXENV represents the lexical environment used for IR1 conversion.
 ;;; (This is also what shows up as an ENVIRONMENT value in macroexpansion.)
-#!-sb-fluid (declaim (inline internal-make-lexenv)) ; only called in one place
+#!-sb-fluid (declaim (inline internal-make-lexenv)) ; only called in two places
 (def!struct (lexenv
              (:print-function print-lexenv)
              (:constructor make-null-lexenv ())
@@ -21,7 +21,8 @@
                            (funs vars blocks tags
                                  type-restrictions
                                  lambda cleanup handled-conditions
-                                 disabled-package-locks %policy user-data)))
+                                 disabled-package-locks %policy user-data
+                                 codewalking-hooks)))
   ;; an alist of (NAME . WHAT), where WHAT is either a FUNCTIONAL (a
   ;; local function), a DEFINED-FUN, representing an
   ;; INLINE/NOTINLINE declaration, or a list (MACRO . <function>) (a
@@ -174,4 +175,3 @@
          ;; everything in FUNS and VARS, so:
          `(lambda-with-lexenv ,(decls) ,(macros) ,(symbol-macros)
                               ,@(cdr lambda)))))))
-
