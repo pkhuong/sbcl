@@ -68,7 +68,9 @@
   ;; A list associating extra user info to symbols.  The entries
   ;; are of the form (:declare name . value),
   ;; (:variable name key . value), or (:function name key . value)
-  (user-data nil :type list))
+  (user-data nil :type list)
+  ;; a list (stack) of hook-state objects
+  (codewalking-hooks nil :type list))
 
 (defun lexenv-policy (lexenv)
   (or (lexenv-%policy lexenv) *policy*))
