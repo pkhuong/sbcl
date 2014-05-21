@@ -72,6 +72,12 @@
   ;; a list (stack) of hook-state objects
   (codewalking-hooks nil :type list))
 
+(def!struct (lexenv-wrapper
+             (:constructor make-lexenv-wrapper (form new-hooks &optional lexenv)))
+  form
+  (lexenv nil)
+  (new-hooks nil))
+
 (defun lexenv-policy (lexenv)
   (or (lexenv-%policy lexenv) *policy*))
 
