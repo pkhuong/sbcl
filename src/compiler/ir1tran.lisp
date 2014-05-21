@@ -541,6 +541,10 @@
           (setq trail (cdr trail)))))))
 
 ;;;; IR1-CONVERT, macroexpansion and special form dispatching
+(declaim (notinline ir1-walk-form))
+(defun ir1-walk-form (context form lexenv)
+  (declare (ignore context lexenv))
+  form)
 
 (declaim (ftype (sfunction (ctran ctran (or lvar null) t &optional t)
                            (values))
@@ -577,7 +581,12 @@
       (flet ((convert (form)
                (let* ((*current-path* (ensure-source-path (or alias form)))
                       (start (instrument-coverage start nil form)))
-                 (cond ((atom form)
+                 (cond ((lexenv-codewalking-hooks *lexenv*)
+                        (let* ((*lexenv* (make-lexenv))
+                               (hook (pop (lexenv-codewalking-hooks *lexenv*))))
+                          (ir1-convert start next result
+                                       (ir1-walk-form hook form *lexenv*))))
+                       ((atom form)
                         (cond ((and (symbolp form) (not (keywordp form)))
                                (ir1-convert-var start next result form))
                               ((leaf-p form)
