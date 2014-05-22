@@ -550,6 +550,29 @@
   (declare (ignore context lexenv))
   form)
 
+(declaim (inline maybe-walk-form))
+(defun maybe-walk-form (start next result form default
+                        &optional (lexenv *lexenv*))
+  (if (lexenv-codewalking-hooks lexenv)
+      (let* ((lexenv (make-lexenv :default lexenv))
+             (hook (pop (lexenv-codewalking-hooks lexenv)))
+             (transformed (ir1-walk-form hook form lexenv))
+             (*lexenv* lexenv))
+        (ir1-convert start next result transformed))
+      (funcall default start next result form)))
+
+(defmacro with-walk-form ((start next result form &optional (lexenv '*lexenv*))
+                          &body default)
+  (let ((_start (gensym "START"))
+        (_next (gensym "NEXT"))
+        (_result (gensym "RESULT"))
+        (_form (gensym "FORM")))
+    `(maybe-walk-form ,start ,next ,result ,form
+                      (lambda (,_start ,_next ,_result ,_form)
+                        (declare (ignore ,_start ,_next ,_result ,_form))
+                        ,@default)
+                      ,lexenv)))
+
 (declaim (ftype (sfunction (ctran ctran (or lvar null) t &optional t)
                            (values))
                 ir1-convert))
@@ -585,20 +608,21 @@
       (flet ((convert (form)
                (let* ((*current-path* (ensure-source-path (or alias form)))
                       (start (instrument-coverage start nil form)))
-                 (when (lexenv-premacro-hooks *lexenv*)
-                   (let* ((*lexenv* (make-lexenv))
-                          (hook (pop (lexenv-premacro-hooks *lexenv*)))
-                          (new-form (ir1-premacro-form hook form *lexenv*)))
-                     (unless (eql form new-form)
-                       (return-from ir1-convert (ir1-conert start next result
-                                                            new-form)))))
-                 (cond ((atom form)
+                 (cond ((lexenv-premacro-hooks *lexenv*)
+                        (let* ((*lexenv* (make-lexenv))
+                               (hook (pop (lexenv-premacro-hooks *lexenv*))))
+                          (return-from ir1-convert
+                            (ir1-convert start next result
+                                         (ir1-premacro-form hook form *lexenv*)))))
+                       ((atom form)
                         (cond ((and (symbolp form) (not (keywordp form)))
                                (ir1-convert-var start next result form))
                               ((leaf-p form)
-                               (reference-leaf start next result form))
+                               (maybe-walk-form start next result form
+                                                #'reference-leaf))
                               (t
-                               (reference-constant start next result form))))
+                               (maybe-walk-form start next result form
+                                                #'reference-constant))))
                        (t
                         (ir1-convert-functoid start next result form))))))
         (if (lexenv-wrapper-p form)
@@ -706,22 +730,23 @@
                          `(symbol-value ',name)))
         (etypecase var
           (leaf
-           (when (lambda-var-p var)
-             (let ((home (ctran-home-lambda-or-null start)))
-               (when home
-                 (sset-adjoin var (lambda-calls-or-closes home))))
-             (when (lambda-var-ignorep var)
-               ;; (ANSI's specification for the IGNORE declaration requires
-               ;; that this be a STYLE-WARNING, not a full WARNING.)
-               #-sb-xc-host
-               (compiler-style-warn "reading an ignored variable: ~S" name)
-               ;; there's no need for us to accept ANSI's lameness when
-               ;; processing our own code, though.
-               #+sb-xc-host
-               (warn "reading an ignored variable: ~S" name)))
-           (when (global-var-p var)
-             (check-deprecated-variable name))
-           (reference-leaf start next result var name))
+           (with-walk-form (start next result name)
+             (when (lambda-var-p var)
+               (let ((home (ctran-home-lambda-or-null start)))
+                 (when home
+                   (sset-adjoin var (lambda-calls-or-closes home))))
+               (when (lambda-var-ignorep var)
+                 ;; (ANSI's specification for the IGNORE declaration requires
+                 ;; that this be a STYLE-WARNING, not a full WARNING.)
+                 #-sb-xc-host
+                 (compiler-style-warn "reading an ignored variable: ~S" name)
+                 ;; there's no need for us to accept ANSI's lameness when
+                 ;; processing our own code, though.
+                 #+sb-xc-host
+                 (warn "reading an ignored variable: ~S" name)))
+             (when (global-var-p var)
+               (check-deprecated-variable name))
+             (reference-leaf start next result var name)))
           (cons
            (aver (eq (car var) 'macro))
            ;; FIXME: [Free] type declarations. -- APD, 2002-01-26
@@ -781,10 +806,11 @@
            ;; FIXME: redundant? A macro can not be defined in the first place.
            (when (sb!xc:compiler-macro-function op *lexenv*)
              (compiler-warn "ignoring compiler macro for special form"))
-           (funcall translator start next result form))
+           (maybe-walk-form start next result form translator))
           (t
            (multiple-value-bind (res cmacro-fun-name)
                (expand-compiler-macro form)
+             ;; FIXME: do we want codewalking hooks here?
              (cond ((eq res form)
                     (ir1-convert-common-functoid start next result form op))
                    (t
@@ -802,10 +828,12 @@
              (null
               (ir1-convert-global-functoid start next result form op))
              (functional
-              (ir1-convert-local-combination start next result form
-                                             lexical-def))
+              (with-walk-form (start next result form)
+                (ir1-convert-local-combination start next result form
+                                               lexical-def)))
              (global-var
-              (ir1-convert-srctran start next result lexical-def form))
+              (with-walk-form (start next result form)
+                (ir1-convert-srctran start next result lexical-def form)))
              (t
               (aver (and (consp lexical-def) (eq (car lexical-def) 'macro)))
               (ir1-convert start next result
@@ -815,7 +843,8 @@
         (t
          ;; implicitly (LAMBDA ..) because the LAMBDA expression is
          ;; the CAR of an executed form.
-         (ir1-convert start next result `(%funcall ,@form)))))
+         (with-walk-form (start next result form)
+           (ir1-convert start next result `(%funcall ,@form))))))
 
 ;;; Convert anything that looks like a global function call.
 (defun ir1-convert-global-functoid (start next result form fun)
@@ -838,9 +867,10 @@
      (unless (policy *lexenv* (zerop store-xref-data))
        (record-macroexpansion fun (ctran-block start) *current-path*)))
     ((nil :function)
-     (ir1-convert-srctran start next result
-                          (find-free-fun fun "shouldn't happen! (no-cmacro)")
-                          form))))
+     (with-walk-form (start next result form)
+       (ir1-convert-srctran start next result
+                            (find-free-fun fun "shouldn't happen! (no-cmacro)")
+                            form)))))
 
 (defun muffle-warning-or-die ()
   (muffle-warning)
