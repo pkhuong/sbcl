@@ -551,23 +551,24 @@
   form)
 
 (declaim (inline maybe-walk-form))
-(defun maybe-walk-form (start next result form default
+(defun maybe-walk-form (start next result form context default
                         &optional (lexenv *lexenv*))
   (if (lexenv-codewalking-hooks lexenv)
       (let* ((lexenv (make-lexenv :default lexenv))
              (hook (pop (lexenv-codewalking-hooks lexenv)))
-             (transformed (ir1-walk-form hook form lexenv))
+             (transformed (ir1-walk-form hook context form lexenv))
              (*lexenv* lexenv))
         (ir1-convert start next result transformed))
       (funcall default start next result form)))
 
-(defmacro with-walk-form ((start next result form &optional (lexenv '*lexenv*))
+(defmacro with-walk-form ((start next result form context
+                           &optional (lexenv '*lexenv*))
                           &body default)
   (let ((_start (gensym "START"))
         (_next (gensym "NEXT"))
         (_result (gensym "RESULT"))
         (_form (gensym "FORM")))
-    `(maybe-walk-form ,start ,next ,result ,form
+    `(maybe-walk-form ,start ,next ,result ,form ,context
                       (lambda (,_start ,_next ,_result ,_form)
                         (declare (ignore ,_start ,_next ,_result ,_form))
                         ,@default)
@@ -618,10 +619,10 @@
                         (cond ((and (symbolp form) (not (keywordp form)))
                                (ir1-convert-var start next result form))
                               ((leaf-p form)
-                               (maybe-walk-form start next result form
+                               (maybe-walk-form start next result form :leaf
                                                 #'reference-leaf))
                               (t
-                               (maybe-walk-form start next result form
+                               (maybe-walk-form start next result form :literal
                                                 #'reference-constant))))
                        (t
                         (ir1-convert-functoid start next result form))))))
@@ -724,13 +725,24 @@
         ;; which is not flushable, so that unbound dead variables signal an
         ;; error (bug 412, lp#722734): checking for null RESULT is not enough,
         ;; since variables can become dead due to later optimizations.
-        (ir1-convert start next result
-                     (if (eq (global-var-kind var) :global)
-                         `(symbol-global-value ',name)
-                         `(symbol-value ',name)))
+        (with-walk-form (start next result name
+                         (if (eq (global-var-kind var) :global)
+                             :global
+                             :special))
+          (ir1-convert start next result
+                       (if (eq (global-var-kind var) :global)
+                           `(symbol-global-value ',name)
+                           `(symbol-value ',name))))
         (etypecase var
           (leaf
-           (with-walk-form (start next result name)
+           (with-walk-form (start next result name
+                            (cond ((lambda-var-p var)
+                                   :lexical)
+                                  ((global-var-p var)
+                                   (if (eq (global-var-kind var) :global)
+                                       :global
+                                       :special))
+                                  (t :variable)))
              (when (lambda-var-p var)
                (let ((home (ctran-home-lambda-or-null start)))
                  (when home
@@ -806,7 +818,7 @@
            ;; FIXME: redundant? A macro can not be defined in the first place.
            (when (sb!xc:compiler-macro-function op *lexenv*)
              (compiler-warn "ignoring compiler macro for special form"))
-           (maybe-walk-form start next result form translator))
+           (maybe-walk-form start next result form :operator translator))
           (t
            (multiple-value-bind (res cmacro-fun-name)
                (expand-compiler-macro form)
@@ -828,11 +840,11 @@
              (null
               (ir1-convert-global-functoid start next result form op))
              (functional
-              (with-walk-form (start next result form)
+              (with-walk-form (start next result form :local)
                 (ir1-convert-local-combination start next result form
                                                lexical-def)))
              (global-var
-              (with-walk-form (start next result form)
+              (with-walk-form (start next result form :defun)
                 (ir1-convert-srctran start next result lexical-def form)))
              (t
               (aver (and (consp lexical-def) (eq (car lexical-def) 'macro)))
@@ -843,7 +855,7 @@
         (t
          ;; implicitly (LAMBDA ..) because the LAMBDA expression is
          ;; the CAR of an executed form.
-         (with-walk-form (start next result form)
+         (with-walk-form (start next result form :lambda)
            (ir1-convert start next result `(%funcall ,@form))))))
 
 ;;; Convert anything that looks like a global function call.
@@ -867,7 +879,7 @@
      (unless (policy *lexenv* (zerop store-xref-data))
        (record-macroexpansion fun (ctran-block start) *current-path*)))
     ((nil :function)
-     (with-walk-form (start next result form)
+     (with-walk-form (start next result form :defun)
        (ir1-convert-srctran start next result
                             (find-free-fun fun "shouldn't happen! (no-cmacro)")
                             form)))))
