@@ -541,7 +541,11 @@
           (setq trail (cdr trail)))))))
 
 ;;;; IR1-CONVERT, macroexpansion and special form dispatching
-(declaim (notinline ir1-walk-form))
+(declaim (notinline ir1-premacro-form ir1-walk-form))
+(defun ir1-premacro-form (context form lexenv)
+  (declare (ignore context lexenv))
+  form)
+
 (defun ir1-walk-form (context form lexenv)
   (declare (ignore context lexenv))
   form)
@@ -581,12 +585,14 @@
       (flet ((convert (form)
                (let* ((*current-path* (ensure-source-path (or alias form)))
                       (start (instrument-coverage start nil form)))
-                 (cond ((lexenv-codewalking-hooks *lexenv*)
-                        (let* ((*lexenv* (make-lexenv))
-                               (hook (pop (lexenv-codewalking-hooks *lexenv*))))
-                          (ir1-convert start next result
-                                       (ir1-walk-form hook form *lexenv*))))
-                       ((atom form)
+                 (when (lexenv-premacro-hooks *lexenv*)
+                   (let* ((*lexenv* (make-lexenv))
+                          (hook (pop (lexenv-premacro-hooks *lexenv*)))
+                          (new-form (ir1-premacro-form hook form *lexenv*)))
+                     (unless (eql form new-form)
+                       (return-from ir1-convert (ir1-conert start next result
+                                                            new-form)))))
+                 (cond ((atom form)
                         (cond ((and (symbolp form) (not (keywordp form)))
                                (ir1-convert-var start next result form))
                               ((leaf-p form)
@@ -596,9 +602,11 @@
                        (t
                         (ir1-convert-functoid start next result form))))))
         (if (lexenv-wrapper-p form)
-            (let ((*lexenv* (make-lexenv :default (or (lexenv-wrapper-lexenv form)
-                                                      *lexenv*)
-                                         :hooks (lexenv-wrapper-new-hooks form))))
+            (let ((*lexenv* (make-lexenv
+                             :default (or (lexenv-wrapper-lexenv form)
+                                          *lexenv*)
+                             :codewalking-hooks (lexenv-wrapper-codewalking-hooks form)
+                             :premacro-hooks (lexenv-wrapper-premacro-hooks form))))
               (convert (lexenv-wrapper-form form)))
             (convert form))))
     (values))
