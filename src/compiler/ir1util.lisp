@@ -904,7 +904,7 @@
                           (lexenv-disabled-package-locks default))
                          (policy (lexenv-policy default))
                          (user-data (lexenv-user-data default))
-                         hooks)
+                         codewalking-hooks premacro-hooks)
   (macrolet ((frob (var slot)
                `(let ((old (,slot default)))
                   (if ,var
@@ -920,7 +920,8 @@
      cleanup handled-conditions disabled-package-locks
      policy
      user-data
-     (frob hooks lexenv-codewalking-hooks))))
+     (frob codewalking-hooks lexenv-codewalking-hooks)
+     (frob premacro-hooks lexenv-premacro-hooks))))
 
 ;;; Makes a LEXENV, suitable for using in a MACROLET introduced
 ;;; macroexpander
@@ -956,7 +957,7 @@
      (lexenv-disabled-package-locks lexenv)
      (lexenv-policy lexenv)
      (lexenv-user-data lexenv)
-     nil)))
+     nil nil)))
 
 ;;;; flow/DFO/component hackery
 

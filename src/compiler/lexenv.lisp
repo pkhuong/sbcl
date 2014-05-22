@@ -22,7 +22,7 @@
                                  type-restrictions
                                  lambda cleanup handled-conditions
                                  disabled-package-locks %policy user-data
-                                 codewalking-hooks)))
+                                 codewalking-hooks premacro-hooks)))
   ;; an alist of (NAME . WHAT), where WHAT is either a FUNCTIONAL (a
   ;; local function), a DEFINED-FUN, representing an
   ;; INLINE/NOTINLINE declaration, or a list (MACRO . <function>) (a
@@ -71,13 +71,15 @@
   ;; (:variable name key . value), or (:function name key . value)
   (user-data nil :type list)
   ;; a list (stack) of hook-state objects
-  (codewalking-hooks nil :type list))
+  (codewalking-hooks nil :type list)
+  (premacro-hooks nil :type list))
 
 (def!struct (lexenv-wrapper
-             (:constructor make-lexenv-wrapper (form new-hooks &optional lexenv)))
+             (:constructor make-lexenv-wrapper (form &key codewalking-hooks premacro-hooks lexenv)))
   form
   (lexenv nil)
-  (new-hooks nil))
+  (codewalking-hooks nil)
+  (premacro-hooks nil))
 
 (defun lexenv-policy (lexenv)
   (or (lexenv-%policy lexenv) *policy*))

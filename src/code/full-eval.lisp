@@ -106,7 +106,7 @@
                    (sb!c::lexenv-disabled-package-locks old-lexenv)
                    (sb!c::lexenv-policy old-lexenv)
                    (sb!c::lexenv-user-data old-lexenv)
-                   nil)))
+                   nil nil)))
       (dolist (declaration declarations)
         (unless (consp declaration)
           (ip-error "malformed declaration specifier ~S in ~S"
