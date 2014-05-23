@@ -21,35 +21,40 @@
 
 (defvar sb-cwalk:*parent-lexenv* nil)
 
+(def!struct (sb-cwalk:wrapper
+             (:include sb-c::lexenv-wrapper)
+             (:predicate sb-cwalk:wrapper-p)
+             (:make-load-form-fun just-dump-it-normally)))
+
 (defun sb-cwalk:wrap (form &key
                              (code-hook sb-cwalk:*current-code-hook*)
                              (macro-hook sb-cwalk:*current-macro-hook*)
                              (lexenv sb-cwalk:*parent-lexenv*))
-  (sb-c::make-lexenv-wrapper form
-                             :codewalking-hooks (if (listp code-hook)
-                                                    code-hook
-                                                    (list code-hook))
-                             :premacro-hooks (if (listp macro-hook)
-                                                 macro-hook
-                                                 (list macro-hook))
-                             :lexenv (or lexenv (make-null-lexenv))))
+  (make-wrapper :form form
+                :codewalking-hooks (if (listp code-hook)
+                                       code-hook
+                                       (list code-hook))
+                :premacro-hooks (if (listp macro-hook)
+                                    macro-hook
+                                    (list macro-hook))
+                :lexenv lexenv))
 
 (defclass sb-cwalk:macro (standard-object)
   ())
 
 (defmethod sb-cwalk:macro :around ((hook sb-cwalk:macro) form lexenv)
-  (declare (ignore form))
-  (let ((sb-cwalk:*parent-lexenv* lexenv)
-        (sb-cwalk:*current-code-hook* nil)
-        (sb-cwalk:*current-macro-hook* hook))
+  (declare (ignore form lexenv))
+  (let ((sb-cwalk:*current-code-hook* nil)
+        (sb-cwalk:*current-macro-hook* hook)
+        (sb-cwalk:*parent-lexenv* nil))
     (call-next-method)))
 
 (defclass sb-cwalk:code (standard-object)
   ())
 
 (defmethod sb-cwalk:code :around ((hook sb-cwalk:code) reason form lexenv)
-  (declare (ignore reason form))
-  (let ((sb-cwalk:*parent-lexenv* lexenv)
-        (sb-cwalk:*current-code-hook* hook)
-        (sb-cwalk:*current-macro-hook* nil))
+  (declare (ignore reason form lexenv))
+  (let ((sb-cwalk:*current-code-hook* hook)
+        (sb-cwalk:*current-macro-hook* nil)
+        (sb-cwalk:*parent-lexenv* nil))
     (call-next-method)))
