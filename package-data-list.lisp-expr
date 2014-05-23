@@ -400,7 +400,7 @@ of SBCL which maintained the CMU-CL-style split into two packages.)"
       :doc "semi-public: also implements something which might eventually
 be submitted as a CDR"
       :use ()
-      :export ("CODE" "MACRO" "WRAP" "WRAPPER"
+      :export ("CODE" "MACRO" "WRAP" "WRAPPER" "WRAPPER-P"
                "*CURRENT-CODE-HOOK*" "*CURRENT-MACRO-HOOK*"
                "*PARENT-LEXENV*"))
 
