@@ -151,6 +151,9 @@
                 ;; CLOS-level support for User-extensible sequences.
                 "SRC;PCL;SEQUENCE"
 
+                ;; CLOS-level support for composable codewalking.
+                "SRC;PCL;CWALK"
+
                 ;; other functionality not needed for cold init, moved
                 ;; to warm init to reduce peak memory requirement in
                 ;; cold init
