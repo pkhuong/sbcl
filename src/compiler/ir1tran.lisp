@@ -851,7 +851,8 @@
               (ir1-convert start next result
                            (careful-expand-macro (cdr lexical-def) form))))))
         ((or (atom op) (not (eq (car op) 'lambda)))
-         (compiler-error "illegal function call"))
+         (with-walk-form (start next result form :unknown)
+           (compiler-error "illegal function call")))
         (t
          ;; implicitly (LAMBDA ..) because the LAMBDA expression is
          ;; the CAR of an executed form.
