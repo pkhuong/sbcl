@@ -395,6 +395,15 @@ of SBCL which maintained the CMU-CL-style split into two packages.)"
 
                "BRANCH-IF"))
 
+      #s(sb-cold:package-data
+      :name "SB!CWALK"
+      :doc "semi-public: also implements something which might eventually
+be submitted as a CDR"
+      :use ()
+      :export ("CODE" "MACRO" "WRAP"
+               "*CURRENT-CODE-HOOK*" "*CURRENT-MACRO-HOOK*"
+               "*PARENT-LEXENV*"))
+
    #s(sb-cold:package-data
       :name "SB!DEBUG"
       :doc

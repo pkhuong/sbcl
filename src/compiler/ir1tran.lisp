@@ -541,34 +541,34 @@
           (setq trail (cdr trail)))))))
 
 ;;;; IR1-CONVERT, macroexpansion and special form dispatching
-(declaim (notinline ir1-premacro-form ir1-walk-form))
-(defun ir1-premacro-form (context form lexenv)
-  (declare (ignore context lexenv))
+(declaim (notinline sb!cwalk:macro sb!cwalk:code))
+(defun sb!cwalk:macro (hook form lexenv)
+  (declare (ignore hook lexenv))
   form)
 
-(defun ir1-walk-form (context form lexenv)
-  (declare (ignore context lexenv))
+(defun sb!cwalk:code (hook reason form lexenv)
+  (declare (ignore hook reason lexenv))
   form)
 
 (declaim (inline maybe-walk-form))
-(defun maybe-walk-form (start next result form context default
+(defun maybe-walk-form (start next result form reason default
                         &optional (lexenv *lexenv*))
   (if (lexenv-codewalking-hooks lexenv)
       (let* ((lexenv (make-lexenv :default lexenv))
              (hook (pop (lexenv-codewalking-hooks lexenv)))
-             (transformed (ir1-walk-form hook context form lexenv))
+             (transformed (sb!cwalk:code hook reason form lexenv))
              (*lexenv* lexenv))
         (ir1-convert start next result transformed))
       (funcall default start next result form)))
 
-(defmacro with-walk-form ((start next result form context
+(defmacro with-walk-form ((start next result form reason
                            &optional (lexenv '*lexenv*))
                           &body default)
   (let ((_start (gensym "START"))
         (_next (gensym "NEXT"))
         (_result (gensym "RESULT"))
         (_form (gensym "FORM")))
-    `(maybe-walk-form ,start ,next ,result ,form ,context
+    `(maybe-walk-form ,start ,next ,result ,form ,reason
                       (lambda (,_start ,_next ,_result ,_form)
                         (declare (ignore ,_start ,_next ,_result ,_form))
                         ,@default)
@@ -614,7 +614,7 @@
                                (hook (pop (lexenv-premacro-hooks *lexenv*))))
                           (return-from ir1-convert
                             (ir1-convert start next result
-                                         (ir1-premacro-form hook form *lexenv*)))))
+                                         (sb!cwalk:macro hook form *lexenv*)))))
                        ((atom form)
                         (cond ((and (symbolp form) (not (keywordp form)))
                                (ir1-convert-var start next result form))
