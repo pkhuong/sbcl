@@ -627,12 +627,17 @@
                        (t
                         (ir1-convert-functoid start next result form))))))
         (if (lexenv-wrapper-p form)
-            (let ((*lexenv* (make-lexenv
-                             :default (or (lexenv-wrapper-lexenv form)
-                                          *lexenv*)
-                             :codewalking-hooks (lexenv-wrapper-codewalking-hooks form)
-                             :premacro-hooks (lexenv-wrapper-premacro-hooks form))))
-              (convert (lexenv-wrapper-form form)))
+            (let ((lexenv *lexenv*)
+                  (form form))
+              (loop while (lexenv-wrapper-p form)
+                    do (setf lexenv (make-lexenv
+                                      :default (or (lexenv-wrapper-lexenv form)
+                                                   lexenv)
+                                      :codewalking-hooks (lexenv-wrapper-codewalking-hooks form)
+                                      :premacro-hooks (lexenv-wrapper-premacro-hooks form))
+                             form (lexenv-wrapper-form form)))
+              (let ((*lexenv* lexenv))
+                (convert form)))
             (convert form))))
     (values))
 
