@@ -74,8 +74,12 @@
   (codewalking-hooks nil :type list)
   (premacro-hooks nil :type list))
 
-(def!struct (lexenv-wrapper
-             (:constructor make-lexenv-wrapper (form &key codewalking-hooks premacro-hooks lexenv)))
+(def!struct (sb!cwalk:wrapper
+             (:predicate sb!cwalk:wrapper-p)
+             (:conc-name #:lexenv-wrapper-)
+             (:constructor sb!cwalk:make-wrapper
+                 (form &key codewalking-hooks premacro-hooks lexenv))
+             (:make-load-form-fun just-dump-it-normally))
   form
   (lexenv nil)
   (codewalking-hooks nil)

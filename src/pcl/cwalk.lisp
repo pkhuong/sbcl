@@ -21,23 +21,18 @@
 
 (defvar sb-cwalk:*parent-lexenv* nil)
 
-(def!struct (sb-cwalk:wrapper
-             (:include sb-c::lexenv-wrapper)
-             (:predicate sb-cwalk:wrapper-p)
-             (:make-load-form-fun just-dump-it-normally)))
-
 (defun sb-cwalk:wrap (form &key
                              (code-hook sb-cwalk:*current-code-hook*)
                              (macro-hook sb-cwalk:*current-macro-hook*)
                              (lexenv sb-cwalk:*parent-lexenv*))
-  (make-wrapper :form form
-                :codewalking-hooks (if (listp code-hook)
-                                       code-hook
-                                       (list code-hook))
-                :premacro-hooks (if (listp macro-hook)
-                                    macro-hook
-                                    (list macro-hook))
-                :lexenv lexenv))
+  (sb-cwalk:make-wrapper form
+                         :codewalking-hooks (if (listp code-hook)
+                                                code-hook
+                                                (list code-hook))
+                         :premacro-hooks (if (listp macro-hook)
+                                             macro-hook
+                                             (list macro-hook))
+                         :lexenv lexenv))
 
 (defclass sb-cwalk:macro (standard-object)
   ())

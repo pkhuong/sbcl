@@ -178,7 +178,7 @@ extent of the block."
       (loop
        (let ((next-segment (member-if (lambda (x)
                                         (and (atom x)
-                                             (not (lexenv-wrapper-p x))))
+                                             (not (sb!cwalk:wrapper-p x))))
                                       current)))
          (unless next-segment
            (segments `(,@current nil))

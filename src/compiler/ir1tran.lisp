@@ -626,10 +626,10 @@
                                                 #'reference-constant))))
                        (t
                         (ir1-convert-functoid start next result form))))))
-        (if (lexenv-wrapper-p form)
+        (if (sb!cwalk:wrapper-p form)
             (let ((lexenv *lexenv*)
                   (form form))
-              (loop while (lexenv-wrapper-p form)
+              (loop while (sb!cwalk:wrapper-p form)
                     do (setf lexenv (make-lexenv
                                       :default (or (lexenv-wrapper-lexenv form)
                                                    lexenv)
