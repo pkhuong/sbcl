@@ -176,7 +176,10 @@ extent of the block."
             (segments))
     (let ((current body))
       (loop
-       (let ((next-segment (member-if #'atom current)))
+       (let ((next-segment (member-if (lambda (x)
+                                        (and (atom x)
+                                             (not (lexenv-wrapper-p x))))
+                                      current)))
          (unless next-segment
            (segments `(,@current nil))
            (return))
