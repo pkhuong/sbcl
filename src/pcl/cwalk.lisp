@@ -8,6 +8,11 @@
 ;;;; more information.
 
 (in-package "SB-IMPL")
+#.(export 'sb-cwalk::(*current-code-hook* *current-macro-hook* *parent-lexenv* wrap wrapper)
+          "SB-CWALK")
+
+(export 'sb-cwalk::(*current-code-hook* *current-macro-hook* *parent-lexenv* wrap wrapper)
+        "SB-CWALK")
 
 (fmakunbound 'sb-cwalk:macro)
 (defgeneric sb-cwalk:macro (hook form lexenv))
